@@ -1,0 +1,21 @@
+{
+    "type": "investment_memo",
+    "examples": [
+        {
+            "input": "Analyze Tesla as an investment opportunity",
+            "output": {
+                "title": "Investment Memo: Tesla Inc.",
+                "executive_summary": "Tesla presents a compelling but high-risk investment opportunity driven by its dominant EV market position and energy business potential, offset by valuation concerns and competitive pressures.",
+                "sections": ["Company Overview", "Market Position", "Financial Analysis", "Risk Assessment", "Investment Thesis"]
+            }
+        },
+        {
+            "input": "Evaluate Microsoft's cloud business",
+            "output": {
+                "title": "Investment Memo: Microsoft Azure & Cloud Division",
+                "executive_summary": "Microsoft's Intelligent Cloud segment represents a strong growth engine with sustainable competitive advantages in enterprise cloud, supported by AI integration and hybrid cloud leadership.",
+                "sections": ["Business Overview", "Azure Market Analysis", "Competitive Positioning", "Financial Projections", "Valuation & Recommendation"]
+            }
+        }
+    ]
+}

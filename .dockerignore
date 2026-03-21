@@ -1,0 +1,17 @@
+.uv-cache
+backend/.pytest-temp
+**/.pytest-temp
+.venv
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.ruff_cache
+.mypy_cache
+node_modules
+frontend/.next
+frontend/out
+.git
+.env.local
+outputs
+*.log

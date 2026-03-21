@@ -1,0 +1,13 @@
+{
+    "type": "market_analysis",
+    "examples": [
+        {
+            "input": "Analyze the global AI chip market",
+            "output": {
+                "title": "Global AI Chip Market Analysis 2024-2030",
+                "executive_summary": "The AI chip market is projected to grow from $30B to $150B by 2030, driven by generative AI demand, with NVIDIA maintaining dominance while custom silicon gains traction.",
+                "sections": ["Market Overview", "Competitive Landscape", "Technology Trends", "Growth Drivers", "Market Sizing & Forecast"]
+            }
+        }
+    ]
+}

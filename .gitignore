@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+*.egg
+.venv/
+venv/
+env/
+.mypy_cache/
+.pytest_cache/
+.pytest-temp/
+.ruff_cache/
+*.db
+
+# Node
+node_modules/
+.next/
+out/
+.turbo/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.codex/
+.cursorrules
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Data
+*.jsonl
+!prompt_library/knowledge_base/performance_log.jsonl
+
+# Generated artifacts
+.test-artifacts/
+backend/.test-artifacts/
+frontend/test-results/
+frontend/tsconfig.tsbuildinfo
+outputs/
+.tmp-report-request.json
+~$*

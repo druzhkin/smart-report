@@ -1,0 +1,28 @@
+ragflow:
+  host: 0.0.0.0
+  http_port: 9380
+admin:
+  host: 0.0.0.0
+  http_port: 9381
+mysql:
+  name: 'rag_flow'
+  user: 'root'
+  password: '${MYSQL_PASSWORD:-infini_rag_flow}'
+  host: 'ragflow_mysql'
+  port: 3306
+  max_connections: 900
+  stale_timeout: 300
+  max_allowed_packet: 1073741824
+minio:
+  user: '${MINIO_USER:-rag_flow}'
+  password: '${MINIO_PASSWORD:-infini_rag_flow}'
+  host: 'ragflow_minio:9000'
+es:
+  hosts: 'http://ragflow_es:9200'
+  username: 'elastic'
+  password: '${ELASTIC_PASSWORD:-infini_rag_flow}'
+redis:
+  db: 1
+  username: ''
+  password: '${RAGFLOW_REDIS_PASSWORD:-infini_rag_flow}'
+  host: 'ragflow_redis:6379'

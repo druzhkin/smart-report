@@ -1,0 +1,24 @@
+{
+    "templates": {
+        "investment_memo": {
+            "sections": ["Executive Summary", "Company Overview", "Market Analysis", "Financial Analysis", "Risk Assessment", "Investment Thesis", "Recommendation"],
+            "typical_length": "15-25 pages",
+            "key_metrics": ["Revenue growth", "EBITDA margin", "Market share", "TAM/SAM/SOM"]
+        },
+        "market_analysis": {
+            "sections": ["Executive Summary", "Market Overview", "Competitive Landscape", "Trends & Drivers", "Market Sizing", "Opportunities & Threats", "Strategic Recommendations"],
+            "typical_length": "20-30 pages",
+            "key_metrics": ["Market size", "Growth rate", "Market share", "Entry barriers"]
+        },
+        "due_diligence": {
+            "sections": ["Executive Summary", "Business Model", "Financial Review", "Legal Review", "Technology Assessment", "Management Team", "Risk Factors", "Valuation"],
+            "typical_length": "30-50 pages",
+            "key_metrics": ["Revenue", "Profitability", "Cash flow", "Debt ratios"]
+        },
+        "strategic_review": {
+            "sections": ["Executive Summary", "Current State", "Strategic Options", "Scenario Analysis", "Implementation Roadmap", "Resource Requirements", "Recommendations"],
+            "typical_length": "15-20 pages",
+            "key_metrics": ["ROI", "Timeline", "Resource needs", "Risk level"]
+        }
+    }
+}

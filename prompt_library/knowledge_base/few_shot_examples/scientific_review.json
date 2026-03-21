@@ -1,0 +1,13 @@
+{
+    "type": "scientific_review",
+    "examples": [
+        {
+            "input": "Review recent advances in CRISPR gene therapy",
+            "output": {
+                "title": "CRISPR Gene Therapy: Recent Advances and Clinical Applications",
+                "executive_summary": "CRISPR-based therapies have moved from laboratory to clinic, with FDA-approved treatments for sickle cell disease marking a watershed moment, while next-generation base and prime editing expand therapeutic possibilities.",
+                "sections": ["Technology Overview", "Clinical Trials Landscape", "Regulatory Progress", "Competitive Technologies", "Future Outlook"]
+            }
+        }
+    ]
+}
