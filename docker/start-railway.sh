@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/sh
 set -eu
 
 mkdir -p "${OUTPUTS_DIR:-/data/outputs}"
@@ -16,4 +16,16 @@ cd /app/frontend-runtime
 node server.js &
 FRONTEND_PID=$!
 
-wait -n "$BACKEND_PID" "$FRONTEND_PID"
+while :; do
+  if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
+    wait "$BACKEND_PID"
+    exit 1
+  fi
+
+  if ! kill -0 "$FRONTEND_PID" 2>/dev/null; then
+    wait "$FRONTEND_PID"
+    exit 1
+  fi
+
+  sleep 2
+done

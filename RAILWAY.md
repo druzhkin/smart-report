@@ -16,6 +16,7 @@ The root Docker image starts:
 - Next.js frontend on public Railway port `${PORT}`
 
 The frontend talks to the backend over `http://127.0.0.1:8000`, so no second Railway app service is required.
+The container also forces `HOSTNAME=0.0.0.0` so the Next.js standalone server is reachable by Railway.
 
 ## Required Railway services
 

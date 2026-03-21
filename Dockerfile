@@ -41,6 +41,7 @@ COPY --from=frontend-builder /app/frontend/public ./frontend-runtime/public
 ENV PYTHONUNBUFFERED=1
 ENV PORT=3000
 ENV BACKEND_PORT=8000
+ENV HOSTNAME=0.0.0.0
 ENV BACKEND_URL=http://127.0.0.1:8000
 ENV OUTPUTS_DIR=/data/outputs
 ENV ENABLE_APO_SCHEDULER=false
