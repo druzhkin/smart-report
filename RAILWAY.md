@@ -1,79 +1,63 @@
 # Railway Deployment
 
-This repo is ready to run on Railway as two app services plus managed data services:
+This repo is now prepared for the simplest Railway flow:
 
-- `backend` - FastAPI / LangGraph API
-- `frontend` - Next.js app
-- Railway Postgres
-- Railway Redis
+- one Railway app service from the repo root
+- one Railway Postgres service
+- one Railway Redis service
 
-RAGFlow is optional and is not recommended for the first Railway deploy. Leave it disabled unless you plan to host it separately.
+Railway will detect the root [Dockerfile](C:\Users\rodina-adm\Documents\dev\smart-report\Dockerfile) automatically, so you do not need to configure a start command in Railpack.
 
-## Services
+## What runs inside the container
 
-Create two services from the same GitHub repo.
+The root Docker image starts:
 
-### Backend service
+- FastAPI backend on internal port `8000`
+- Next.js frontend on public Railway port `${PORT}`
 
-Use:
+The frontend talks to the backend over `http://127.0.0.1:8000`, so no second Railway app service is required.
 
-- Dockerfile path: `Dockerfile.railway.backend`
-- Public domain: enabled
-- Healthcheck path: `/api/healthz`
+## Required Railway services
 
-Recommended variables:
+Create:
+
+- app service from this GitHub repo
+- Postgres
+- Redis
+
+## Required variables
+
+Set these on the app service:
 
 ```env
-OPENROUTER_API_KEY=...
-PERPLEXITY_API_KEY=...
-DEEPGRAM_API_KEY=...
 POSTGRES_URL=${{Postgres.DATABASE_URL}}
 REDIS_URL=${{Redis.REDIS_URL}}
+OPENROUTER_API_KEY=...
+PERPLEXITY_API_KEY=...
 OUTPUTS_DIR=/data/outputs
 ENABLE_APO_SCHEDULER=false
+BACKEND_PORT=8000
+```
+
+Optional:
+
+```env
+DEEPGRAM_API_KEY=...
+GAMMA_API_KEY=...
+NEXT_PUBLIC_VAPID_KEY=...
+VAPID_PRIVATE_KEY=...
 RAGFLOW_API_KEY=
 RAGFLOW_BASE_URL=
 RAGFLOW_REPORTS_DATASET_ID=
 RAGFLOW_FACTS_DATASET_ID=
 ```
 
-Attach a Railway volume and mount it at `/data` if you want generated files (`pdf`, `docx`, `pptx`, charts) to survive redeploys.
+## Volume
 
-### Frontend service
+Attach a Railway volume to the app service and mount it at `/data`.
 
-Use:
+That keeps generated reports and charts across redeploys.
 
-- Dockerfile path: `Dockerfile.railway.frontend`
-- Public domain: enabled
+## Why the previous deploy failed
 
-Recommended variables:
-
-```env
-BACKEND_URL=http://${{backend.RAILWAY_PRIVATE_DOMAIN}}
-```
-
-If you prefer calling the public backend domain instead of the private network, set `BACKEND_URL` to your backend HTTPS URL.
-
-## Notes
-
-- Backend now accepts both `POSTGRES_URL` and Railway-style `DATABASE_URL`.
-- Backend Docker healthcheck uses `/api/healthz`, which is intentionally lightweight and does not depend on OpenRouter, Perplexity, or RAGFlow.
-- The main API health endpoint `/api/health` still reports upstream dependency status for diagnostics.
-- The frontend build blocker caused by `LayoutPresentation` has been fixed, so the Next.js service can build on Railway.
-
-## First deploy checklist
-
-1. Create `backend` service from this repo and point it to `Dockerfile.railway.backend`.
-2. Add Railway Postgres and Railway Redis.
-3. Wire backend env vars.
-4. Add a volume to backend at `/data`.
-5. Create `frontend` service from this repo and point it to `Dockerfile.railway.frontend`.
-6. Set `BACKEND_URL` on frontend to `http://${{backend.RAILWAY_PRIVATE_DOMAIN}}`.
-7. Generate a public domain for frontend.
-
-## Optional production tightening
-
-- Set `DEV_MODE=false`
-- Keep `ENABLE_APO_SCHEDULER=false`
-- Add `NEXT_PUBLIC_VAPID_KEY` and `VAPID_PRIVATE_KEY` only if you want web push
-- Add `GAMMA_API_KEY` only if you want PPTX generation through Gamma
+Railway was trying to build the repo with Railpack as a plain Python app from the root, and the repo had no root start command. With the new root Dockerfile, Railway no longer needs to guess how to start the project.

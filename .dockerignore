@@ -12,6 +12,7 @@ node_modules
 frontend/.next
 frontend/out
 .git
+.env
 .env.local
 outputs
 *.log
