@@ -46,6 +46,12 @@ class Settings(BaseSettings):
     budget_exhaustive: float = 15.00
     max_budget_usd: float = 5.00
 
+    # Public site pricing (USD)
+    public_price_light: float = 0.50
+    public_price_standard: float = 2.00
+    public_price_deep: float = 5.00
+    public_price_exhaustive: float = 15.00
+
     # Presentation
     presenton_url: str = "http://localhost:5000"
 

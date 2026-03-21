@@ -24,6 +24,13 @@ BUDGET_FIELDS = {
     "exhaustive": "budget_exhaustive",
 }
 
+PRICING_FIELDS = {
+    "light": "public_price_light",
+    "standard": "public_price_standard",
+    "deep": "public_price_deep",
+    "exhaustive": "public_price_exhaustive",
+}
+
 
 class SaveKeyRequest(BaseModel):
     key_name: str
@@ -31,6 +38,13 @@ class SaveKeyRequest(BaseModel):
 
 
 class SaveBudgetRequest(BaseModel):
+    light: float
+    standard: float
+    deep: float
+    exhaustive: float
+
+
+class SavePricingRequest(BaseModel):
     light: float
     standard: float
     deep: float
@@ -96,6 +110,29 @@ async def save_budget(request: SaveBudgetRequest) -> dict:
     for name, value in payload.items():
         env_name = f"BUDGET_{name.upper()}"
         field_name = BUDGET_FIELDS[name]
+        _write_env_var(env_name, str(value))
+        setattr(settings, field_name, float(value))
+
+    return {"status": "ok", **payload}
+
+
+@router.get("/settings/pricing")
+async def get_public_pricing_settings() -> dict[str, float]:
+    return {
+        "light": settings.public_price_light,
+        "standard": settings.public_price_standard,
+        "deep": settings.public_price_deep,
+        "exhaustive": settings.public_price_exhaustive,
+    }
+
+
+@router.post("/settings/pricing")
+async def save_public_pricing(request: SavePricingRequest) -> dict:
+    payload = request.model_dump()
+
+    for name, value in payload.items():
+        env_name = f"PUBLIC_PRICE_{name.upper()}"
+        field_name = PRICING_FIELDS[name]
         _write_env_var(env_name, str(value))
         setattr(settings, field_name, float(value))
 

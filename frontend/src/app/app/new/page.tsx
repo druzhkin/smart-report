@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -19,9 +19,9 @@ import { VoiceInput } from "@/components/VoiceInput";
 import { ClarifyingQuestions } from "@/components/ClarifyingQuestions";
 import { ReportProgress } from "@/components/ReportProgress";
 import { CostTracker } from "@/components/CostTracker";
-import { createReport } from "@/lib/api";
+import { createReport, getReportPricing, type PricingTier } from "@/lib/api";
 import { useSSE } from "@/hooks/useSSE";
-import { cn } from "@/lib/utils";
+import { cn, formatCost } from "@/lib/utils";
 
 type Depth = "light" | "standard" | "deep" | "exhaustive";
 
@@ -61,8 +61,20 @@ export default function NewReportPage() {
   const [formats, setFormats] = useState<string[]>(["pdf", "docx"]);
   const [loading, setLoading] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [pricing, setPricing] = useState<PricingTier[]>([]);
 
   const sse = useSSE(sessionId);
+
+  useEffect(() => {
+    getReportPricing()
+      .then(setPricing)
+      .catch((error) => console.error("Failed to load pricing", error));
+  }, []);
+
+  const selectedTier = useMemo(
+    () => pricing.find((tier) => tier.depth === depth),
+    [depth, pricing]
+  );
 
   const handleVoiceTranscript = useCallback((text: string) => {
     setQuery((prev) => (prev ? `${prev} ${text}` : text));
@@ -193,6 +205,30 @@ export default function NewReportPage() {
               </div>
             </div>
 
+            {selectedTier && (
+              <Card className="border-primary/20 bg-primary/5">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">
+                    {selectedTier.label} plan
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="flex flex-col gap-3 text-sm sm:flex-row sm:items-end sm:justify-between">
+                  <div>
+                    <p className="text-2xl font-semibold tracking-tight">
+                      {formatCost(selectedTier.public_price_usd)}
+                    </p>
+                    <p className="mt-1 text-muted-foreground">
+                      {selectedTier.description}
+                    </p>
+                  </div>
+                  <div className="text-muted-foreground sm:text-right">
+                    <p>Estimated runtime: ~{selectedTier.estimated_time_minutes} min</p>
+                    <p>Depth selected before launch, so price is known upfront.</p>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             {/* Output formats */}
             <div className="space-y-3">
               <label className="text-sm font-medium">Output Formats</label>
@@ -218,7 +254,7 @@ export default function NewReportPage() {
                 disabled={!query.trim()}
                 className="h-11 px-6"
               >
-                Continue
+                {selectedTier ? `Continue for ${formatCost(selectedTier.public_price_usd)}` : "Continue"}
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             </div>

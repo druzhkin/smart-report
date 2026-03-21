@@ -41,6 +41,13 @@ const DEFAULT_BUDGETS: BudgetMap = {
   exhaustive: 15,
 };
 
+const DEFAULT_PUBLIC_PRICING: BudgetMap = {
+  light: 0.5,
+  standard: 2,
+  deep: 5,
+  exhaustive: 15,
+};
+
 function Toggle({
   checked,
   onChange,
@@ -161,7 +168,9 @@ export default function SettingsPage() {
   });
   const [savingKeys, setSavingKeys] = useState<Partial<Record<KeyName, boolean>>>({});
   const [budgets, setBudgets] = useState<BudgetMap>(DEFAULT_BUDGETS);
+  const [publicPricing, setPublicPricing] = useState<BudgetMap>(DEFAULT_PUBLIC_PRICING);
   const [savingBudget, setSavingBudget] = useState(false);
+  const [savingPricing, setSavingPricing] = useState(false);
   const [emailEnabled, setEmailEnabled] = useState(false);
   const [email, setEmail] = useState("");
   const [pushEnabled, setPushEnabled] = useState(false);
@@ -186,9 +195,10 @@ export default function SettingsPage() {
   useEffect(() => {
     async function loadSettings() {
       try {
-        const [keysResponse, budgetResponse] = await Promise.all([
+        const [keysResponse, budgetResponse, pricingResponse] = await Promise.all([
           fetch(`${API_BASE}/settings/keys`, { cache: "no-store" }),
           fetch(`${API_BASE}/settings/budget`, { cache: "no-store" }),
+          fetch(`${API_BASE}/settings/pricing`, { cache: "no-store" }),
         ]);
 
         if (keysResponse.ok) {
@@ -199,6 +209,11 @@ export default function SettingsPage() {
         if (budgetResponse.ok) {
           const budgetData = (await budgetResponse.json()) as BudgetMap;
           setBudgets(budgetData);
+        }
+
+        if (pricingResponse.ok) {
+          const pricingData = (await pricingResponse.json()) as BudgetMap;
+          setPublicPricing(pricingData);
         }
       } catch (error) {
         console.error(error);
@@ -256,6 +271,24 @@ export default function SettingsPage() {
       setNotice("Не удалось сохранить бюджет");
     } finally {
       setSavingBudget(false);
+    }
+  }
+
+  async function savePricing() {
+    try {
+      setSavingPricing(true);
+      const response = await fetch(`${API_BASE}/settings/pricing`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(publicPricing),
+      });
+      if (!response.ok) throw new Error("Failed to save pricing");
+      setNotice("Публичные цены обновлены");
+    } catch (error) {
+      console.error(error);
+      setNotice("Не удалось сохранить публичные цены");
+    } finally {
+      setSavingPricing(false);
     }
   }
 
@@ -420,6 +453,64 @@ export default function SettingsPage() {
           <Card>
             <CardHeader>
               <div className="flex items-center gap-3">
+                <div className="rounded-2xl bg-emerald-100 p-3 text-emerald-700">
+                  <Wallet className="h-5 w-5" />
+                </div>
+                <div>
+                  <CardTitle>Public Prices</CardTitle>
+                  <CardDescription>Цены, которые показываются пользователю на лендинге и перед запуском исследования.</CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {(Object.keys(BUDGET_LIMITS) as Array<keyof BudgetMap>).map((pricingKey) => {
+                const config = BUDGET_LIMITS[pricingKey];
+                const value = publicPricing[pricingKey];
+
+                return (
+                  <div key={pricingKey} className="space-y-3">
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <p className="font-medium">{config.label}</p>
+                        <p className="text-sm text-muted-foreground">
+                          Видимая цена на сайте: {formatCost(value)}
+                        </p>
+                      </div>
+                      <div className="rounded-full bg-secondary px-3 py-1 text-sm font-medium">
+                        {formatCost(value)}
+                      </div>
+                    </div>
+                    <input
+                      type="range"
+                      min={config.min}
+                      max={config.max}
+                      step={config.step}
+                      value={value}
+                      onChange={(event) =>
+                        setPublicPricing((current) => ({
+                          ...current,
+                          [pricingKey]: Number(event.target.value),
+                        }))
+                      }
+                      className="h-2 w-full cursor-pointer appearance-none rounded-full bg-muted accent-primary"
+                    />
+                  </div>
+                );
+              })}
+
+              <div className="flex justify-end">
+                <Button type="button" onClick={savePricing} disabled={savingPricing}>
+                  {savingPricing ? <Loader2 className="h-4 w-4 animate-spin" /> : "Сохранить цены"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-3">
                 <div className="rounded-2xl bg-amber-100 p-3 text-amber-700">
                   <Mail className="h-5 w-5" />
                 </div>
@@ -463,7 +554,7 @@ export default function SettingsPage() {
           </Card>
         </motion.div>
 
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
           <Card className="border-rose-200">
             <CardHeader>
               <div className="flex items-center gap-3">

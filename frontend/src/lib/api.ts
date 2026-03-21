@@ -11,6 +11,16 @@ export interface CreateReportResponse {
   estimated_time_minutes: number;
 }
 
+export interface PricingTier {
+  depth: "light" | "standard" | "deep" | "exhaustive";
+  label: string;
+  tagline: string;
+  description: string;
+  estimated_time_minutes: number;
+  public_price_usd: number;
+  internal_budget_usd: number;
+}
+
 export interface ReportSection {
   title: string;
   content: string;
@@ -67,6 +77,13 @@ export async function createReport(
   });
   if (!res.ok) throw new Error(`Failed to create report: ${res.status}`);
   return res.json();
+}
+
+export async function getReportPricing(): Promise<PricingTier[]> {
+  const res = await fetch(`${API_BASE}/reports/pricing`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`Failed to get pricing: ${res.status}`);
+  const data = (await res.json()) as { tiers: PricingTier[] };
+  return data.tiers;
 }
 
 export async function getReport(id: string): Promise<SessionMeta> {

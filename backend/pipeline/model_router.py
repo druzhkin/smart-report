@@ -13,6 +13,12 @@ DEV_MODEL_MAP: dict[str, str] = {
     "perplexity/sonar-deep-research": "perplexity/sonar",
 }
 
+MODEL_PRICING_ALIASES: dict[str, str] = {
+    "sonar": "perplexity/sonar",
+    "sonar-pro": "perplexity/sonar-pro",
+    "sonar-deep-research": "perplexity/sonar-deep-research",
+}
+
 
 class AgentTask(str, Enum):
     INTAKE = "intake"
@@ -60,6 +66,8 @@ COST_PER_1K_INPUT: dict[str, float] = {
     "google/gemini-2.5-flash": 0.000075,
     "google/gemini-3-flash-preview": 0.0001,
     "google/gemini-3.1-pro-preview": 0.00125,
+    "perplexity/sonar": 0.001,
+    "perplexity/sonar-pro": 0.003,
     "perplexity/sonar-deep-research": 0.005,
     "openai/o3": 0.010,
     # Dev-mode models
@@ -78,6 +86,8 @@ COST_PER_1K_OUTPUT: dict[str, float] = {
     "google/gemini-2.5-flash": 0.0003,
     "google/gemini-3-flash-preview": 0.0001,
     "google/gemini-3.1-pro-preview": 0.005,
+    "perplexity/sonar": 0.001,
+    "perplexity/sonar-pro": 0.015,
     "perplexity/sonar-deep-research": 0.028,
     "openai/o3": 0.040,
     # Dev-mode models
@@ -98,11 +108,20 @@ def get_model(task: AgentTask) -> str:
     return model
 
 
+def normalize_model_name(model: str) -> str:
+    return MODEL_PRICING_ALIASES.get(model, model)
+
+
+def estimate_cost_for_model(model: str, input_tokens: int, output_tokens: int) -> float:
+    normalized = normalize_model_name(model)
+    input_cost = (input_tokens / 1000) * COST_PER_1K_INPUT.get(normalized, 0.001)
+    output_cost = (output_tokens / 1000) * COST_PER_1K_OUTPUT.get(normalized, 0.005)
+    return input_cost + output_cost
+
+
 def estimate_cost(task: AgentTask, input_tokens: int, output_tokens: int) -> float:
     from backend.config import settings
     model = MODEL_MAP[task]
     if settings.dev_mode:
         model = DEV_MODEL_MAP.get(model, model)
-    input_cost = (input_tokens / 1000) * COST_PER_1K_INPUT.get(model, 0.001)
-    output_cost = (output_tokens / 1000) * COST_PER_1K_OUTPUT.get(model, 0.005)
-    return input_cost + output_cost
+    return estimate_cost_for_model(model, input_tokens, output_tokens)

@@ -81,6 +81,29 @@ class TestCreateReport:
         assert len(set(ids)) == 3  # all unique
 
 
+class TestPricing:
+    def test_report_pricing_endpoint_returns_all_tiers(self, client):
+        resp = client.get("/api/reports/pricing")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "tiers" in data
+        assert len(data["tiers"]) == 4
+        assert {tier["depth"] for tier in data["tiers"]} == {
+            "light",
+            "standard",
+            "deep",
+            "exhaustive",
+        }
+
+    def test_report_pricing_endpoint_exposes_public_price_and_budget(self, client):
+        resp = client.get("/api/reports/pricing")
+        assert resp.status_code == 200
+        tier = resp.json()["tiers"][0]
+        assert "public_price_usd" in tier
+        assert "internal_budget_usd" in tier
+        assert "estimated_time_minutes" in tier
+
+
 # ---------------------------------------------------------------------------
 # GET /api/reports/{id}
 # ---------------------------------------------------------------------------

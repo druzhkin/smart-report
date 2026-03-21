@@ -1,9 +1,12 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { ArrowRight, FileText, Brain, Zap } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { getReportPricing, type PricingTier } from "@/lib/api";
+import { formatCost } from "@/lib/utils";
 
 const steps = [
   {
@@ -24,6 +27,14 @@ const steps = [
 ];
 
 export default function LandingPage() {
+  const [pricing, setPricing] = useState<PricingTier[]>([]);
+
+  useEffect(() => {
+    getReportPricing()
+      .then(setPricing)
+      .catch((error) => console.error("Failed to load pricing", error));
+  }, []);
+
   return (
     <div className="flex min-h-screen flex-col">
       <header className="flex items-center justify-between px-6 py-4 lg:px-12">
@@ -98,6 +109,50 @@ export default function LandingPage() {
             </motion.div>
           ))}
         </motion.div>
+
+        {pricing.length > 0 && (
+          <motion.section
+            initial={{ opacity: 0, y: 40 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.85, duration: 0.5 }}
+            className="mt-24 w-full max-w-5xl"
+          >
+            <div className="text-center">
+              <h2 className="text-2xl font-bold tracking-tight">Transparent pricing</h2>
+              <p className="mt-3 text-sm text-muted-foreground">
+                Fixed price by research depth, visible before launch.
+              </p>
+            </div>
+
+            <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              {pricing.map((tier) => (
+                <div
+                  key={tier.depth}
+                  className="rounded-2xl border border-border/70 bg-background p-5 text-left shadow-sm"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold">{tier.label}</p>
+                      <p className="mt-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                        {tier.tagline}
+                      </p>
+                    </div>
+                    <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
+                      ~{tier.estimated_time_minutes} min
+                    </span>
+                  </div>
+
+                  <p className="mt-5 text-3xl font-bold tracking-tight">
+                    {formatCost(tier.public_price_usd)}
+                  </p>
+                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                    {tier.description}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </motion.section>
+        )}
       </main>
 
       <footer className="py-8 text-center text-xs text-muted-foreground">

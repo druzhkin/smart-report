@@ -14,6 +14,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from backend.config import settings
+from backend.pricing import get_public_pricing
 from backend.schemas.intake import UserRequest
 from backend.schemas.report_schema import ReportOutput, ReportStatus
 from backend.utils.push import save_push_subscription
@@ -382,6 +383,11 @@ async def create_report(body: CreateReportRequest) -> dict:
         "session_id": session_id,
         "estimated_time_minutes": DEPTH_ESTIMATED_MINUTES.get(body.depth, 8),
     }
+
+
+@router.get("/reports/pricing")
+async def get_report_pricing() -> dict:
+    return {"tiers": get_public_pricing()}
 
 
 @router.get("/reports")

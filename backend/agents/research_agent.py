@@ -1,5 +1,6 @@
 import asyncio
 import json
+from dataclasses import dataclass
 from urllib.parse import urlparse
 
 import httpx
@@ -7,15 +8,12 @@ from langsmith import traceable
 from loguru import logger
 
 from backend.config import settings
-from backend.pipeline.model_router import AgentTask, estimate_cost
+from backend.pipeline.model_router import estimate_cost_for_model
 from backend.pipeline.state import AgentState
 from backend.schemas.research_result import ResearchResult, Source
 from backend.utils.retry import llm_retry
 
 PERPLEXITY_URL = "https://api.perplexity.ai/chat/completions"
-PERPLEXITY_MODEL = "sonar-deep-research"
-PERPLEXITY_OR_MODEL = "perplexity/sonar-deep-research"
-PERPLEXITY_OR_MODEL_DEV = "perplexity/sonar"
 
 MAX_QUERIES_DEV = 3
 
@@ -25,14 +23,36 @@ SYSTEM_PROMPT = (
 )
 
 
+@dataclass(frozen=True)
+class ResearchModelConfig:
+    direct_model: str
+    routed_model: str
+
+
+RESEARCH_MODEL_BY_DEPTH: dict[str, ResearchModelConfig] = {
+    "light": ResearchModelConfig("sonar", "perplexity/sonar"),
+    "standard": ResearchModelConfig("sonar", "perplexity/sonar"),
+    "deep": ResearchModelConfig("sonar-pro", "perplexity/sonar-pro"),
+    "exhaustive": ResearchModelConfig("sonar-deep-research", "perplexity/sonar-deep-research"),
+}
+
+DEV_RESEARCH_MODEL = ResearchModelConfig("sonar", "perplexity/sonar")
+
+
+def _get_research_model_config(depth: str | None) -> ResearchModelConfig:
+    if settings.dev_mode:
+        return DEV_RESEARCH_MODEL
+    return RESEARCH_MODEL_BY_DEPTH.get(depth or "standard", RESEARCH_MODEL_BY_DEPTH["standard"])
+
+
 @llm_retry()
-async def _call_perplexity(query: str) -> dict:
-    """Call Perplexity sonar-deep-research.
+async def _call_perplexity(query: str, depth: str | None = None) -> dict:
+    """Call Perplexity with a model matched to the requested research depth.
 
     Primary: direct Perplexity API (returns citations).
     Fallback: OpenRouter (when direct key missing/invalid).
     """
-    or_model = PERPLEXITY_OR_MODEL_DEV if settings.dev_mode else PERPLEXITY_OR_MODEL
+    model_config = _get_research_model_config(depth)
 
     # Use direct Perplexity API if key is configured, not empty, and not dev_mode
     if settings.perplexity_api_key and not settings.dev_mode:
@@ -45,7 +65,7 @@ async def _call_perplexity(query: str) -> dict:
                         "Content-Type": "application/json",
                     },
                     json={
-                        "model": PERPLEXITY_MODEL,
+                        "model": model_config.direct_model,
                         "messages": [
                             {"role": "system", "content": SYSTEM_PROMPT},
                             {"role": "user", "content": query},
@@ -64,13 +84,13 @@ async def _call_perplexity(query: str) -> dict:
                 raise
 
     # OpenRouter fallback (always used in dev_mode)
-    logger.info(f"Using OpenRouter: {or_model}")
+    logger.info(f"Using OpenRouter research model: {model_config.routed_model}")
     async with httpx.AsyncClient(timeout=180) as client:
         resp = await client.post(
             f"{settings.openrouter_base_url}/chat/completions",
             headers={"Authorization": f"Bearer {settings.openrouter_api_key}"},
             json={
-                "model": or_model,
+                "model": model_config.routed_model,
                 "messages": [
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": query},
@@ -120,9 +140,10 @@ def _extract_findings(content: str) -> list[str]:
     return paragraphs
 
 
-async def _research_single(query: str, iteration: int) -> tuple[ResearchResult, float]:
+async def _research_single(query: str, iteration: int, depth: str | None) -> tuple[ResearchResult, float]:
     """Run a single research query against Perplexity."""
-    raw = await _call_perplexity(query)
+    model_config = _get_research_model_config(depth)
+    raw = await _call_perplexity(query, depth=depth)
 
     content = raw["choices"][0]["message"]["content"]
     sources = _parse_citations(raw)
@@ -131,7 +152,7 @@ async def _research_single(query: str, iteration: int) -> tuple[ResearchResult, 
     usage = raw.get("usage", {})
     in_tokens = usage.get("prompt_tokens", len(query) // 4)
     out_tokens = usage.get("completion_tokens", len(content) // 4)
-    cost = estimate_cost(AgentTask.RESEARCH_DEEP, in_tokens, out_tokens)
+    cost = estimate_cost_for_model(model_config.routed_model, in_tokens, out_tokens)
 
     result = ResearchResult(
         query=query,
@@ -146,11 +167,13 @@ async def _research_single(query: str, iteration: int) -> tuple[ResearchResult, 
 
 @traceable(name="research_agent")
 async def run_research(state: AgentState) -> dict:
-    """Run research queries from supervisor batches via Perplexity sonar-deep-research."""
+    """Run research queries from supervisor batches via Perplexity models matched to depth."""
     logger.info("Research agent started")
 
     batches = state.get("parallel_batches")
     iteration = state.get("iteration", 1)
+    intake = state.get("intake_result")
+    depth = getattr(intake, "depth", None) if intake else None
     all_results: list[ResearchResult] = []
     total_cost = 0.0
 
@@ -166,14 +189,14 @@ async def run_research(state: AgentState) -> dict:
         logger.info(f"[DEV] Capped research queries to {MAX_QUERIES_DEV}")
 
     if batch_queries:
-        parallel_tasks = [_research_single(q, iteration) for q, m in batch_queries if m == "parallel"]
+        parallel_tasks = [_research_single(q, iteration, depth) for q, m in batch_queries if m == "parallel"]
         sequential_qs = [q for q, m in batch_queries if m != "parallel"]
         if parallel_tasks:
             for result, cost in await asyncio.gather(*parallel_tasks):
                 all_results.append(result)
                 total_cost += cost
         for q in sequential_qs:
-            result, cost = await _research_single(q, iteration)
+            result, cost = await _research_single(q, iteration, depth)
             all_results.append(result)
             total_cost += cost
     else:
@@ -183,7 +206,7 @@ async def run_research(state: AgentState) -> dict:
             master = state.get("master_prompt")
             queries = [master.user_prompt if master else state["user_request"].get("query", "")]
 
-        tasks = [_research_single(q, iteration) for q in queries]
+        tasks = [_research_single(q, iteration, depth) for q in queries]
         for result, cost in await asyncio.gather(*tasks):
             all_results.append(result)
             total_cost += cost

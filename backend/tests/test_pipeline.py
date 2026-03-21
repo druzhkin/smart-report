@@ -717,6 +717,14 @@ def presentation_state(base_state, sample_report):
 
 
 class TestResearchAgent:
+    def test_model_selection_by_depth(self):
+        from backend.agents.research_agent import _get_research_model_config
+
+        assert _get_research_model_config("light").direct_model == "sonar"
+        assert _get_research_model_config("standard").direct_model == "sonar"
+        assert _get_research_model_config("deep").direct_model == "sonar-pro"
+        assert _get_research_model_config("exhaustive").direct_model == "sonar-deep-research"
+
     async def test_returns_research_result_with_findings_and_sources(self, base_state):
         from backend.agents.research_agent import run_research
 
@@ -724,7 +732,18 @@ class TestResearchAgent:
             batches=[QueryBatch(queries=["AI chip market 2025"], mode="parallel")],
             total_queries=1,
         )
-        state = {**base_state, "parallel_batches": batches}
+        state = {
+            **base_state,
+            "parallel_batches": batches,
+            "intake_result": IntakeResult(
+                original_query="AI chip market 2025",
+                cleaned_query="AI chip market 2025",
+                intent="research",
+                domain="tech",
+                complexity="medium",
+                depth="standard",
+            ),
+        }
 
         with respx.mock:
             respx.post(_PERPLEXITY_URL).mock(
@@ -750,7 +769,18 @@ class TestResearchAgent:
             ],
             total_queries=2,
         )
-        state = {**base_state, "parallel_batches": batches}
+        state = {
+            **base_state,
+            "parallel_batches": batches,
+            "intake_result": IntakeResult(
+                original_query="query A",
+                cleaned_query="query A",
+                intent="research",
+                domain="general",
+                complexity="medium",
+                depth="deep",
+            ),
+        }
 
         with respx.mock:
             respx.post(_PERPLEXITY_URL).mock(
@@ -763,7 +793,19 @@ class TestResearchAgent:
     async def test_falls_back_to_data_queries(self, base_state):
         from backend.agents.research_agent import run_research
 
-        state = {**base_state, "parallel_batches": None, "data_queries": ["fallback query"]}
+        state = {
+            **base_state,
+            "parallel_batches": None,
+            "data_queries": ["fallback query"],
+            "intake_result": IntakeResult(
+                original_query="fallback query",
+                cleaned_query="fallback query",
+                intent="research",
+                domain="general",
+                complexity="low",
+                depth="light",
+            ),
+        }
 
         with respx.mock:
             respx.post(_PERPLEXITY_URL).mock(
