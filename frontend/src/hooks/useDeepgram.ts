@@ -12,6 +12,7 @@ interface DeepgramState {
   interimTranscript: string;
   isRecording: boolean;
   isConnecting: boolean;
+  isAvailable: boolean;
   error: string | null;
   start: () => Promise<void>;
   stop: () => void;
@@ -25,6 +26,7 @@ export function useDeepgram(options: DeepgramOptions = {}): DeepgramState {
   const [interimTranscript, setInterimTranscript] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [isAvailable, setIsAvailable] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -55,9 +57,21 @@ export function useDeepgram(options: DeepgramOptions = {}): DeepgramState {
     setIsConnecting(true);
 
     try {
+      const tokenResponse = await fetch("/api/settings/deepgram/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      if (!tokenResponse.ok) {
+        setIsAvailable(false);
+        const payload = (await tokenResponse.json().catch(() => null)) as { detail?: string } | null;
+        throw new Error(payload?.detail || "Voice input is unavailable");
+      }
+
+      const tokenPayload = (await tokenResponse.json()) as { access_token: string };
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const ws = new WebSocket(
-        `wss://api.deepgram.com/v1/listen?language=${language}&model=nova-3&smart_format=true&interim_results=true&vad_events=true`
+        `wss://api.deepgram.com/v1/listen?token=${encodeURIComponent(tokenPayload.access_token)}&language=${language}&model=nova-3&smart_format=true&interim_results=true&vad_events=true`
       );
       wsRef.current = ws;
 
@@ -96,7 +110,7 @@ export function useDeepgram(options: DeepgramOptions = {}): DeepgramState {
       };
 
       ws.onerror = () => {
-        setError("Connection error");
+        setError("Voice transcription connection failed");
         stop();
       };
 
@@ -122,6 +136,7 @@ export function useDeepgram(options: DeepgramOptions = {}): DeepgramState {
     interimTranscript,
     isRecording,
     isConnecting,
+    isAvailable,
     error,
     start,
     stop,

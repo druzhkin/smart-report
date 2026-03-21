@@ -1,6 +1,8 @@
 from pathlib import Path
 
+import httpx
 from fastapi import APIRouter
+from fastapi import HTTPException
 from pydantic import BaseModel
 
 from backend.config import settings
@@ -137,3 +139,34 @@ async def save_public_pricing(request: SavePricingRequest) -> dict:
         setattr(settings, field_name, float(value))
 
     return {"status": "ok", **payload}
+
+
+@router.post("/settings/deepgram/token")
+async def create_deepgram_token() -> dict[str, str | int]:
+    if not settings.deepgram_api_key:
+        raise HTTPException(status_code=503, detail="Deepgram is not configured")
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.post(
+                "https://api.deepgram.com/v1/auth/grant",
+                headers={
+                    "Authorization": f"Token {settings.deepgram_api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={"ttl_seconds": 60},
+            )
+            response.raise_for_status()
+            payload = response.json()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Failed to get Deepgram token: {exc}") from exc
+
+    token = payload.get("access_token")
+    expires_in = payload.get("expires_in", 60)
+    if not token:
+        raise HTTPException(status_code=502, detail="Deepgram token missing in response")
+
+    return {
+        "access_token": token,
+        "expires_in": int(expires_in or 60),
+    }

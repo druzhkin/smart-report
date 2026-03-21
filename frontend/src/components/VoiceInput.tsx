@@ -15,6 +15,7 @@ export function VoiceInput({ onTranscript }: VoiceInputProps) {
     interimTranscript,
     isRecording,
     isConnecting,
+    isAvailable,
     error,
     start,
     stop,
@@ -33,7 +34,7 @@ export function VoiceInput({ onTranscript }: VoiceInputProps) {
         variant={isRecording ? "destructive" : "secondary"}
         size="icon"
         onClick={isRecording ? stop : start}
-        disabled={isConnecting}
+        disabled={isConnecting || !isAvailable}
         className="relative shrink-0 rounded-full h-12 w-12"
       >
         <AnimatePresence mode="wait">
@@ -82,6 +83,8 @@ export function VoiceInput({ onTranscript }: VoiceInputProps) {
           ? "Connecting..."
           : isRecording
           ? "Listening... speak now"
+          : !isAvailable
+          ? "Voice input is not configured"
           : error
           ? error
           : "Click to dictate"}
