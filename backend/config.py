@@ -1,3 +1,4 @@
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -30,7 +31,10 @@ class Settings(BaseSettings):
     ragflow_facts_dataset_id: str = ""
 
     # Database
-    postgres_url: str = "postgresql://postgres:postgres@localhost:5432/smart_report"
+    postgres_url: str = Field(
+        default="postgresql://postgres:postgres@localhost:5432/smart_report",
+        validation_alias=AliasChoices("POSTGRES_URL", "DATABASE_URL"),
+    )
     redis_url: str = "redis://localhost:6379"
 
     # Storage
@@ -38,6 +42,7 @@ class Settings(BaseSettings):
 
     # Development mode (cheap models, limited iterations)
     dev_mode: bool = False
+    enable_apo_scheduler: bool = True
 
     # Budget limits (USD)
     budget_light: float = 0.50
@@ -61,3 +66,23 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def normalize_database_url(raw_url: str, *, async_driver: bool = True) -> str:
+    if raw_url.startswith("postgres://"):
+        raw_url = raw_url.replace("postgres://", "postgresql://", 1)
+
+    if raw_url.startswith("postgresql://"):
+        driver = "postgresql+asyncpg://" if async_driver else "postgresql+psycopg://"
+        return raw_url.replace("postgresql://", driver, 1)
+
+    if raw_url.startswith("postgresql+asyncpg://") or raw_url.startswith("postgresql+psycopg://"):
+        return raw_url
+
+    if raw_url.startswith("sqlite:///") and async_driver:
+        return raw_url.replace("sqlite:///", "sqlite+aiosqlite:///", 1)
+
+    if raw_url.startswith("sqlite+aiosqlite:///") and not async_driver:
+        return raw_url.replace("sqlite+aiosqlite:///", "sqlite:///", 1)
+
+    return raw_url

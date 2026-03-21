@@ -40,3 +40,7 @@ make dev
 make test      # run tests
 make lint      # ruff check + fix
 ```
+
+## Railway
+
+For Railway deployment, use the guide in [RAILWAY.md](RAILWAY.md).

@@ -22,7 +22,7 @@ from backend.agents.reflect_agent import run_reflect
 from backend.agents.summarization_agent import run_summarization
 from backend.agents.supervisor_agent import run_supervisor
 from backend.agents.viz_agent import run_viz_agent
-from backend.config import settings
+from backend.config import normalize_database_url, settings
 from backend.pipeline.cost_guard import BudgetExceededError
 from backend.pipeline.state import AgentState
 
@@ -259,7 +259,9 @@ async def pipeline_context() -> AsyncIterator[tuple[Any, Any]]:
     try:
         from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
-        async with AsyncPostgresSaver.from_conn_string(settings.postgres_url) as checkpointer:
+        async with AsyncPostgresSaver.from_conn_string(
+            normalize_database_url(settings.postgres_url, async_driver=True)
+        ) as checkpointer:
             await checkpointer.setup()
             logger.info("Pipeline ready with PostgresSaver checkpointer")
             yield build_graph(checkpointer=checkpointer), checkpointer

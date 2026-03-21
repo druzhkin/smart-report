@@ -9,7 +9,7 @@ from loguru import logger
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from backend.config import settings
+from backend.config import normalize_database_url, settings
 
 try:
     from pywebpush import WebPushException, webpush
@@ -30,12 +30,7 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
 
 
 def _get_db_url() -> str:
-    raw_url = settings.postgres_url
-    if raw_url.startswith("postgresql://"):
-        return raw_url.replace("postgresql://", "postgresql+asyncpg://", 1)
-    if raw_url.startswith("sqlite:///"):
-        return raw_url.replace("sqlite:///", "sqlite+aiosqlite:///", 1)
-    return raw_url
+    return normalize_database_url(settings.postgres_url, async_driver=True)
 
 
 async def _ensure_table(engine) -> None:

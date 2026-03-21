@@ -13,7 +13,7 @@ from sse_starlette.sse import EventSourceResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from backend.config import settings
+from backend.config import normalize_database_url, settings
 from backend.pricing import get_public_pricing
 from backend.schemas.intake import UserRequest
 from backend.schemas.report_schema import ReportOutput, ReportStatus
@@ -113,10 +113,7 @@ CREATE TABLE IF NOT EXISTS reports (
 
 
 def _db_url() -> str:
-    raw_url = settings.postgres_url
-    if raw_url.startswith("postgresql://"):
-        return raw_url.replace("postgresql://", "postgresql+asyncpg://", 1)
-    return raw_url
+    return normalize_database_url(settings.postgres_url, async_driver=True)
 
 
 async def _ensure_reports_table() -> None:

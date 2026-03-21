@@ -51,3 +51,8 @@ async def health_check() -> dict:
             "ragflow": ragflow_status,
         },
     }
+
+
+@router.get("/healthz")
+async def healthz() -> dict:
+    return {"status": "ok"}

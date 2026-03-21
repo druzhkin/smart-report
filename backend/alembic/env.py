@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from backend.config import settings
+from backend.config import normalize_database_url, settings
 
 config = context.config
 
@@ -23,7 +23,7 @@ target_metadata = None
 
 
 def _sync_database_url() -> str:
-    raw_url = settings.postgres_url
+    raw_url = normalize_database_url(settings.postgres_url, async_driver=False)
     url = make_url(raw_url)
 
     if url.drivername in {"postgresql", "postgresql+asyncpg"}:

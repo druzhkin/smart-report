@@ -10,7 +10,6 @@ import {
   FileImage,
   FileText,
   Globe,
-  LayoutPresentation,
   Loader2,
   Presentation,
 } from "lucide-react";
@@ -209,7 +208,7 @@ function SlidesTab({
       ) : (
         <Card>
           <CardContent className="flex min-h-[280px] flex-col items-center justify-center gap-3 text-center">
-            <LayoutPresentation className="h-12 w-12 text-muted-foreground/35" />
+            <Presentation className="h-12 w-12 text-muted-foreground/35" />
             <p className="text-sm text-muted-foreground">
               Презентация генерируется...
             </p>

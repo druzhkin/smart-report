@@ -13,10 +13,12 @@ from backend.prompt_library.optimizer import start_scheduler, stop_scheduler
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     os.makedirs(settings.outputs_dir, exist_ok=True)
-    start_scheduler()
+    if settings.enable_apo_scheduler:
+        start_scheduler()
     logger.info("Smart Report API started")
     yield
-    stop_scheduler()
+    if settings.enable_apo_scheduler:
+        stop_scheduler()
     logger.info("Smart Report API shutting down")
 
 
