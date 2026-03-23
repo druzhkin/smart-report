@@ -233,6 +233,34 @@ class TestRunCitationVerifier:
         assert verification.dead_count == 1
         assert verification.passed is True  # dead ≠ fabricated, so pass_rate stays 1.0
 
+    async def test_head_failure_but_fetch_success_still_verifies(self, base_state):
+        from backend.agents.citation_verifier import run_citation_verifier
+
+        source = Source(
+            url="https://example.com/blocked-head",
+            title="AI Chip Report",
+            snippet="NVIDIA dominates AI chip market with 80% share",
+        )
+        research = ResearchResult(query="AI chips", sources=[source], findings=["NVIDIA dominates AI chip market with 80% share in 2024."])
+        state = {**base_state, "research_results": [research]}
+
+        with (
+            patch("backend.agents.citation_verifier._head_check", return_value=False),
+            patch(
+                "backend.agents.citation_verifier._fetch_content",
+                return_value="NVIDIA dominates AI chip market with 80% share in 2024",
+            ),
+            patch(
+                "backend.agents.citation_verifier._get_embedder",
+                return_value=_make_mock_embedder(similarity=0.9),
+            ),
+        ):
+            result = await run_citation_verifier(state)
+
+        verification = result["citation_verification"]
+        assert verification.verified_count == 1
+        assert verification.checks[0].status == CitationStatus.VERIFIED
+
     async def test_verified_url_classified_correctly(self, base_state):
         from backend.agents.citation_verifier import run_citation_verifier
 
@@ -287,6 +315,33 @@ class TestRunCitationVerifier:
 
         verification = result["citation_verification"]
         assert verification.checks[0].status == CitationStatus.FABRICATED
+
+    async def test_short_claim_with_some_overlap_stays_partial_not_fabricated(self, base_state):
+        from backend.agents.citation_verifier import run_citation_verifier
+
+        source = Source(
+            url="https://example.com",
+            title="AI agents in business",
+            snippet="AI agents in business",
+        )
+        research = ResearchResult(query="AI agents", sources=[source], findings=["AI agents in business can automate support workflows."])
+        state = {**base_state, "research_results": [research]}
+
+        with (
+            patch("backend.agents.citation_verifier._head_check", return_value=True),
+            patch(
+                "backend.agents.citation_verifier._fetch_content",
+                return_value="This article discusses AI agents in business and how teams adopt them for operations.",
+            ),
+            patch(
+                "backend.agents.citation_verifier._get_embedder",
+                return_value=_make_mock_embedder(similarity=0.2),
+            ),
+        ):
+            result = await run_citation_verifier(state)
+
+        verification = result["citation_verification"]
+        assert verification.checks[0].status == CitationStatus.PARTIAL
 
 
 def _make_mock_embedder(similarity: float):
@@ -639,6 +694,28 @@ class TestQADecision:
         )
 
         assert decision == "fail"
+
+    def test_critique_skips_expensive_revise_when_budget_is_nearly_spent(self):
+        from backend.pipeline.graph import critique_decision
+
+        decision = critique_decision(
+            {
+                "selected_depth": "standard",
+                "critic_score": 0.36,
+                "revision_count": 1,
+                "cost_usd": 1.82,
+                "research_results": [
+                    ResearchResult(
+                        query="AI chip market",
+                        findings=["Growth is strong."],
+                        sources=[Source(url=f"https://example.com/{idx}", title=f"S{idx}", snippet="x")]
+                    )
+                    for idx in range(20)
+                ],
+            }
+        )
+
+        assert decision == "proceed"
 
 
 class TestResearchFailFast:

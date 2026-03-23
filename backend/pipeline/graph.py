@@ -197,9 +197,35 @@ async def save_to_knowledge_library(state: AgentState) -> dict:
 def critique_decision(state: AgentState) -> str:
     score = state.get("critic_score", 1.0)
     rev = state.get("revision_count", 0)
-    if score < 0.7 and rev < 3:
+    budget = _get_budget(state)
+    cost = state.get("cost_usd", 0.0)
+    remaining_budget = max(0.0, budget - cost)
+    total_sources = sum(len(result.sources) for result in list(state.get("research_results", []) or []))
+    citation = state.get("citation_verification")
+    citation_total = citation.total if citation else 0
+    citation_fabricated = citation.fabricated_count if citation else 0
+    source_backed_run = total_sources >= 20
+    evidence_rich_but_budget_tight = (
+        source_backed_run
+        and remaining_budget <= max(0.25, budget * 0.12)
+    )
+    verification_noise_heavy = (
+        bool(citation)
+        and citation_total > 0
+        and citation_fabricated <= max(3, int(citation_total * 0.12))
+    )
+
+    if score < 0.7 and rev < 3 and not evidence_rich_but_budget_tight:
         logger.info(f"Critique REVISE (score={score:.2f}, revision={rev})")
         return "revise"
+
+    if score < 0.7 and rev < 3 and evidence_rich_but_budget_tight:
+        logger.info(
+            "Critique PROCEED due to tight remaining budget "
+            f"(score={score:.2f}, revision={rev}, remaining=${remaining_budget:.4f}, "
+            f"sources={total_sources}, verification_noise_heavy={verification_noise_heavy})"
+        )
+        return "proceed"
     logger.info(f"Critique PROCEED (score={score:.2f}, revision={rev})")
     return "proceed"
 

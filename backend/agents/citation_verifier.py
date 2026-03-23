@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from functools import lru_cache
 from typing import TYPE_CHECKING
 
@@ -30,6 +31,14 @@ SIMILARITY_THRESHOLDS = {
 
 MAX_CONTENT_CHARS = 8_000
 CONCURRENT_CHECKS = 10
+REQUEST_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/123.0.0.0 Safari/537.36"
+    ),
+    "Accept-Language": "en-US,en;q=0.9,ru;q=0.8",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -63,7 +72,7 @@ async def _head_check(url: str) -> bool:
     async with httpx.AsyncClient(
         timeout=10, follow_redirects=True, verify=False
     ) as client:
-        resp = await client.head(url)
+        resp = await client.head(url, headers=REQUEST_HEADERS)
         return resp.status_code < 400
 
 
@@ -75,7 +84,10 @@ async def _fetch_via_aiohttp(url: str) -> str | None:
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(
-                url, timeout=aiohttp.ClientTimeout(total=15), ssl=False
+                url,
+                timeout=aiohttp.ClientTimeout(total=15),
+                ssl=False,
+                headers=REQUEST_HEADERS,
             ) as resp:
                 if resp.status >= 400:
                     return None
@@ -142,6 +154,24 @@ async def _fetch_content(url: str) -> str | None:
     return await _fetch_via_firecrawl(url)
 
 
+def _normalize_tokens(text: str) -> set[str]:
+    return {
+        token
+        for token in re.findall(r"[a-zA-Zа-яА-Я0-9]+", (text or "").lower())
+        if len(token) >= 4 and not token.isdigit()
+    }
+
+
+def _token_overlap_ratio(claim: str, content: str) -> float:
+    claim_tokens = _normalize_tokens(claim)
+    if not claim_tokens:
+        return 0.0
+    content_tokens = _normalize_tokens(content)
+    if not content_tokens:
+        return 0.0
+    return len(claim_tokens & content_tokens) / len(claim_tokens)
+
+
 # ---------------------------------------------------------------------------
 # Single citation check
 # ---------------------------------------------------------------------------
@@ -156,12 +186,14 @@ async def _check_citation(
         except Exception:
             pass
 
-        if not alive:
-            return CitationCheckResult(
-                url=url, claim=claim, status=CitationStatus.DEAD_LINK
-            )
-
         content = await _fetch_content(url)
+        if not alive and not content:
+            return CitationCheckResult(
+                url=url,
+                claim=claim,
+                status=CitationStatus.DEAD_LINK,
+                error="HEAD and content fetch both failed",
+            )
         if not content:
             return CitationCheckResult(
                 url=url,
@@ -174,10 +206,17 @@ async def _check_citation(
         embedder = _get_embedder()
         embeddings = embedder.encode([claim, content])
         score = _cosine_similarity(embeddings[0].tolist(), embeddings[1].tolist())
+        overlap_ratio = _token_overlap_ratio(claim, content[:2_500])
+        claim_too_short = len((claim or "").strip()) < 80
 
         if score >= SIMILARITY_THRESHOLDS["verified"]:
             status = CitationStatus.VERIFIED
         elif score >= SIMILARITY_THRESHOLDS["partial"]:
+            status = CitationStatus.PARTIAL
+        elif overlap_ratio >= 0.12 or (claim_too_short and overlap_ratio >= 0.04):
+            # Snippets/titles are often terse or provider-generated. Treat weak
+            # semantic mismatch as partial when lexical overlap still indicates
+            # the page is plausibly relevant.
             status = CitationStatus.PARTIAL
         else:
             status = CitationStatus.FABRICATED
@@ -190,6 +229,7 @@ async def _check_citation(
             status=status,
             similarity_score=round(max(0.0, score), 4),
             page_title=title,
+            error="" if status != CitationStatus.PARTIAL else ("Low-confidence citation match" if content else "Could not fetch page content"),
         )
 
 
@@ -205,7 +245,12 @@ async def run_citation_verifier(state: AgentState) -> dict:
     pairs: list[tuple[str, str]] = []
     for result in results:
         for source in result.sources:
-            claim = source.snippet or source.title or ""
+            findings_context = " ".join(result.findings[:2])
+            claim = " ".join(
+                part.strip()
+                for part in [source.title or "", source.snippet or "", findings_context]
+                if part and part.strip()
+            )[:1_000]
             pairs.append((source.url, claim))
 
     if not pairs:
