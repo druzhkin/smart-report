@@ -260,7 +260,7 @@ async def pipeline_context() -> AsyncIterator[tuple[Any, Any]]:
         from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
         async with AsyncPostgresSaver.from_conn_string(
-            normalize_database_url(settings.postgres_url, async_driver=True)
+            normalize_database_url(settings.postgres_url, async_driver=None)
         ) as checkpointer:
             await checkpointer.setup()
             logger.info("Pipeline ready with PostgresSaver checkpointer")

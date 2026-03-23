@@ -68,11 +68,15 @@ class Settings(BaseSettings):
 settings = Settings()
 
 
-def normalize_database_url(raw_url: str, *, async_driver: bool = True) -> str:
+def normalize_database_url(
+    raw_url: str, *, async_driver: bool | None = True
+) -> str:
     if raw_url.startswith("postgres://"):
         raw_url = raw_url.replace("postgres://", "postgresql://", 1)
 
     if raw_url.startswith("postgresql://"):
+        if async_driver is None:
+            return raw_url
         driver = "postgresql+asyncpg://" if async_driver else "postgresql+psycopg://"
         return raw_url.replace("postgresql://", driver, 1)
 
