@@ -14,6 +14,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from backend.config import normalize_database_url, settings
+from backend.pipeline.cost_guard import BudgetExceededError, InsufficientEvidenceError
 from backend.pricing import get_public_pricing
 from backend.schemas.intake import UserRequest
 from backend.schemas.report_schema import ReportOutput, ReportStatus
@@ -354,6 +355,15 @@ async def _run_pipeline(session_id: str, body: CreateReportRequest) -> None:
                         report_urls=session.report_urls,
                     ),
                 )
+
+    except (BudgetExceededError, InsufficientEvidenceError) as exc:
+        logger.error(f"Pipeline stopped for session {session_id}: {exc}")
+        session.status = "failed"
+        await _upsert_report_summary(session)
+        await _push_event(
+            session_id,
+            _make_event("pipeline", "error", str(exc), session.cost_usd, session.tokens_used),
+        )
 
     except Exception as exc:
         logger.error(f"Pipeline failed for session {session_id}: {exc}")

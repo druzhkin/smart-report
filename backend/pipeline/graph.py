@@ -23,7 +23,7 @@ from backend.agents.summarization_agent import run_summarization
 from backend.agents.supervisor_agent import run_supervisor
 from backend.agents.viz_agent import run_viz_agent
 from backend.config import normalize_database_url, settings
-from backend.pipeline.cost_guard import BudgetExceededError
+from backend.pipeline.cost_guard import BudgetExceededError, InsufficientEvidenceError
 from backend.pipeline.state import AgentState
 
 
@@ -64,7 +64,13 @@ async def cost_guard_post_intake(state: AgentState) -> dict:
 async def cost_guard_post_research(state: AgentState) -> dict:
     budget = _get_budget(state)
     cost = state.get("cost_usd", 0.0)
+    total_sources = sum(len(result.sources) for result in list(state.get("research_results", []) or []))
+    revision_count = state.get("revision_count", 0)
     logger.info(f"CostGuard post-research: ${cost:.4f} / ${budget:.2f}")
+    if total_sources == 0 and revision_count <= 0:
+        raise InsufficientEvidenceError(
+            "Research returned 0 sources on the first pass; aborting instead of expanding unsupported branches"
+        )
     if cost > budget:
         raise BudgetExceededError(
             f"Budget exceeded after research: ${cost:.4f} > ${budget:.2f}"
@@ -288,18 +294,31 @@ def build_graph(checkpointer: Any = None) -> Any:
 
 @asynccontextmanager
 async def pipeline_context() -> AsyncIterator[tuple[Any, Any]]:
+    postgres_cm = None
     try:
         from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
-        async with AsyncPostgresSaver.from_conn_string(
+        postgres_cm = AsyncPostgresSaver.from_conn_string(
             normalize_database_url(settings.postgres_url, async_driver=None)
-        ) as checkpointer:
-            await checkpointer.setup()
-            logger.info("Pipeline ready with PostgresSaver checkpointer")
-            yield build_graph(checkpointer=checkpointer), checkpointer
+        )
     except Exception as e:
         from langgraph.checkpoint.memory import MemorySaver
 
         checkpointer = MemorySaver()
         logger.warning(f"Postgres unavailable ({e}), using MemorySaver fallback")
+        yield build_graph(checkpointer=checkpointer), checkpointer
+        return
+
+    async with postgres_cm as checkpointer:
+        try:
+            await checkpointer.setup()
+        except Exception as e:
+            from langgraph.checkpoint.memory import MemorySaver
+
+            fallback = MemorySaver()
+            logger.warning(f"Postgres unavailable ({e}), using MemorySaver fallback")
+            yield build_graph(checkpointer=fallback), fallback
+            return
+
+        logger.info("Pipeline ready with PostgresSaver checkpointer")
         yield build_graph(checkpointer=checkpointer), checkpointer

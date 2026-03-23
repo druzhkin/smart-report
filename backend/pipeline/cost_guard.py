@@ -7,6 +7,10 @@ class BudgetExceededError(Exception):
     pass
 
 
+class InsufficientEvidenceError(Exception):
+    pass
+
+
 class CostGuard:
     def __init__(self, max_budget: float | None = None) -> None:
         self.max_budget = max_budget or settings.max_budget_usd

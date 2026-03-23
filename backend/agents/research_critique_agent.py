@@ -128,6 +128,7 @@ def _heuristic_critique(state: AgentState) -> ResearchCritiqueResult:
 
     source_counts = [len(result.sources) for result in results]
     avg_sources = mean(source_counts) if source_counts else 0.0
+    total_sources = sum(source_counts)
     unique_domains = {
         source.domain
         for result in results
@@ -172,12 +173,16 @@ def _heuristic_critique(state: AgentState) -> ResearchCritiqueResult:
     challenged_claims: list[dict] = []
     follow_up_queries: list[str] = []
 
+    if results and total_sources == 0:
+        blocking_issues.append("Research returned no usable citations or sources.")
+        recommendations.append("Stop orchestration and repair the research provider or citation extraction before another loop.")
+
     if citation and not citation.passed:
         blocking_issues.append("Citation verification failed to meet the pass threshold.")
         follow_up_queries.append("Re-run the weakest claims against independent verified sources.")
     if coverage_ratio < 0.75:
         blocking_issues.append("Too many planned research tasks remain uncovered.")
-    if avg_sources < 2 and results:
+    if avg_sources < 2 and results and total_sources > 0:
         blocking_issues.append("Research branches do not have enough independent sources.")
         follow_up_queries.extend(
             f"Find two additional independent sources for: {result.query}"
@@ -233,6 +238,17 @@ def _heuristic_critique(state: AgentState) -> ResearchCritiqueResult:
 
 
 def _merge_critique(heuristic: ResearchCritiqueResult, parsed: ResearchCritiqueResult) -> ResearchCritiqueResult:
+    zero_source_mode = any(
+        "no usable citations" in issue.lower() or "no usable sources" in issue.lower()
+        for issue in heuristic.blocking_issues
+    )
+    parsed_follow_up_queries = parsed.follow_up_queries
+    if zero_source_mode:
+        parsed_follow_up_queries = [
+            query for query in parsed.follow_up_queries
+            if not query.startswith("Find two additional independent sources for:")
+        ]
+
     merged_score = CritiqueScore(
         factual_accuracy=min(heuristic.scores.factual_accuracy, parsed.scores.factual_accuracy),
         coverage=min(heuristic.scores.coverage, parsed.scores.coverage),
@@ -252,7 +268,7 @@ def _merge_critique(heuristic: ResearchCritiqueResult, parsed: ResearchCritiqueR
         challenged_claims=heuristic.challenged_claims + [
             claim for claim in parsed.challenged_claims if claim not in heuristic.challenged_claims
         ],
-        follow_up_queries=_dedupe_keep_order(heuristic.follow_up_queries + parsed.follow_up_queries),
+        follow_up_queries=_dedupe_keep_order(heuristic.follow_up_queries + parsed_follow_up_queries),
     )
 
 

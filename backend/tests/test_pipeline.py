@@ -13,7 +13,7 @@ import httpx
 import pytest
 import respx
 
-from backend.pipeline.cost_guard import BudgetExceededError, CostGuard
+from backend.pipeline.cost_guard import BudgetExceededError, CostGuard, InsufficientEvidenceError
 from backend.schemas.intake import IntakeResult
 from backend.schemas.master_prompt import MasterPrompt, RouterResult
 from backend.schemas.quality import (
@@ -641,6 +641,49 @@ class TestQADecision:
         assert decision == "fail"
 
 
+class TestResearchFailFast:
+    async def test_cost_guard_post_research_raises_on_zero_sources_first_pass(self, base_state):
+        from backend.pipeline.graph import cost_guard_post_research
+
+        state = {
+            **base_state,
+            "revision_count": 0,
+            "research_results": [
+                ResearchResult(
+                    query="Estimate market size",
+                    findings=["Market is large."],
+                    sources=[],
+                )
+            ],
+        }
+
+        with pytest.raises(InsufficientEvidenceError, match="0 sources on the first pass"):
+            await cost_guard_post_research(state)
+
+    async def test_pipeline_context_propagates_budget_error_without_fallback_yield(self):
+        from backend.pipeline.graph import pipeline_context
+
+        class _FakeAsyncPostgresSaver:
+            @classmethod
+            def from_conn_string(cls, _conn_string):
+                return cls()
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            async def setup(self):
+                return None
+
+        with patch.dict("sys.modules", {"langgraph.checkpoint.postgres.aio": type("_M", (), {"AsyncPostgresSaver": _FakeAsyncPostgresSaver})}):
+            with patch("backend.pipeline.graph.build_graph", return_value=object()):
+                with pytest.raises(BudgetExceededError, match="Budget exceeded"):
+                    async with pipeline_context():
+                        raise BudgetExceededError("Budget exceeded after research: $4.5240 > $2.00")
+
+
 class TestReflectAndCritique:
     async def test_reflect_adds_follow_up_queries_for_uncovered_tasks(self, base_state):
         from backend.agents.reflect_agent import run_reflect
@@ -745,6 +788,51 @@ class TestReflectAndCritique:
         assert critique.verdict == "REVISE"
         assert critique.follow_up_queries
         assert "Map competitor pricing" in critique.follow_up_queries
+
+    async def test_research_critique_blocks_on_zero_sources_without_branch_explosion(self, base_state):
+        from backend.agents.research_critique_agent import run_research_critique
+
+        state = {
+            **base_state,
+            "research_tasks": [ResearchTask(id="market", question="Estimate market size", priority=1)],
+            "research_results": [
+                ResearchResult(
+                    query="Estimate market size",
+                    findings=["The market is growing quickly."],
+                    sources=[],
+                )
+            ],
+            "evidence_items": [],
+        }
+
+        with patch(
+            "backend.agents.research_critique_agent._call_llm",
+            AsyncMock(
+                return_value=json.dumps(
+                    {
+                        "verdict": "ACCEPT",
+                        "scores": {
+                            "factual_accuracy": 0.9,
+                            "coverage": 0.9,
+                            "logic": 0.9,
+                            "depth": 0.9,
+                            "sources": 0.9,
+                        },
+                        "overall_score": 0.9,
+                        "blocking_issues": [],
+                        "recommendations": [],
+                        "challenged_claims": [],
+                        "follow_up_queries": ["Find two additional independent sources for: Estimate market size"],
+                    }
+                )
+            ),
+        ):
+            result = await run_research_critique(state)
+
+        critique = result["research_critique_result"]
+        assert critique.verdict == "REVISE"
+        assert any("no usable citations" in issue.lower() for issue in critique.blocking_issues)
+        assert not any(query.startswith("Find two additional independent sources for:") for query in critique.follow_up_queries)
 
     async def test_research_critique_detects_contradictory_claims(self, base_state):
         from backend.agents.research_critique_agent import run_research_critique
