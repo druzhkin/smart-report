@@ -25,6 +25,41 @@ import { useSSE } from "@/hooks/useSSE";
 import { getDownloadUrl, type ReportData, type SessionMeta } from "@/lib/api";
 
 type ReportMetadata = Record<string, unknown>;
+type BranchTrace = {
+  question?: string;
+  status?: string;
+  next_action?: string;
+  action_reason?: string;
+  source_strategy?: string;
+  source_count?: number;
+  confidence?: number;
+  gaps?: string[];
+  contradiction_notes?: string[];
+};
+
+type OrchestrationTrace = {
+  task_count?: number;
+  branch_count?: number;
+  actionable_branches?: string[];
+  branch_states?: BranchTrace[];
+  contradictions?: Array<{ topic?: string; reason?: string }>;
+  reflection?: {
+    quality_score?: number | null;
+    needs_more_research?: boolean | null;
+    gaps?: string[];
+  };
+  critique?: {
+    verdict?: string | null;
+    overall_score?: number | null;
+    blocking_issues?: string[];
+    follow_up_queries?: string[];
+  };
+  citations?: {
+    passed?: boolean | null;
+    verified_count?: number;
+    total?: number;
+  };
+};
 
 function asString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value : null;
@@ -46,6 +81,12 @@ function extractChartNames(metadata: ReportMetadata): string[] {
   return chartObjects
     .map((item) => (typeof item === "string" ? item.split(/[\\/]/).pop() ?? "" : ""))
     .filter(Boolean);
+}
+
+function getOrchestrationTrace(metadata: ReportMetadata): OrchestrationTrace | null {
+  const raw = metadata.orchestration;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  return raw as OrchestrationTrace;
 }
 
 function extractHtmlUrl(session: SessionMeta | null): string | null {
@@ -228,6 +269,7 @@ function DataTab({
 }) {
   const metadata = (report.metadata ?? {}) as ReportMetadata;
   const chartNames = extractChartNames(metadata);
+  const trace = getOrchestrationTrace(metadata);
 
   return (
     <motion.div
@@ -269,6 +311,87 @@ function DataTab({
             );
           })}
         </div>
+      )}
+
+      {trace && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Orchestration Trace</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="rounded-xl border p-4">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">Branches</p>
+                <p className="mt-1 text-2xl font-semibold">{trace.branch_count ?? 0}</p>
+              </div>
+              <div className="rounded-xl border p-4">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">Critique</p>
+                <p className="mt-1 text-2xl font-semibold">{trace.critique?.verdict ?? "n/a"}</p>
+              </div>
+              <div className="rounded-xl border p-4">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">Citations</p>
+                <p className="mt-1 text-2xl font-semibold">
+                  {trace.citations?.verified_count ?? 0}/{trace.citations?.total ?? 0}
+                </p>
+              </div>
+            </div>
+
+            {Array.isArray(trace.branch_states) && trace.branch_states.length > 0 && (
+              <div className="space-y-3">
+                <p className="text-sm font-semibold">Branch States</p>
+                {trace.branch_states.map((branch, index) => (
+                  <div key={`${branch.question ?? "branch"}-${index}`} className="rounded-xl border p-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-medium">{branch.question ?? "Untitled branch"}</p>
+                      {branch.status && <Badge variant="secondary">{branch.status}</Badge>}
+                      {branch.next_action && <Badge variant="outline">{branch.next_action}</Badge>}
+                    </div>
+                    {branch.action_reason && (
+                      <p className="mt-2 text-xs text-muted-foreground">{branch.action_reason}</p>
+                    )}
+                    <div className="mt-3 flex flex-wrap gap-3 text-xs text-muted-foreground">
+                      <span>sources: {branch.source_count ?? 0}</span>
+                      <span>strategy: {branch.source_strategy ?? "n/a"}</span>
+                      <span>confidence: {typeof branch.confidence === "number" ? branch.confidence.toFixed(2) : "n/a"}</span>
+                    </div>
+                    {Array.isArray(branch.gaps) && branch.gaps.length > 0 && (
+                      <div className="mt-3">
+                        <p className="text-xs font-medium">Gaps</p>
+                        <ul className="mt-1 list-disc pl-5 text-xs text-muted-foreground">
+                          {branch.gaps.map((gap, gapIndex) => (
+                            <li key={`${gap}-${gapIndex}`}>{gap}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {Array.isArray(branch.contradiction_notes) && branch.contradiction_notes.length > 0 && (
+                      <div className="mt-3">
+                        <p className="text-xs font-medium">Contradictions</p>
+                        <ul className="mt-1 list-disc pl-5 text-xs text-muted-foreground">
+                          {branch.contradiction_notes.map((note, noteIndex) => (
+                            <li key={`${note}-${noteIndex}`}>{note}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {Array.isArray(trace.contradictions) && trace.contradictions.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-sm font-semibold">Detected Contradictions</p>
+                {trace.contradictions.map((item, index) => (
+                  <div key={`${item.topic ?? "contradiction"}-${index}`} className="rounded-xl border p-3 text-sm">
+                    <p className="font-medium">{item.topic ?? "Unlabeled contradiction"}</p>
+                    <p className="text-xs text-muted-foreground">{item.reason ?? "Needs verification"}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
       )}
 
       <Card>

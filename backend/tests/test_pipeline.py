@@ -18,12 +18,23 @@ from backend.schemas.intake import IntakeResult
 from backend.schemas.master_prompt import MasterPrompt, RouterResult
 from backend.schemas.quality import (
     CitationCheckResult,
+    CritiqueScore,
     CitationStatus,
     CitationVerificationResult,
+    ReflectResult,
+    ResearchCritiqueResult,
 )
 from backend.schemas.qa_result import QAIssue, QAResult, QAVerdict
 from backend.schemas.report_schema import ReportOutput, ReportSection, ReportStatus
-from backend.schemas.research_result import ParallelBatches, QueryBatch, ResearchResult, Source
+from backend.schemas.research_result import (
+    ParallelBatches,
+    QueryBatch,
+    ResearchBranchState,
+    ResearchResult,
+    ResearchTask,
+    Source,
+    TaskDecomposition,
+)
 
 _LOCAL_TMP = Path(__file__).resolve().parents[1] / ".pytest-temp"
 _LOCAL_TMP.mkdir(exist_ok=True)
@@ -629,6 +640,210 @@ class TestQADecision:
 
         assert decision == "fail"
 
+
+class TestReflectAndCritique:
+    async def test_reflect_adds_follow_up_queries_for_uncovered_tasks(self, base_state):
+        from backend.agents.reflect_agent import run_reflect
+
+        state = {
+            **base_state,
+            "research_tasks": [
+                ResearchTask(id="market", question="Estimate market size", priority=1),
+                ResearchTask(id="pricing", question="Map competitor pricing", priority=1),
+            ],
+            "research_results": [
+                ResearchResult(
+                    query="Estimate market size",
+                    findings=["The market is growing quickly."],
+                    sources=[Source(url="https://a.com", title="A", domain="a.com", snippet="source A")],
+                )
+            ],
+            "evidence_items": [],
+            "unresolved_questions": ["Clarify target geography"],
+        }
+
+        with patch(
+            "backend.agents.reflect_agent._call_llm",
+            AsyncMock(
+                return_value=json.dumps(
+                    {
+                        "issues": [],
+                        "additional_queries": [],
+                        "strengths": [],
+                        "weaknesses": [],
+                        "gaps": [],
+                        "quality_score": 0.8,
+                        "needs_more_research": False,
+                    }
+                )
+            ),
+        ):
+            result = await run_reflect(state)
+
+        reflect = result["reflect_result"]
+        assert reflect.needs_more_research is True
+        assert "Map competitor pricing" in reflect.additional_queries
+        assert "Clarify target geography" in reflect.additional_queries
+
+    async def test_research_critique_generates_follow_up_queries_from_weak_evidence(self, base_state):
+        from backend.agents.research_critique_agent import run_research_critique
+
+        citation = CitationVerificationResult(
+            checks=[
+                CitationCheckResult(url="https://bad.com", status=CitationStatus.FABRICATED),
+            ]
+        )
+        citation.compute_stats()
+        state = {
+            **base_state,
+            "research_tasks": [ResearchTask(id="market", question="Estimate market size", priority=1)],
+            "research_results": [
+                ResearchResult(
+                    query="Estimate market size",
+                    findings=["The market is growing quickly."],
+                    sources=[Source(url="https://a.com", title="A", domain="a.com", snippet="source A")],
+                )
+            ],
+            "reflect_result": ReflectResult(
+                additional_queries=["Map competitor pricing"],
+                issues=[],
+                strengths=[],
+                weaknesses=[],
+                gaps=[],
+                quality_score=0.4,
+                needs_more_research=True,
+            ),
+            "citation_verification": citation,
+            "evidence_items": [],
+        }
+
+        with patch(
+            "backend.agents.research_critique_agent._call_llm",
+            AsyncMock(
+                return_value=json.dumps(
+                    {
+                        "verdict": "ACCEPT",
+                        "scores": {
+                            "factual_accuracy": 0.9,
+                            "coverage": 0.9,
+                            "logic": 0.9,
+                            "depth": 0.9,
+                            "sources": 0.9,
+                        },
+                        "overall_score": 0.9,
+                        "blocking_issues": [],
+                        "recommendations": [],
+                        "challenged_claims": [],
+                        "follow_up_queries": [],
+                    }
+                )
+            ),
+        ):
+            result = await run_research_critique(state)
+
+        critique = result["research_critique_result"]
+        assert critique.verdict == "REVISE"
+        assert critique.follow_up_queries
+        assert "Map competitor pricing" in critique.follow_up_queries
+
+    async def test_research_critique_detects_contradictory_claims(self, base_state):
+        from backend.agents.research_critique_agent import run_research_critique
+
+        state = {
+            **base_state,
+            "research_results": [
+                ResearchResult(query="AI chip market", findings=["Growth is 12%"], sources=[]),
+                ResearchResult(query="AI chip market", findings=["Growth is 55%"], sources=[]),
+            ],
+            "evidence_items": [
+                {
+                    "id": "ev1",
+                    "query_id": "q1",
+                    "claim": "AI chip market growth is 12% in 2025",
+                    "source_url": "",
+                    "source_title": "",
+                    "snippet": "AI chip market growth is 12% in 2025",
+                    "domain": "",
+                    "confidence": 0.8,
+                    "verification_status": "unverified",
+                    "tags": [],
+                },
+                {
+                    "id": "ev2",
+                    "query_id": "q2",
+                    "claim": "AI chip market growth is 55% in 2025",
+                    "source_url": "",
+                    "source_title": "",
+                    "snippet": "AI chip market growth is 55% in 2025",
+                    "domain": "",
+                    "confidence": 0.8,
+                    "verification_status": "unverified",
+                    "tags": [],
+                },
+            ],
+        }
+
+        with patch(
+            "backend.agents.research_critique_agent._call_llm",
+            AsyncMock(
+                return_value=json.dumps(
+                    {
+                        "verdict": "ACCEPT",
+                        "scores": {
+                            "factual_accuracy": 0.9,
+                            "coverage": 0.9,
+                            "logic": 0.9,
+                            "depth": 0.9,
+                            "sources": 0.9,
+                        },
+                        "overall_score": 0.9,
+                        "blocking_issues": [],
+                        "recommendations": [],
+                        "challenged_claims": [],
+                        "follow_up_queries": [],
+                    }
+                )
+            ),
+        ):
+            result = await run_research_critique(state)
+
+        assert result["contradiction_log"]
+        assert any("Verify contradiction" in query for query in result["research_critique_result"].follow_up_queries)
+
+
+class TestQAAgentEvidenceAware:
+    async def test_qa_rejects_report_without_evidence(self, base_state):
+        from backend.agents.qa_agent import run_qa
+
+        report = ReportOutput(
+            title="AI Chip Market Analysis",
+            executive_summary="Summary",
+            sections=[ReportSection(title="Market Overview", content="Text", order=1, sources=[])],
+            status=ReportStatus.COMPLETED,
+        )
+        state = {
+            **base_state,
+            "report": report,
+            "evidence_items": [],
+            "citation_verification": CitationVerificationResult(),
+            "research_critique_result": ResearchCritiqueResult(
+                verdict="ACCEPT",
+                scores=CritiqueScore(),
+                overall_score=0.8,
+            ),
+        }
+
+        with (
+            patch("backend.agents.qa_agent._call_visual_qa", AsyncMock(return_value='{"score": 0.9, "issues": []}')),
+            patch("backend.agents.qa_agent._call_substance_qa", AsyncMock(return_value='{"score": 0.9, "citation_score": 0.9, "issues": []}')),
+            patch("backend.agents.qa_agent.send_push_notification", AsyncMock(return_value=None)),
+        ):
+            result = await run_qa(state)
+
+        qa_result = result["qa_result"]
+        assert qa_result.verdict == QAVerdict.REJECT
+        assert any(issue.category == "citation" for issue in qa_result.issues)
+
     def test_revise_fails_at_limit(self):
         from backend.pipeline.graph import qa_decision
 
@@ -834,6 +1049,44 @@ class TestResearchAgent:
         assert _get_research_model_config("deep").direct_model == "sonar-pro"
         assert _get_research_model_config("exhaustive").direct_model == "sonar-deep-research"
 
+    def test_branch_prompt_strategy_for_widen(self):
+        from backend.agents.research_agent import _build_research_prompt
+
+        prompt = _build_research_prompt(
+            "AI chip market growth",
+            [{"source": "ragflow", "content": "Prior internal note"}],
+            branch_state=ResearchBranchState(
+                task_id="market",
+                question="AI chip market growth",
+                next_action="widen",
+                action_reason="Need more independent sources.",
+                source_strategy="hybrid",
+            ),
+        )
+
+        assert "widen coverage" in prompt
+        assert "independent sources" in prompt
+        assert "combine internal memory with fresh web verification" in prompt
+
+    def test_branch_prompt_strategy_for_verify(self):
+        from backend.agents.research_agent import _build_research_prompt
+
+        prompt = _build_research_prompt(
+            "AI chip market growth",
+            [],
+            branch_state=ResearchBranchState(
+                task_id="market",
+                question="AI chip market growth",
+                next_action="verify",
+                action_reason="Contradictory evidence was detected for this branch.",
+                contradiction_notes=["numeric spread detected (43.0)"],
+            ),
+        )
+
+        assert "verify contradiction" in prompt
+        assert "Contradiction notes" in prompt
+        assert "numeric spread detected" in prompt
+
     async def test_returns_research_result_with_findings_and_sources(self, base_state):
         from backend.agents.research_agent import run_research
 
@@ -924,6 +1177,45 @@ class TestResearchAgent:
 
         assert len(result["research_results"]) == 1
         assert result["research_results"][0].query == "fallback query"
+
+    async def test_updates_branch_state_after_research(self, base_state):
+        from backend.agents.research_agent import run_research
+
+        state = {
+            **base_state,
+            "parallel_batches": ParallelBatches(
+                batches=[QueryBatch(queries=["AI chip market 2025"], mode="parallel")],
+                total_queries=1,
+            ),
+            "branch_states": [
+                ResearchBranchState(
+                    task_id="market",
+                    question="AI chip market 2025",
+                    status="pending",
+                    source_strategy="web",
+                )
+            ],
+            "intake_result": IntakeResult(
+                original_query="AI chip market 2025",
+                cleaned_query="AI chip market 2025",
+                intent="research",
+                domain="tech",
+                complexity="medium",
+                depth="standard",
+            ),
+        }
+
+        with respx.mock:
+            respx.post(_PERPLEXITY_URL).mock(
+                return_value=httpx.Response(200, json=_MOCK_PERPLEXITY_RESPONSE)
+            )
+            result = await run_research(state)
+
+        branch = result["branch_states"][0]
+        assert branch.question == "AI chip market 2025"
+        assert branch.status == "completed"
+        assert branch.source_count == 2
+        assert branch.next_action == "complete"
 
     async def test_retries_on_429_succeeds_on_third_attempt(self):
         from backend.agents.research_agent import _call_perplexity
@@ -1166,6 +1458,36 @@ class TestPromptKing:
         assert len(result["master_prompt"].techniques_applied) == 2
 
 
+class TestSummarizationAgent:
+    async def test_preserves_raw_research_results_and_emits_brief(self, base_state):
+        from backend.agents.summarization_agent import run_summarization
+
+        research = ResearchResult(
+            query="Estimate market size",
+            findings=["AI chip market reached $120B.", "Inference demand keeps growing."],
+            sources=[Source(url="https://a.com", title="A", snippet="Market data", domain="a.com")],
+        )
+
+        with patch(
+            "backend.agents.summarization_agent._call_summarize",
+            AsyncMock(
+                return_value=json.dumps(
+                    {
+                        "summary": "Condensed branch summary",
+                        "key_facts": ["AI chip market reached $120B."],
+                        "preserved_citation_count": 1,
+                    }
+                )
+            ),
+        ):
+            result = await run_summarization({**base_state, "research_results": [research]})
+
+        assert result["research_brief"]
+        assert "AI chip market reached $120B." in result["research_brief"]
+        assert result["current_agent"] == "summarization"
+        assert research.findings == ["AI chip market reached $120B.", "Inference demand keeps growing."]
+
+
 # ---------------------------------------------------------------------------
 # TestRenderer
 # ---------------------------------------------------------------------------
@@ -1256,6 +1578,165 @@ class TestRenderer:
         assert report.title == "AI Chip Market Analysis 2025-2030"
         assert len(report.sections) == 2
         assert result["current_agent"] == "renderer"
+
+    async def test_renderer_context_contains_evidence_graph(self, renderer_state, tmp_path, monkeypatch):
+        from backend.config import settings
+        from backend.agents import renderer as renderer_module
+        from backend.agents.renderer import run_renderer
+        from backend.schemas.master_prompt import MasterPrompt, ReportSchema, SectionSchema
+
+        monkeypatch.setattr(settings, "outputs_dir", str(tmp_path))
+        captured: dict[str, str] = {}
+
+        async def fake_call_llm(system: str, user: str, model: str) -> str:
+            captured["user"] = user
+            return _MOCK_RENDERER_RESPONSE
+
+        state = {
+            **renderer_state,
+            "research_tasks": [ResearchTask(id="market", question="Estimate market size", priority=1)],
+            "research_brief": "Short branch brief",
+            "evidence_items": [],
+            "master_prompt": MasterPrompt(
+                system_prompt="sys",
+                user_prompt="user",
+                report_schema=ReportSchema(
+                    sections=[
+                        SectionSchema(title="Market Overview", description="Size and growth"),
+                    ]
+                ),
+            ),
+        }
+
+        with (
+            patch.object(renderer_module, "_call_llm", side_effect=fake_call_llm),
+            patch("backend.agents.renderer._build_pdf", return_value=""),
+            patch("backend.agents.renderer._build_docx", return_value=""),
+        ):
+            await run_renderer(state)
+
+        context = json.loads(captured["user"])
+        assert "research_branches" in context
+        assert "report_schema" in context
+        assert "section_packets" in context
+        assert "executive_summary_packet" in context
+        assert context["research_brief"] == "Short branch brief"
+
+    async def test_renderer_normalizes_sections_to_schema_and_allowed_sources(
+        self, renderer_state, tmp_path, monkeypatch
+    ):
+        from backend.config import settings
+        from backend.agents.renderer import run_renderer
+        from backend.schemas.master_prompt import MasterPrompt, ReportSchema, SectionSchema
+
+        monkeypatch.setattr(settings, "outputs_dir", str(tmp_path))
+
+        llm_response = json.dumps(
+            {
+                "title": "AI Chip Market Analysis 2025-2030",
+                "executive_summary": "Summary",
+                "sections": [
+                    {
+                        "title": "Random Title",
+                        "content": "Section content from LLM",
+                        "order": 99,
+                        "sources": ["https://not-allowed.example.com"],
+                    }
+                ],
+            }
+        )
+        state = {
+            **renderer_state,
+            "master_prompt": MasterPrompt(
+                system_prompt="sys",
+                user_prompt="user",
+                report_schema=ReportSchema(
+                    sections=[
+                        SectionSchema(title="Market Overview", description="AI chip market overview"),
+                    ]
+                ),
+            ),
+        }
+
+        with (
+            patch("backend.agents.renderer._call_llm", return_value=llm_response),
+            patch("backend.agents.renderer._build_pdf", return_value=""),
+            patch("backend.agents.renderer._build_docx", return_value=""),
+        ):
+            result = await run_renderer(state)
+
+        section = result["report"].sections[0]
+        assert section.title == "Market Overview"
+        assert section.order == 1
+        assert section.sources == ["https://example.com"]
+
+    async def test_renderer_builds_executive_summary_from_packet_when_llm_summary_empty(
+        self, renderer_state, tmp_path, monkeypatch
+    ):
+        from backend.config import settings
+        from backend.agents.renderer import run_renderer
+
+        monkeypatch.setattr(settings, "outputs_dir", str(tmp_path))
+
+        llm_response = json.dumps(
+            {
+                "title": "AI Chip Market Analysis 2025-2030",
+                "executive_summary": "",
+                "sections": [
+                    {
+                        "title": "Market Overview",
+                        "content": "Section content",
+                        "order": 1,
+                        "sources": ["https://example.com"],
+                    }
+                ],
+            }
+        )
+
+        with (
+            patch("backend.agents.renderer._call_llm", return_value=llm_response),
+            patch("backend.agents.renderer._build_pdf", return_value=""),
+            patch("backend.agents.renderer._build_docx", return_value=""),
+        ):
+            result = await run_renderer(renderer_state)
+
+        executive_summary = result["report"].executive_summary
+        assert "NVIDIA leads with 80% share" in executive_summary
+        assert "Key signals:" in executive_summary
+
+    async def test_renderer_includes_orchestration_metadata(self, renderer_state, tmp_path, monkeypatch):
+        from backend.config import settings
+        from backend.agents.renderer import run_renderer
+
+        monkeypatch.setattr(settings, "outputs_dir", str(tmp_path))
+
+        state = {
+            **renderer_state,
+            "branch_states": [
+                ResearchBranchState(
+                    task_id="market",
+                    question="AI chip market",
+                    status="completed",
+                    next_action="complete",
+                    action_reason="Branch is sufficiently covered for the current cycle.",
+                    source_count=1,
+                    confidence=0.8,
+                )
+            ],
+            "contradiction_log": [{"topic": "ai chip market", "reason": "numeric spread detected"}],
+        }
+
+        with (
+            patch("backend.agents.renderer._call_llm", return_value=_MOCK_RENDERER_RESPONSE),
+            patch("backend.agents.renderer._build_pdf", return_value=""),
+            patch("backend.agents.renderer._build_docx", return_value=""),
+        ):
+            result = await run_renderer(state)
+
+        orchestration = result["report"].metadata["orchestration"]
+        assert orchestration["branch_count"] == 1
+        assert orchestration["branch_states"][0]["next_action"] == "complete"
+        assert orchestration["contradictions"]
 
     async def test_raises_renderer_error_on_empty_llm_content(
         self, renderer_state, tmp_path, monkeypatch
@@ -1475,6 +1956,167 @@ class TestSupervisorAgent:
             "Оцени рынок AI-чипов в Китае",
             "Оцени рынок AI-чипов в Европе",
         ]
+
+
+class TestPromptSplitter:
+    async def test_builds_task_decomposition_from_master_prompt(self, base_state):
+        from backend.agents.prompt_splitter import run_prompt_splitter
+
+        state = {
+            **base_state,
+            "intake_result": IntakeResult(
+                original_query="Analyze AI chip market",
+                cleaned_query="Analyze AI chip market",
+                intent="research",
+                domain="tech",
+                complexity="high",
+                depth="deep",
+                key_entities=["NVIDIA", "AMD"],
+                clarifying_questions=["Which region?"],
+            ),
+            "master_prompt": MasterPrompt(
+                system_prompt="sys",
+                user_prompt="Analyze AI chip market for 2025-2030",
+            ),
+        }
+
+        result = await run_prompt_splitter(state)
+
+        decomposition = result["task_decomposition"]
+        assert decomposition.main_question == "Analyze AI chip market for 2025-2030"
+        assert len(decomposition.subquestions) >= 1
+        assert result["research_tasks"][0].question
+
+
+class TestSupervisorOrchestration:
+    async def test_uses_structured_task_decomposition(self, base_state):
+        from backend.agents.supervisor_agent import run_supervisor
+
+        decomposition = TaskDecomposition(
+            main_question="Analyze AI chip market",
+            subquestions=[
+                ResearchTask(id="market", question="Estimate market size", priority=1),
+                ResearchTask(id="tam", question="Estimate TAM/SAM/SOM", depends_on=["market"], priority=2),
+            ],
+        )
+        llm_payload = json.dumps(
+            {
+                "batches": [
+                    {"queries": ["Estimate market size"], "mode": "sequential", "rationale": "foundation"},
+                    {"queries": ["Estimate TAM/SAM/SOM"], "mode": "sequential", "rationale": "depends on market"},
+                ],
+                "total_queries": 2,
+                "strategy_rationale": "Respect task dependencies",
+            }
+        )
+
+        with (
+            patch("backend.agents.supervisor_agent.retriever.retrieve", AsyncMock(return_value=[])),
+            respx.mock,
+        ):
+            route = respx.post(_OPENROUTER_URL).mock(
+                return_value=httpx.Response(
+                    200,
+                    json={"choices": [{"message": {"content": llm_payload}}]},
+                )
+            )
+            result = await run_supervisor({**base_state, "task_decomposition": decomposition})
+
+        assert not route.called
+        assert len(result["research_tasks"]) == 2
+        assert result["research_tasks"][1].depends_on == ["market"]
+        assert result["data_queries"] == ["Estimate market size"]
+        assert result["branch_states"][0].next_action == "deepen"
+        assert result["branch_states"][1].next_action == "hold"
+
+    async def test_skips_completed_branches_and_plans_only_follow_up(self, base_state):
+        from backend.agents.supervisor_agent import run_supervisor
+
+        decomposition = TaskDecomposition(
+            main_question="Analyze AI chip market",
+            subquestions=[
+                ResearchTask(id="market", question="Estimate market size", priority=1),
+                ResearchTask(id="pricing", question="Map competitor pricing", priority=1),
+            ],
+        )
+        llm_payload = json.dumps(
+            {
+                "batches": [
+                    {"queries": ["Map competitor pricing"], "mode": "sequential", "rationale": "Only open branch"},
+                ],
+                "total_queries": 1,
+                "strategy_rationale": "Re-run only follow-up work",
+            }
+        )
+
+        with (
+            patch("backend.agents.supervisor_agent.retriever.retrieve", AsyncMock(return_value=[])),
+            respx.mock,
+        ):
+            route = respx.post(_OPENROUTER_URL).mock(
+                return_value=httpx.Response(
+                    200,
+                    json={"choices": [{"message": {"content": llm_payload}}]},
+                )
+            )
+            result = await run_supervisor(
+                {
+                    **base_state,
+                    "task_decomposition": decomposition,
+                    "branch_states": [
+                        ResearchBranchState(task_id="market", question="Estimate market size", status="completed"),
+                        ResearchBranchState(task_id="pricing", question="Map competitor pricing", status="needs_follow_up"),
+                    ],
+                    "research_results": [
+                        ResearchResult(
+                            query="Estimate market size",
+                            findings=["The market is large."],
+                            sources=[Source(url="https://a.com", title="A", snippet="source A", domain="a.com")],
+                        )
+                    ],
+                }
+            )
+
+        assert not route.called
+        assert result["data_queries"] == ["Map competitor pricing"]
+        assert any(branch.status == "completed" for branch in result["branch_states"])
+        pricing_branch = next(branch for branch in result["branch_states"] if branch.question == "Map competitor pricing")
+        assert pricing_branch.next_action in {"widen", "verify", "deepen"}
+
+    async def test_contradiction_log_pushes_branch_to_verify(self, base_state):
+        from backend.agents.supervisor_agent import run_supervisor
+
+        decomposition = TaskDecomposition(
+            main_question="Analyze AI chip market",
+            subquestions=[
+                ResearchTask(id="market", question="AI chip market growth", priority=1),
+            ],
+        )
+
+        result = await run_supervisor(
+            {
+                **base_state,
+                "task_decomposition": decomposition,
+                "research_results": [
+                    ResearchResult(
+                        query="AI chip market growth",
+                        findings=["Growth estimates conflict."],
+                        sources=[Source(url="https://a.com", title="A", snippet="source A", domain="a.com")],
+                    )
+                ],
+                "contradiction_log": [
+                    {
+                        "topic": "ai chip market growth",
+                        "claims": ["AI chip market growth is 12%", "AI chip market growth is 55%"],
+                        "reason": "numeric spread detected (43.0)",
+                    }
+                ],
+            }
+        )
+
+        branch = result["branch_states"][0]
+        assert branch.next_action == "verify"
+        assert branch.contradiction_notes
 
 
 # ---------------------------------------------------------------------------

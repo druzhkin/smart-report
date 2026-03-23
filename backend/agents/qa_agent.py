@@ -141,6 +141,67 @@ def _build_revision_instructions(issues: list[QAIssue], verdict: QAVerdict) -> l
     return instructions
 
 
+def _build_evidence_aware_issues(state: AgentState) -> list[QAIssue]:
+    report = state.get("report")
+    evidence_items = list(state.get("evidence_items", []) or [])
+    citation = state.get("citation_verification")
+    critique = state.get("research_critique_result")
+    issues: list[QAIssue] = []
+    has_research_context = bool(evidence_items or citation or critique)
+
+    if has_research_context and not evidence_items:
+        issues.append(
+            QAIssue(
+                category="citation",
+                severity="critical",
+                location="global",
+                description="The report has no structured evidence backing the final narrative.",
+                suggestion="Run another research cycle before accepting this report.",
+                priority=0,
+            )
+        )
+
+    if citation and not citation.passed:
+        issues.append(
+            QAIssue(
+                category="citation",
+                severity="critical" if citation.fabricated_count else "major",
+                location="sources",
+                description="Citation verification did not meet the acceptance threshold.",
+                suggestion="Replace weak citations with verified independent sources.",
+                priority=1,
+            )
+        )
+
+    if has_research_context and report:
+        missing_source_sections = [section.title for section in report.sections if not section.sources]
+        if missing_source_sections:
+            issues.append(
+                QAIssue(
+                    category="completeness",
+                    severity="major",
+                    location=", ".join(missing_source_sections[:3]),
+                    description="One or more report sections do not cite supporting sources.",
+                    suggestion="Attach section-level sources or reduce unsupported claims.",
+                    priority=2,
+                )
+            )
+
+    if critique and critique.blocking_issues:
+        issues.append(
+            QAIssue(
+                category="factual",
+                severity="major",
+                location="research",
+                description="Research critique still reports blocking issues.",
+                suggestion="Address the blocking research gaps before final approval.",
+                priority=3,
+            )
+        )
+
+    return issues
+
+
 @traceable(name="qa_agent")
 async def run_qa(state: AgentState) -> dict:
     logger.info("QA agent started")
@@ -161,7 +222,17 @@ async def run_qa(state: AgentState) -> dict:
     system_visual += f"\n\nRubric:\n{json.dumps(VISUAL_RUBRIC)}"
     system_substance += f"\n\nRubric:\n{json.dumps(SUBSTANCE_RUBRIC)}"
 
-    report_json = json.dumps(report.model_dump(mode="json"), default=str)
+    report_payload = {
+        "report": report.model_dump(mode="json"),
+        "evidence_items": [item.model_dump(mode="json") for item in state.get("evidence_items", []) or []][:20],
+        "citation_verification": state.get("citation_verification").model_dump(mode="json")
+        if state.get("citation_verification")
+        else None,
+        "research_critique": state.get("research_critique_result").model_dump(mode="json")
+        if state.get("research_critique_result")
+        else None,
+    }
+    report_json = json.dumps(report_payload, default=str)
     chart_paths = state.get("chart_paths", [])
 
     raw_visual, raw_substance = await asyncio.gather(
@@ -181,7 +252,7 @@ async def run_qa(state: AgentState) -> dict:
         logger.warning("QA substance parse failed, using defaults")
         substance = {"score": 0.5, "citation_score": 0.5, "issues": []}
 
-    issues: list[QAIssue] = []
+    issues: list[QAIssue] = _build_evidence_aware_issues(state)
     for idx, issue_data in enumerate(visual.get("issues", []) + substance.get("issues", [])):
         # Normalise common LLM field-name variants so validation succeeds.
         if "issue" in issue_data and "category" not in issue_data:
@@ -197,7 +268,9 @@ async def run_qa(state: AgentState) -> dict:
         issue_data.setdefault("suggestion", issue_data.get("description", "Review and improve"))
         issue_data.setdefault("priority", idx)
         try:
-            issues.append(QAIssue(**issue_data))
+            candidate = QAIssue(**issue_data)
+            if candidate not in issues:
+                issues.append(candidate)
         except Exception as exc:
             logger.warning(f"Skipping malformed QA issue #{idx}: {exc}")
 

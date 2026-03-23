@@ -9,7 +9,15 @@ from backend.schemas.quality import (
     ResearchCritiqueResult,
 )
 from backend.schemas.report_schema import ReportOutput, ReportStatus
-from backend.schemas.research_result import ParallelBatches, ResearchResult
+from backend.schemas.research_result import (
+    ResearchBranchState,
+    EvidenceItem,
+    ParallelBatches,
+    ResearchHypothesis,
+    ResearchResult,
+    ResearchTask,
+    TaskDecomposition,
+)
 
 
 class AgentState(TypedDict, total=False):
@@ -27,7 +35,15 @@ class AgentState(TypedDict, total=False):
     selected_techniques: list[str]
     master_prompt: MasterPrompt
     data_queries: list[str]
+    research_brief: str
     parallel_batches: ParallelBatches
+    task_decomposition: TaskDecomposition
+    research_tasks: list[ResearchTask]
+    branch_states: list[ResearchBranchState]
+    evidence_items: list[EvidenceItem]
+    contradiction_log: list[dict[str, Any]]
+    hypotheses: list[ResearchHypothesis]
+    unresolved_questions: list[str]
     research_results: list[ResearchResult]
     report: ReportOutput
     qa_result: QAResult

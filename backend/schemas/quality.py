@@ -85,3 +85,4 @@ class ResearchCritiqueResult(BaseModel):
     blocking_issues: list[str] = Field(default_factory=list)
     recommendations: list[str] = Field(default_factory=list)
     challenged_claims: list[dict] = Field(default_factory=list)
+    follow_up_queries: list[str] = Field(default_factory=list)

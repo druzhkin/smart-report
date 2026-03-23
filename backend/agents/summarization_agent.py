@@ -8,7 +8,7 @@ from loguru import logger
 from backend.config import settings
 from backend.pipeline.model_router import AgentTask, get_model, estimate_cost
 from backend.pipeline.state import AgentState
-from backend.schemas.research_result import ResearchResult, Source
+from backend.schemas.research_result import ResearchResult
 from backend.utils.json_parse import parse_llm_json, supports_json_mode
 from backend.utils.retry import llm_retry
 
@@ -53,8 +53,8 @@ async def _call_summarize(text: str, model: str) -> str:
         return resp.json()["choices"][0]["message"]["content"]
 
 
-async def _summarize_one(result: ResearchResult, model: str) -> tuple[ResearchResult, float]:
-    """Summarize a single ResearchResult independently (context efficiency)."""
+async def _summarize_one(result: ResearchResult, model: str) -> tuple[dict, float]:
+    """Create a compact research brief for one branch without mutating core evidence."""
     findings_text = "\n".join(f"- {f}" for f in result.findings)
     sources_text = "\n".join(
         f"[{i+1}] {s.title} ({s.domain}): {s.snippet[:200]}"
@@ -69,26 +69,22 @@ async def _summarize_one(result: ResearchResult, model: str) -> tuple[ResearchRe
         logger.warning(f"Summarization parse failed for query '{result.query}', using raw text")
         parsed = {"key_facts": [raw[:2000]], "summary": raw[:2000]}
 
-    summarized = ResearchResult(
-        query=result.query,
-        findings=parsed.get("key_facts", [parsed.get("summary", "")]),
-        sources=result.sources,
-        confidence=result.confidence,
-        gaps=result.gaps,
-        iteration=result.iteration,
-    )
-
     cost = estimate_cost(
         AgentTask.SUMMARIZATION,
         len(user_text) // 4,
         len(raw) // 4,
     )
-    return summarized, cost
+    return {
+        "query": result.query,
+        "summary": parsed.get("summary", ""),
+        "key_facts": parsed.get("key_facts", []),
+        "citation_count": len(result.sources),
+    }, cost
 
 
 @traceable(name="summarization_agent")
 async def run_summarization(state: AgentState) -> dict:
-    """Compress each research result to max 2000 tokens, preserving citations."""
+    """Create a lightweight research brief without overwriting raw research results."""
     logger.info("Summarization agent started")
     model = get_model(AgentTask.SUMMARIZATION)
     results = state.get("research_results", [])
@@ -100,24 +96,26 @@ async def run_summarization(state: AgentState) -> dict:
     tasks = [_summarize_one(r, model) for r in results]
     summarized_pairs = await asyncio.gather(*tasks)
 
-    summarized_results: list[ResearchResult] = []
+    branch_briefs: list[dict] = []
     total_cost = 0.0
-    for result, cost in summarized_pairs:
-        summarized_results.append(result)
+    for brief, cost in summarized_pairs:
+        branch_briefs.append(brief)
         total_cost += cost
 
     combined_summary = "\n\n".join(
-        f"## {r.query}\n" + "\n".join(f"- {f}" for f in r.findings)
-        for r in summarized_results
+        f"## {brief['query']}\n"
+        + "\n".join(f"- {fact}" for fact in brief.get("key_facts", [])[:6])
+        + (f"\n\nSummary: {brief['summary']}" if brief.get("summary") else "")
+        for brief in branch_briefs
     )
 
     logger.info(
-        f"Summarization complete: {len(summarized_results)} results compressed, "
-        f"{sum(len(r.sources) for r in summarized_results)} citations preserved"
+        f"Summarization complete: {len(branch_briefs)} briefs created, "
+        f"{sum(len(r.sources) for r in results)} citations referenced"
     )
 
     return {
-        "research_results": summarized_results,
+        "research_brief": combined_summary,
         "messages": state.get("messages", []) + [
             {"role": "summarization", "content": combined_summary}
         ],

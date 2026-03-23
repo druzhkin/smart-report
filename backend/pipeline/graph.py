@@ -106,6 +106,8 @@ async def research_critique_node(state: AgentState) -> dict:
     result["critic_score"] = score
     result["verdict"] = critique.verdict if critique else "REVISE"
     result["revision_count"] = state.get("revision_count", 0) + 1
+    if critique and critique.follow_up_queries:
+        result["unresolved_questions"] = list(state.get("unresolved_questions", []) or []) + critique.follow_up_queries
     return result
 
 
@@ -261,7 +263,7 @@ def build_graph(checkpointer: Any = None) -> Any:
     wf.add_conditional_edges(
         "research_critique",
         critique_decision,
-        {"revise": "reflect", "proceed": "viz_agent"},
+        {"revise": "supervisor", "proceed": "viz_agent"},
     )
 
     wf.add_edge("viz_agent", "render_and_present")

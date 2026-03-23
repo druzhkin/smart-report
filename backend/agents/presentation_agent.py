@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import tempfile
+from pathlib import PurePosixPath
 
 import httpx
 from langsmith import traceable
@@ -18,24 +20,26 @@ class RendererError(Exception):
     pass
 
 
-SYSTEM_PROMPT = """You are a presentation architect. Convert structured report data into a concise slide deck.
+_PRESENTATION_PROMPT_TEMPLATE = """You are a presentation architect. Convert structured report data into a concise slide deck.
 
 Input: executive_summary, key data points, report schema.
 Do NOT use the full report text, only structured data.
 
+CRITICAL: Write ALL text (title, slide titles, bullets, speaker notes) in {language_name}.
+
 Return JSON:
-{
+{{
   "title": "Presentation Title",
   "slides": [
-    {
+    {{
       "title": "Slide Title",
       "bullets": ["Key point 1", "Key point 2"],
       "notes": "Speaker notes for this slide",
       "chart_ref": null or "chart_0.png"
-    }
+    }}
   ],
   "theme": "corporate"
-}
+}}
 
 Rules:
 - Max 15 slides. First slide = title, last = key takeaways.
@@ -43,7 +47,10 @@ Rules:
 - Include speaker notes with supporting data.
 - Reference charts by filename where relevant."""
 
+_PRES_LANG_NAMES = {"ru": "Russian", "en": "English", "de": "German", "fr": "French", "es": "Spanish", "zh": "Chinese"}
+
 _GAMMA_BASE = "https://public-api.gamma.app/v1.0"
+_GAMMA_LEGACY_URL = "https://api.gamma.app/v1/presentations"
 _GAMMA_POLL_INTERVAL = 5
 _GAMMA_MAX_POLLS = 24
 
@@ -87,7 +94,8 @@ def _parse_slides_json(raw: str, report_title: str) -> dict:
 
 
 @llm_retry()
-async def _generate_slide_json(data: str, model: str) -> str:
+async def _generate_slide_json(data: str, model: str, lang: str = "en") -> str:
+    prompt = _PRESENTATION_PROMPT_TEMPLATE.format(language_name=_PRES_LANG_NAMES.get(lang, lang))
     async with httpx.AsyncClient(timeout=90) as client:
         resp = await client.post(
             f"{settings.openrouter_base_url}/chat/completions",
@@ -95,7 +103,7 @@ async def _generate_slide_json(data: str, model: str) -> str:
             json={
                 "model": model,
                 "messages": [
-                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "system", "content": prompt},
                     {"role": "user", "content": data},
                 ],
                 "temperature": 0.3,
@@ -117,6 +125,48 @@ def _build_markdown(slides_json: dict) -> str:
             lines.append(f"\n{notes}")
         lines.append("")
     return "\n".join(lines)
+
+
+def _resolve_outputs_root() -> str:
+    base_dir = settings.outputs_dir
+    if os.name == "nt" and isinstance(base_dir, str) and base_dir.startswith("/"):
+        posix_path = PurePosixPath(base_dir)
+        if posix_path.parts[:2] == ("/", "tmp"):
+            return str(PurePosixPath(tempfile.gettempdir(), *posix_path.parts[2:]))
+    return str(base_dir)
+
+
+async def _gamma_create_legacy(markdown_text: str) -> str:
+    headers = {"X-API-KEY": settings.gamma_api_key}
+    async with httpx.AsyncClient(timeout=60) as client:
+        resp = await client.post(
+            _GAMMA_LEGACY_URL,
+            headers=headers,
+            json={"content": markdown_text, "format": "presentation"},
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+        url = payload.get("url")
+        if not url:
+            raise RendererError(f"Legacy Gamma API did not return url: {payload}")
+        return url
+
+
+async def _presenton_create(markdown_text: str, slides_json: dict) -> tuple[str, str]:
+    if not settings.presenton_url:
+        raise RendererError("PRESENTON_URL is not set")
+
+    async with httpx.AsyncClient(timeout=60) as client:
+        resp = await client.post(
+            f"{settings.presenton_url.rstrip('/')}/api/presentations",
+            json={"markdown": markdown_text, "slides": slides_json},
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+        url = payload.get("url")
+        if not url:
+            raise RendererError(f"Presenton did not return url: {payload}")
+        return url, payload.get("file_path", "")
 
 
 async def _gamma_create(markdown_text: str, out_path: str) -> str:
@@ -217,10 +267,12 @@ async def run_presentation(state: AgentState) -> dict:
         return {"current_agent": "presentation"}
 
     model = get_model(AgentTask.PRESENTATION)
+    intake = state.get("intake_result")
+    lang = intake.language if intake else "en"
     input_data = _build_input(state)
     input_json = json.dumps(input_data, default=str)
 
-    raw = await _generate_slide_json(input_json, model)
+    raw = await _generate_slide_json(input_json, model, lang=lang)
     slides_json = _parse_slides_json(raw, report.title)
 
     cost = estimate_cost(AgentTask.PRESENTATION, len(input_json) // 4, len(raw) // 4)
@@ -233,19 +285,44 @@ async def run_presentation(state: AgentState) -> dict:
     }
 
     session_id = state.get("session_id", state.get("report_id", "default"))
-    out_dir = os.path.join(settings.outputs_dir, session_id)
+    out_dir = os.path.join(_resolve_outputs_root(), session_id)
     os.makedirs(out_dir, exist_ok=True)
 
     slides_path = os.path.join(out_dir, "slides.json")
     with open(slides_path, "w", encoding="utf-8") as file_obj:
         json.dump(slides_json, file_obj, indent=2, ensure_ascii=False)
 
-    if not settings.gamma_api_key:
+    if not settings.gamma_api_key and not settings.presenton_url:
         result["presentation_path"] = slides_path
         return result
 
+    markdown = _build_markdown(slides_json)
+
+    if settings.gamma_api_key:
+        try:
+            result["presentation_url"] = await _gamma_create_legacy(markdown)
+            result["presentation_path"] = slides_path
+            return result
+        except Exception as exc:
+            logger.warning(f"Legacy Gamma presentation failed, trying export flow: {exc}")
+
     pptx_path = os.path.join(out_dir, "report.pptx")
-    await _gamma_create(_build_markdown(slides_json), pptx_path)
-    result["presentation_path"] = pptx_path
-    result["final_report_paths"] = state.get("final_report_paths", []) + [pptx_path]
+    if settings.gamma_api_key:
+        try:
+            await _gamma_create(markdown, pptx_path)
+            result["presentation_path"] = pptx_path
+            result["final_report_paths"] = state.get("final_report_paths", []) + [pptx_path]
+            return result
+        except Exception as exc:
+            logger.warning(f"Gamma export failed, trying Presenton fallback: {exc}")
+
+    if settings.presenton_url:
+        url, file_path = await _presenton_create(markdown, slides_json)
+        result["presentation_url"] = url
+        result["presentation_path"] = file_path or slides_path
+        if file_path:
+            result["final_report_paths"] = state.get("final_report_paths", []) + [file_path]
+        return result
+
+    result["presentation_path"] = slides_path
     return result

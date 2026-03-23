@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 
 import httpx
@@ -19,11 +20,14 @@ from backend.schemas.report_schema import ReportOutput, ReportSection
 from backend.utils.json_parse import parse_llm_json, supports_json_mode
 from backend.utils.retry import llm_retry
 
-SYSTEM_PROMPT = """You are a McKinsey-grade report writer using data from professional research.
+_SYSTEM_PROMPT_TEMPLATE = """You are a McKinsey-grade report writer using data from professional research.
 Generate a comprehensive structured report with title, executive_summary, and sections array.
 Each section has: title, content (full markdown with data, analysis, citations), order, sources (list of URLs).
 
 Requirements:
+- CRITICAL: Write the ENTIRE report (title, executive_summary, all section titles and content) in {language_name}. Do NOT use any other language.
+- Use the provided evidence graph as the primary truth source. Do not invent claims that are absent from the evidence.
+- If evidence is partial or conflicting, state uncertainty explicitly instead of smoothing it away.
 - Executive summary: 300-400 words, actionable insights, key metrics with specific numbers.
 - Generate AT LEAST 6-8 detailed sections covering all major aspects of the topic.
 - Each section: minimum 400 words, thorough analysis with specific data points, statistics, and trends.
@@ -42,13 +46,343 @@ Requirements:
 - Professional, authoritative tone. No filler. Dense with data.
 
 Return valid JSON:
-{
+{{
   "title": "...",
   "executive_summary": "...",
   "sections": [
-    {"title": "...", "content": "...", "order": 1, "sources": ["url1", "url2"]}
+    {{"title": "...", "content": "...", "order": 1, "sources": ["url1", "url2"]}}
   ]
-}"""
+}}"""
+
+LANG_NAMES = {"ru": "Russian", "en": "English", "de": "German", "fr": "French", "es": "Spanish", "zh": "Chinese", "ja": "Japanese", "ko": "Korean"}
+
+
+def _get_renderer_prompt(lang: str = "en") -> str:
+    return _SYSTEM_PROMPT_TEMPLATE.format(language_name=LANG_NAMES.get(lang, lang))
+
+
+def _tokenize(text: str) -> set[str]:
+    return {token for token in re.findall(r"[a-zA-Zа-яА-Я0-9]+", (text or "").lower()) if len(token) > 2}
+
+
+def _score_branch_match(section_title: str, section_description: str, branch: dict) -> int:
+    section_tokens = _tokenize(f"{section_title} {section_description}")
+    branch_tokens = _tokenize(
+        " ".join(
+            [
+                branch.get("query", ""),
+                " ".join(branch.get("findings", [])[:4]),
+                " ".join(source.get("title", "") for source in branch.get("sources", [])),
+            ]
+        )
+    )
+    if not section_tokens or not branch_tokens:
+        return 0
+    return len(section_tokens & branch_tokens)
+
+
+def _build_section_packets(section_targets: list[dict], branch_packets: list[dict]) -> list[dict]:
+    if not section_targets:
+        return []
+
+    packets: list[dict] = []
+    for index, section in enumerate(section_targets, start=1):
+        ranked = sorted(
+            branch_packets,
+            key=lambda branch: (
+                _score_branch_match(section.get("title", ""), section.get("description", ""), branch),
+                branch.get("confidence", 0.0),
+            ),
+            reverse=True,
+        )
+        matched = [
+            branch
+            for branch in ranked
+            if _score_branch_match(section.get("title", ""), section.get("description", ""), branch) > 0
+        ][:3]
+        if not matched and ranked:
+            matched = ranked[:1]
+
+        allowed_sources = list(
+            dict.fromkeys(
+                source.get("url", "")
+                for branch in matched
+                for source in branch.get("sources", [])
+                if source.get("url")
+            )
+        )
+        packets.append(
+            {
+                "title": section.get("title", f"Section {index}"),
+                "description": section.get("description", ""),
+                "required": section.get("required", True),
+                "order": index,
+                "matched_branches": matched,
+                "allowed_sources": allowed_sources,
+                "subsections": section.get("subsections", []),
+            }
+        )
+    return packets
+
+
+def _build_executive_summary_packet(
+    branch_packets: list[dict],
+    evidence_items: list[dict],
+    critique: dict | None,
+    citation: dict | None,
+    reflect: dict | None,
+) -> dict:
+    top_signals: list[str] = []
+    for branch in sorted(branch_packets, key=lambda item: item.get("confidence", 0.0), reverse=True):
+        top_signals.extend(branch.get("findings", [])[:2])
+        if len(top_signals) >= 6:
+            break
+    if not top_signals:
+        top_signals.extend(item.get("claim", "") for item in evidence_items[:6] if item.get("claim"))
+
+    open_questions = []
+    if critique:
+        open_questions.extend(critique.get("blocking_issues", [])[:3])
+    if reflect:
+        open_questions.extend(reflect.get("gaps", [])[:3])
+
+    unique_domains = {
+        source.get("domain", "")
+        for branch in branch_packets
+        for source in branch.get("sources", [])
+        if source.get("domain")
+    }
+    return {
+        "top_signals": list(dict.fromkeys(signal for signal in top_signals if signal))[:6],
+        "open_questions": list(dict.fromkeys(question for question in open_questions if question))[:4],
+        "branch_count": len(branch_packets),
+        "evidence_count": len(evidence_items),
+        "unique_domain_count": len(unique_domains),
+        "citation_passed": citation.get("passed") if citation else None,
+        "verified_count": citation.get("verified_count", 0) if citation else 0,
+        "citation_total": citation.get("total", 0) if citation else 0,
+    }
+
+
+def _compose_executive_summary(packet: dict, llm_summary: str) -> str:
+    llm_summary = (llm_summary or "").strip()
+    if llm_summary and len(llm_summary) >= 120:
+        base = llm_summary
+    else:
+        top_signals = packet.get("top_signals", [])
+        opening = top_signals[0] if top_signals else "The current evidence base supports a directional conclusion, but confidence varies by branch."
+        base = (
+            f"{opening} "
+            f"The report draws on {packet.get('branch_count', 0)} research branches, "
+            f"{packet.get('evidence_count', 0)} structured evidence items, and "
+            f"{packet.get('unique_domain_count', 0)} unique source domains."
+        )
+
+    bullets = packet.get("top_signals", [])[:4]
+    summary_parts = [base]
+    if bullets:
+        summary_parts.append("Key signals:\n" + "\n".join(f"- {item}" for item in bullets))
+
+    citation_total = packet.get("citation_total", 0)
+    if citation_total:
+        quality_line = (
+            f"Evidence quality: {packet.get('verified_count', 0)}/{citation_total} citations verified"
+        )
+        if packet.get("citation_passed") is False:
+            quality_line += ", so conclusions should be treated with caution."
+        else:
+            quality_line += "."
+        summary_parts.append(quality_line)
+
+    open_questions = packet.get("open_questions", [])[:3]
+    if open_questions:
+        summary_parts.append(
+            "Open questions:\n" + "\n".join(f"- {question}" for question in open_questions)
+        )
+
+    return "\n\n".join(part for part in summary_parts if part).strip()
+
+
+def _build_orchestration_metadata(state: AgentState, context: dict) -> dict:
+    branch_states = list(state.get("branch_states", []) or [])
+    tasks = list(state.get("research_tasks", []) or [])
+    contradiction_log = list(state.get("contradiction_log", []) or [])
+    citation = state.get("citation_verification")
+    critique = state.get("research_critique_result")
+    reflect = state.get("reflect_result")
+
+    return {
+        "orchestration": {
+            "task_count": len(tasks),
+            "branch_count": len(branch_states),
+            "actionable_branches": [
+                branch.question
+                for branch in branch_states
+                if branch.next_action in {"deepen", "widen", "verify"}
+            ],
+            "branch_states": [
+                {
+                    "task_id": branch.task_id,
+                    "question": branch.question,
+                    "status": branch.status,
+                    "next_action": branch.next_action,
+                    "action_reason": branch.action_reason,
+                    "evidence_count": branch.evidence_count,
+                    "source_count": branch.source_count,
+                    "confidence": branch.confidence,
+                    "source_strategy": branch.source_strategy,
+                    "gaps": branch.gaps,
+                    "contradiction_notes": branch.contradiction_notes,
+                }
+                for branch in branch_states
+            ],
+            "contradictions": contradiction_log,
+            "reflection": {
+                "quality_score": reflect.quality_score if reflect else None,
+                "needs_more_research": reflect.needs_more_research if reflect else None,
+                "gaps": reflect.gaps if reflect else [],
+            },
+            "critique": {
+                "verdict": critique.verdict if critique else None,
+                "overall_score": critique.overall_score if critique else None,
+                "blocking_issues": critique.blocking_issues if critique else [],
+                "follow_up_queries": critique.follow_up_queries if critique else [],
+            },
+            "citations": {
+                "passed": citation.passed if citation else None,
+                "verified_count": citation.verified_count if citation else 0,
+                "total": citation.total if citation else 0,
+            },
+            "available_charts": context.get("available_charts", []),
+        }
+    }
+
+
+def _normalize_rendered_sections(parsed_sections: list[dict], section_packets: list[dict]) -> list[ReportSection]:
+    normalized_by_title: dict[str, dict] = {
+        str(section.get("title", "")).strip().lower(): section
+        for section in parsed_sections
+        if str(section.get("title", "")).strip()
+    }
+
+    output_sections: list[ReportSection] = []
+    if section_packets:
+        for packet in section_packets:
+            packet_title = packet.get("title", "")
+            llm_section = normalized_by_title.get(packet_title.strip().lower(), {})
+            allowed_sources = packet.get("allowed_sources", [])
+            raw_sources = list(llm_section.get("sources", []) or [])
+            filtered_sources = [source for source in raw_sources if source in allowed_sources]
+            if not filtered_sources:
+                filtered_sources = allowed_sources[:6]
+
+            content = str(llm_section.get("content", "")).strip()
+            if not content:
+                branch_notes = []
+                for branch in packet.get("matched_branches", []):
+                    branch_notes.extend(branch.get("findings", [])[:3])
+                content = "\n\n".join(branch_notes) or "Evidence for this section is limited; uncertainty is noted."
+
+            output_sections.append(
+                ReportSection(
+                    title=packet_title,
+                    content=content,
+                    order=int(packet.get("order", len(output_sections) + 1)),
+                    sources=filtered_sources,
+                )
+            )
+        return output_sections
+
+    for index, section in enumerate(parsed_sections, start=1):
+        output_sections.append(
+            ReportSection(
+                title=section.get("title", f"Section {index}"),
+                content=section.get("content", ""),
+                order=section.get("order", index),
+                sources=list(section.get("sources", []) or []),
+            )
+        )
+    return output_sections
+
+
+def _build_render_context(state: AgentState) -> dict:
+    results = state.get("research_results", [])
+    intake = state.get("intake_result")
+    master_prompt = state.get("master_prompt")
+    chart_paths = state.get("chart_paths", [])
+    citation = state.get("citation_verification")
+    critique = state.get("research_critique_result")
+    reflect = state.get("reflect_result")
+    evidence_items = list(state.get("evidence_items", []) or [])
+    research_tasks = list(state.get("research_tasks", []) or [])
+
+    section_targets: list[dict] = []
+    if master_prompt and master_prompt.report_schema and master_prompt.report_schema.sections:
+        for section in master_prompt.report_schema.sections:
+            section_targets.append(
+                {
+                    "title": section.title,
+                    "description": section.description,
+                    "required": section.required,
+                    "min_words": section.min_words,
+                    "subsections": section.subsections,
+                }
+            )
+
+    branch_packets: list[dict] = []
+    for result in results:
+        branch_evidence = [
+            item.model_dump(mode="json")
+            for item in evidence_items
+            if result.query in item.claim or item.source_url in {source.url for source in result.sources}
+        ][:8]
+        branch_packets.append(
+            {
+                "query": result.query,
+                "findings": result.findings,
+                "sources": [source.model_dump(mode="json") for source in result.sources],
+                "gaps": result.gaps,
+                "confidence": result.confidence,
+                "evidence": branch_evidence,
+            }
+        )
+
+    section_packets = _build_section_packets(section_targets, branch_packets)
+    citation_payload = citation.model_dump(mode="json") if citation else None
+    critique_payload = critique.model_dump(mode="json") if critique else None
+    reflect_payload = reflect.model_dump(mode="json") if reflect else None
+    evidence_payload = [item.model_dump(mode="json") for item in evidence_items[:24]]
+    executive_summary_packet = _build_executive_summary_packet(
+        branch_packets,
+        evidence_payload,
+        critique_payload,
+        citation_payload,
+        reflect_payload,
+    )
+
+    return {
+        "intake": intake.model_dump() if intake else {},
+        "report_schema": {
+            "title_template": master_prompt.report_schema.title_template if master_prompt and master_prompt.report_schema else "",
+            "constraints": master_prompt.report_schema.constraints if master_prompt and master_prompt.report_schema else [],
+            "sections": section_targets,
+        },
+        "research_tasks": [task.model_dump(mode="json") for task in research_tasks],
+        "research_branches": branch_packets,
+        "section_packets": section_packets,
+        "evidence_items": evidence_payload,
+        "research_brief": state.get("research_brief", ""),
+        "reflection": reflect_payload,
+        "research_critique": critique_payload,
+        "citation_verification": citation_payload,
+        "executive_summary_packet": executive_summary_packet,
+        "available_charts": [Path(p).name for p in chart_paths],
+        "instructions": {
+            "primary_rule": "Write from evidence and cited branches, not from generic prose.",
+            "if_evidence_missing": "Explicitly note uncertainty instead of inventing detail.",
+            "section_source_rule": "Every section should inherit only sources that support its claims.",
+        },
+    }
 
 
 @llm_retry()
@@ -84,7 +418,7 @@ def _ensure_table_spacing(text: str) -> str:
     return text
 
 
-def _build_html(report: ReportOutput, chart_paths: list[str]) -> str:
+def _build_html(report: ReportOutput, chart_paths: list[str], lang: str = "en") -> str:
     """Build standalone HTML from report."""
     import markdown as md
 
@@ -106,7 +440,7 @@ def _build_html(report: ReportOutput, chart_paths: list[str]) -> str:
     exec_html = md.markdown(_ensure_table_spacing(report.executive_summary), extensions=["tables", "nl2br"])
 
     return f"""<!DOCTYPE html>
-<html lang="en">
+<html lang="{lang}">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -241,24 +575,13 @@ async def run_renderer(state: AgentState) -> dict:
     out_dir = os.path.join(settings.outputs_dir, session_id)
     os.makedirs(out_dir, exist_ok=True)
 
-    results = state.get("research_results", [])
     intake = state.get("intake_result")
-    master_prompt = state.get("master_prompt")
     chart_paths = state.get("chart_paths", [])
-    summary_msg = next(
-        (m for m in state.get("messages", []) if m.get("role") == "summarization"), None
-    )
-
-    context = {
-        "intake": intake.model_dump() if intake else {},
-        "findings": [r.model_dump(mode="json") for r in results],
-        "summary": summary_msg["content"] if summary_msg else "",
-        "master_prompt": master_prompt.master_prompt if master_prompt else "",
-        "available_charts": [Path(p).name for p in chart_paths],
-    }
+    lang = intake.language if intake else "en"
+    context = _build_render_context(state)
 
     context_json = json.dumps(context, default=str)
-    raw = await _call_llm(SYSTEM_PROMPT, context_json, model)
+    raw = await _call_llm(_get_renderer_prompt(lang), context_json, model)
     if not raw or not raw.strip():
         raise RendererError("LLM returned empty content")
     try:
@@ -266,16 +589,20 @@ async def run_renderer(state: AgentState) -> dict:
     except ValueError as exc:
         raise RendererError(str(exc)) from exc
 
-    sections = [ReportSection(**s) for s in parsed.get("sections", [])]
+    sections = _normalize_rendered_sections(parsed.get("sections", []), context.get("section_packets", []))
     report = ReportOutput(
         id=state.get("report_id", ""),
         title=parsed.get("title", "Untitled Report"),
-        executive_summary=parsed.get("executive_summary", ""),
+        executive_summary=_compose_executive_summary(
+            context.get("executive_summary_packet", {}),
+            parsed.get("executive_summary", ""),
+        ),
         sections=sections,
         total_cost_usd=state.get("cost_usd", 0),
+        metadata=_build_orchestration_metadata(state, context),
     )
 
-    html_content = _build_html(report, chart_paths)
+    html_content = _build_html(report, chart_paths, lang=lang)
     html_path = os.path.join(out_dir, "report.html")
     with open(html_path, "w", encoding="utf-8") as f:
         f.write(html_content)
