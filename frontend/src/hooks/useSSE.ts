@@ -82,17 +82,18 @@ export function useSSE(sessionId: string | null): UseSSEReturn {
   const [reportUrls, setReportUrls] = useState<Record<string, string> | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const esRef = useRef<EventSource | null>(null);
   const retriesRef = useRef(0);
+  const terminalRef = useRef(false);
 
   const processEvent = useCallback((event: SSEEvent) => {
     const displayKey = STEP_MAPPING[event.step];
     if (!displayKey && event.step !== "complete" && event.step !== "pipeline") return;
 
-    if (event.cost_usd) setCostUsd(event.cost_usd);
-    if (event.tokens_used) setTokensUsed(event.tokens_used);
+    if (typeof event.cost_usd === "number") setCostUsd(event.cost_usd);
+    if (typeof event.tokens_used === "number") setTokensUsed(event.tokens_used);
 
-    if (event.step === "complete" || event.status === "done" && event.step === "pipeline") {
+    if ((event.step === "complete") || (event.status === "done" && event.step === "pipeline")) {
+      terminalRef.current = true;
       setIsComplete(true);
       if (event.report_urls) setReportUrls(event.report_urls);
       setSteps((prev) => prev.map((s) => ({ ...s, status: "done" as const, completedAt: Date.now() })));
@@ -100,6 +101,7 @@ export function useSSE(sessionId: string | null): UseSSEReturn {
     }
 
     if (event.status === "error") {
+      terminalRef.current = true;
       setIsFailed(true);
       setError(event.message);
       return;
@@ -137,37 +139,110 @@ export function useSSE(sessionId: string | null): UseSSEReturn {
   }, []);
 
   useEffect(() => {
+    terminalRef.current = false;
+    retriesRef.current = 0;
+    setSteps(DISPLAY_STEPS.map((s) => ({ ...s, status: "pending" as const })));
+    setCurrentStep(null);
+    setIsComplete(false);
+    setIsFailed(false);
+    setCostUsd(0);
+    setTokensUsed(0);
+    setReportUrls(null);
+    setError(null);
+
     if (!sessionId) return;
 
-    const connect = () => {
-      const es = new EventSource(getStreamUrl(sessionId));
-      esRef.current = es;
+    let cancelled = false;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let abortController: AbortController | null = null;
+    const decoder = new TextDecoder();
 
-      es.onmessage = (e) => {
+    const processBuffer = (buffer: string): string => {
+      let remaining = buffer;
+
+      while (true) {
+        const separatorIndex = remaining.search(/\r?\n\r?\n/);
+        if (separatorIndex === -1) break;
+
+        const block = remaining.slice(0, separatorIndex);
+        remaining = remaining.slice(separatorIndex).replace(/^\r?\n\r?\n/, "");
+
+        const data = block
+          .split(/\r?\n/)
+          .filter((line) => line.startsWith("data:"))
+          .map((line) => line.slice(5).trim())
+          .join("\n");
+
+        if (!data) continue;
+
         try {
           retriesRef.current = 0;
-          const data: SSEEvent = JSON.parse(e.data);
-          processEvent(data);
+          processEvent(JSON.parse(data) as SSEEvent);
         } catch {
-          // ignore parse errors
+          // Ignore malformed frames and keep the stream alive.
         }
-      };
+      }
 
-      es.onerror = () => {
-        es.close();
-        if (retriesRef.current < 5) {
-          retriesRef.current++;
-          setTimeout(connect, 1000 * Math.pow(2, retriesRef.current));
-        } else {
-          setError("Connection lost");
-        }
-      };
+      return remaining;
     };
 
-    connect();
+    const scheduleReconnect = () => {
+      if (cancelled || terminalRef.current) return;
+
+      if (retriesRef.current >= 5) {
+        setError("Connection lost");
+        return;
+      }
+
+      retriesRef.current += 1;
+      reconnectTimer = setTimeout(connect, 1000 * Math.pow(2, retriesRef.current));
+    };
+
+    const connect = async () => {
+      if (cancelled || terminalRef.current) return;
+
+      abortController = new AbortController();
+
+      try {
+        const response = await fetch(getStreamUrl(sessionId), {
+          headers: { Accept: "text/event-stream" },
+          cache: "no-store",
+          signal: abortController.signal,
+        });
+
+        if (!response.ok || !response.body) {
+          throw new Error(`Failed to connect to stream: ${response.status}`);
+        }
+
+        const reader = response.body.getReader();
+        let buffer = "";
+
+        while (!cancelled) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          buffer = processBuffer(buffer);
+        }
+
+        buffer += decoder.decode();
+        processBuffer(buffer);
+
+        if (!terminalRef.current) {
+          scheduleReconnect();
+        }
+      } catch {
+        if (!cancelled && !terminalRef.current) {
+          scheduleReconnect();
+        }
+      }
+    };
+
+    void connect();
 
     return () => {
-      esRef.current?.close();
+      cancelled = true;
+      abortController?.abort();
+      if (reconnectTimer) clearTimeout(reconnectTimer);
     };
   }, [sessionId, processEvent]);
 

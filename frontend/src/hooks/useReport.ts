@@ -26,5 +26,16 @@ export function useReport(id: string) {
     fetchReport();
   }, [fetchReport]);
 
+  useEffect(() => {
+    if (loading) return;
+    if (status === "completed" || status === "failed") return;
+
+    const intervalId = setInterval(() => {
+      void fetchReport();
+    }, 5000);
+
+    return () => clearInterval(intervalId);
+  }, [fetchReport, loading, status]);
+
   return { session, report, status, loading, refetch: fetchReport };
 }
