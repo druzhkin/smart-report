@@ -339,8 +339,8 @@ def _build_render_context(state: AgentState) -> dict:
         branch_packets.append(
             {
                 "query": result.query,
-                "findings": result.findings,
-                "sources": [source.model_dump(mode="json") for source in result.sources],
+                "findings": result.findings[:6],
+                "sources": [source.model_dump(mode="json") for source in result.sources[:8]],
                 "gaps": result.gaps,
                 "confidence": result.confidence,
                 "evidence": branch_evidence,
@@ -387,25 +387,68 @@ def _build_render_context(state: AgentState) -> dict:
 
 @llm_retry()
 async def _call_llm(system: str, user: str, model: str) -> str:
+    base_messages = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user},
+    ]
     payload: dict = {
         "model": model,
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
+        "messages": base_messages,
         "temperature": 0.3,
-        "max_tokens": 32768,
+        "max_tokens": 12000,
     }
     if supports_json_mode(model):
         payload["response_format"] = {"type": "json_object"}
-    async with httpx.AsyncClient(timeout=300) as client:
-        resp = await client.post(
-            f"{settings.openrouter_base_url}/chat/completions",
-            headers={"Authorization": f"Bearer {settings.openrouter_api_key}"},
-            json=payload,
+
+    fallback_payloads: list[dict] = [payload]
+    if "response_format" in payload:
+        fallback_payloads.append(
+            {
+                **payload,
+                "response_format": None,
+            }
         )
-        resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"]
+    fallback_payloads.append(
+        {
+            "model": "openai/gpt-4.1-mini",
+            "messages": base_messages,
+            "temperature": 0.2,
+            "max_tokens": 8000,
+            "response_format": {"type": "json_object"},
+        }
+    )
+    fallback_payloads.append(
+        {
+            "model": "openai/gpt-4.1-mini",
+            "messages": base_messages,
+            "temperature": 0.2,
+            "max_tokens": 8000,
+        }
+    )
+
+    async with httpx.AsyncClient(timeout=300) as client:
+        last_exc: Exception | None = None
+        for index, candidate in enumerate(fallback_payloads, start=1):
+            candidate = {k: v for k, v in candidate.items() if v is not None}
+            try:
+                resp = await client.post(
+                    f"{settings.openrouter_base_url}/chat/completions",
+                    headers={"Authorization": f"Bearer {settings.openrouter_api_key}"},
+                    json=candidate,
+                )
+                resp.raise_for_status()
+                return resp.json()["choices"][0]["message"]["content"]
+            except httpx.HTTPStatusError as exc:
+                last_exc = exc
+                if exc.response.status_code == 400 and index < len(fallback_payloads):
+                    logger.warning(
+                        f"Renderer payload attempt {index} failed with 400; retrying with compatibility fallback"
+                    )
+                    continue
+                raise
+        if last_exc:
+            raise last_exc
+        raise RendererError("Renderer LLM call failed without a captured exception")
 
 
 def _ensure_table_spacing(text: str) -> str:

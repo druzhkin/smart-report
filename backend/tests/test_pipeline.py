@@ -1952,6 +1952,52 @@ class TestRenderer:
         assert any(p.endswith(".html") for p in result["final_report_paths"])
         assert any(p.endswith(".docx") for p in result["final_report_paths"])
 
+    async def test_renderer_retries_with_compatibility_fallback_after_400(self):
+        from backend.agents.renderer import _call_llm
+
+        calls: list[dict] = []
+
+        class _FakeResponse:
+            def __init__(self, status_code: int, payload: dict):
+                self.status_code = status_code
+                self._payload = payload
+                self.request = httpx.Request("POST", "https://openrouter.ai/api/v1/chat/completions")
+
+            def raise_for_status(self):
+                if self.status_code >= 400:
+                    raise httpx.HTTPStatusError(
+                        f"{self.status_code} error",
+                        request=self.request,
+                        response=httpx.Response(self.status_code, request=self.request),
+                    )
+
+            def json(self):
+                return self._payload
+
+        class _FakeClient:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            async def post(self, _url, headers=None, json=None):
+                calls.append(json)
+                if len(calls) == 1:
+                    return _FakeResponse(400, {})
+                return _FakeResponse(
+                    200,
+                    {"choices": [{"message": {"content": _MOCK_RENDERER_RESPONSE}}]},
+                )
+
+        with patch("backend.agents.renderer.httpx.AsyncClient", return_value=_FakeClient()):
+            raw = await _call_llm("system", '{"k":"v"}', "google/gemini-3.1-pro-preview")
+
+        assert raw == _MOCK_RENDERER_RESPONSE
+        assert calls[0]["model"] == "google/gemini-3.1-pro-preview"
+        assert "response_format" in calls[0]
+        assert "response_format" not in calls[1]
+
 
 # ---------------------------------------------------------------------------
 # TestPromptRouter
@@ -2298,6 +2344,29 @@ class _FakeProcess:
 
 
 class TestVizAgent:
+    async def test_skips_chart_generation_when_chrome_missing(self, base_state, tmp_path, monkeypatch):
+        from backend.agents.viz_agent import run_viz_agent
+        from backend.config import settings
+
+        monkeypatch.setattr(settings, "outputs_dir", str(tmp_path))
+        state = {
+            **base_state,
+            "session_id": "viz-session",
+            "research_results": [
+                ResearchResult(
+                    query="AI chip market",
+                    findings=["NVIDIA has 80% training market share"],
+                    sources=[Source(url="https://example.com/nvidia", title="NVIDIA", snippet="share data")],
+                )
+            ],
+        }
+
+        with patch("backend.agents.viz_agent._has_plotly_image_runtime", return_value=False):
+            result = await run_viz_agent(state)
+
+        assert result["chart_paths"] == []
+        assert result["current_agent"] == "viz_agent"
+
     async def test_plotly_code_creates_png_in_session_chart_dir(
         self, base_state, tmp_path, monkeypatch
     ):
@@ -2353,7 +2422,7 @@ class TestVizAgent:
             with patch(
                 "backend.agents.viz_agent.asyncio.create_subprocess_exec",
                 side_effect=fake_create_subprocess_exec,
-            ):
+            ), patch("backend.agents.viz_agent._has_plotly_image_runtime", return_value=True):
                 result = await run_viz_agent(state)
 
         assert len(result["chart_paths"]) == 1

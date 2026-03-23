@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import re
+import shutil
 import sys
 import tempfile
 
@@ -31,7 +32,7 @@ Rules:
 - Save as PNG via fig.write_image(os.path.join(output_dir, f"chart_{chart_index}.png")).
 - Allowed chart types: line, bar, pie, treemap, scatter, waterfall.
 - For waterfall, use go.Waterfall. For treemap, use go.Treemap.
-- All text in English. Font: Arial.
+- All chart text (titles, labels, legends, annotations) MUST be in {chart_language}. Font: Arial.
 - Do NOT use plt.show() or fig.show().
 - RULE: fig.update_layout() ONLY keyword arguments.
 - CORRECT: fig.update_layout(title=dict(text='My Title'))
@@ -50,12 +51,23 @@ Return JSON:
 }"""
 
 
+_VIZ_LANG_NAMES = {"ru": "Russian", "en": "English", "de": "German", "fr": "French", "es": "Spanish", "zh": "Chinese"}
+
+
+def _has_plotly_image_runtime() -> bool:
+    chrome_candidates = ("chromium", "chromium-browser", "google-chrome", "google-chrome-stable", "chrome")
+    if any(shutil.which(binary) for binary in chrome_candidates):
+        return True
+    return False
+
+
 @llm_retry()
-async def _generate_chart_specs(data_json: str, model: str) -> str:
+async def _generate_chart_specs(data_json: str, model: str, lang: str = "en") -> str:
+    prompt = SYSTEM_PROMPT.replace("{chart_language}", _VIZ_LANG_NAMES.get(lang, lang))
     payload: dict = {
         "model": model,
         "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": prompt},
             {"role": "user", "content": f"Generate Plotly charts for this data:\n\n{data_json}"},
         ],
         "temperature": 0.2,
@@ -110,7 +122,7 @@ async def _execute_chart_code(
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
 
         if proc.returncode != 0:
-            logger.error(f"Chart {chart_index} failed (rc={proc.returncode}): {stderr.decode()[:500]}")
+            logger.error(f"Chart {chart_index} failed (rc={proc.returncode}): {stderr.decode(errors='replace')[:500]}")
             return None
 
         png_path = os.path.join(output_dir, f"chart_{chart_index}.png")
@@ -135,11 +147,18 @@ async def _execute_chart_code(
 @traceable(name="viz_agent")
 async def run_viz_agent(state: AgentState) -> dict:
     logger.info("Visualization agent started")
+    if not _has_plotly_image_runtime():
+        logger.warning("Visualization runtime is unavailable (Chrome/Chromium not found); skipping chart generation")
+        return {"chart_paths": [], "current_agent": "viz_agent"}
+
     model = get_model(AgentTask.VISUALIZATION)
     session_id = state.get("session_id", state.get("report_id", "default"))
 
     charts_dir = os.path.join(settings.outputs_dir, session_id, "charts")
     os.makedirs(charts_dir, exist_ok=True)
+
+    intake = state.get("intake_result")
+    lang = intake.language if intake else "en"
 
     results = state.get("research_results", [])
     if not results:
@@ -157,7 +176,7 @@ async def run_viz_agent(state: AgentState) -> dict:
         )
 
     data_json = json.dumps(data_for_viz, default=str)
-    raw = await _generate_chart_specs(data_json, model)
+    raw = await _generate_chart_specs(data_json, model, lang=lang)
     try:
         parsed = parse_llm_json(raw, context="viz_agent")
     except ValueError:
