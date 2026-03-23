@@ -44,6 +44,7 @@ def base_state() -> dict:
         "session_id": "test-session",
         "report_id": "test-report",
         "original_request": "Analyze AI chip market",
+        "selected_depth": "standard",
         "user_request": {"query": "Analyze AI chip market", "preferred_format": "pdf"},
         "status": ReportStatus.INTAKE,
         "messages": [],
@@ -550,6 +551,114 @@ class TestRunIntake:
 
         assert result["intake_result"].depth == "standard"
 
+    async def test_selected_depth_overrides_llm_depth(self, base_state):
+        from backend.agents.intake_agent import run_intake
+
+        mock_result = IntakeResult(
+            original_query="test",
+            cleaned_query="test",
+            intent="research",
+            domain="general",
+            complexity="high",
+            depth="deep",
+        )
+
+        with (
+            patch(
+                "backend.agents.intake_agent._call_llm",
+                return_value=mock_result.model_dump_json(),
+            ),
+            patch(
+                "backend.agents.intake_agent._search_similar_reports",
+                return_value=[],
+            ),
+        ):
+            result = await run_intake({**base_state, "selected_depth": "light"})
+
+        assert result["intake_result"].depth == "light"
+
+
+class TestBudgetSelection:
+    def test_prefers_selected_depth_budget(self):
+        from backend.config import settings
+        from backend.pipeline.graph import _get_budget
+
+        assert _get_budget({"selected_depth": "light"}) == settings.budget_light
+
+    def test_falls_back_to_intake_depth_budget(self):
+        from backend.config import settings
+        from backend.pipeline.graph import _get_budget
+
+        intake = IntakeResult(
+            original_query="test",
+            cleaned_query="test",
+            intent="research",
+            domain="general",
+            complexity="high",
+            depth="deep",
+        )
+
+        assert _get_budget({"intake_result": intake}) == settings.budget_deep
+
+
+class TestQADecision:
+    def test_pass_still_saves(self):
+        from backend.pipeline.graph import qa_decision
+
+        decision = qa_decision(
+            {"verdict": "PASS", "qa_iterations": 1, "iteration": 1, "max_iterations": 3}
+        )
+
+        assert decision == "pass"
+
+    def test_reject_retries_before_limit(self):
+        from backend.pipeline.graph import qa_decision
+
+        decision = qa_decision(
+            {"verdict": "REJECT", "qa_iterations": 1, "iteration": 1, "max_iterations": 3}
+        )
+
+        assert decision == "reject"
+
+    def test_reject_fails_at_limit(self):
+        from backend.pipeline.graph import qa_decision
+
+        decision = qa_decision(
+            {"verdict": "REJECT", "qa_iterations": 3, "iteration": 3, "max_iterations": 3}
+        )
+
+        assert decision == "fail"
+
+    def test_revise_fails_at_limit(self):
+        from backend.pipeline.graph import qa_decision
+
+        decision = qa_decision(
+            {"verdict": "REVISE", "qa_iterations": 3, "iteration": 3, "max_iterations": 3}
+        )
+
+        assert decision == "fail"
+
+
+class TestSaveToKnowledgeLibrary:
+    async def test_fail_status_still_saves_report(self, base_state, sample_report, tmp_path, monkeypatch):
+        from backend.config import settings
+        from backend.pipeline.graph import save_to_knowledge_library
+
+        monkeypatch.setattr(settings, "outputs_dir", str(tmp_path))
+
+        with (
+            patch("backend.knowledge_library.facts_store.facts_store.save_verified_facts", AsyncMock(return_value=0)),
+            patch("backend.knowledge_library.facts_store.facts_store.get_by_session", AsyncMock(return_value=[])),
+            patch("backend.knowledge_library.sources_store.sources_store.upsert_sources", AsyncMock(return_value=None)),
+            patch("backend.knowledge_library.ragflow_client.ragflow.save_report", AsyncMock(return_value="doc-1")) as save_report,
+        ):
+            result = await save_to_knowledge_library(
+                {**base_state, "report": sample_report, "verdict": "REJECT", "status": "qa"}
+            )
+
+        assert result["status"] == "failed"
+        assert save_report.await_count == 1
+
 
 # ---------------------------------------------------------------------------
 # Shared mock payloads
@@ -870,6 +979,32 @@ class TestResearchAgent:
 
         assert sources[0].title == "A Report"
         assert sources[0].snippet == "Key finding"
+
+    async def test_citations_parsed_from_message_annotations_and_content_urls(self):
+        from backend.agents.research_agent import _parse_citations
+
+        raw = {
+            "choices": [
+                {
+                    "message": {
+                        "content": "See https://c.com/brief and https://d.com/note.",
+                        "annotations": [
+                            {"url": "https://a.com/page", "title": "Annotated Source"},
+                            {"uri": "https://b.com/report", "name": "URI Source"},
+                        ],
+                    }
+                }
+            ]
+        }
+        sources = _parse_citations(raw)
+
+        assert len(sources) == 4
+        assert {source.url for source in sources} == {
+            "https://a.com/page",
+            "https://b.com/report",
+            "https://c.com/brief",
+            "https://d.com/note",
+        }
 
     def test_extract_findings_splits_on_double_newline(self):
         from backend.agents.research_agent import _extract_findings

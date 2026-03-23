@@ -16,6 +16,7 @@ class AgentState(TypedDict, total=False):
     session_id: str
     report_id: str
     original_request: str
+    selected_depth: str
     user_request: dict[str, Any]
     status: ReportStatus
     messages: list[dict[str, str]]

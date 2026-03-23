@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
@@ -105,12 +106,27 @@ async def _call_perplexity(query: str, depth: str | None = None) -> dict:
 def _parse_citations(raw_response: dict) -> list[Source]:
     """Extract citations from Perplexity response into Source objects."""
     sources: list[Source] = []
+    seen_urls: set[str] = set()
     citations = raw_response.get("citations", [])
+
+    message = ((raw_response.get("choices") or [{}])[0].get("message") or {})
+    if isinstance(message, dict):
+        for key in ("citations", "annotations", "references"):
+            value = message.get(key)
+            if isinstance(value, list):
+                citations.extend(value)
+
+    top_level_refs = raw_response.get("references")
+    if isinstance(top_level_refs, list):
+        citations.extend(top_level_refs)
 
     for cite in citations:
         if isinstance(cite, str):
             url = cite
             domain = urlparse(url).netloc if url else ""
+            if not url or url in seen_urls:
+                continue
+            seen_urls.add(url)
             sources.append(Source(
                 url=url,
                 title=domain,
@@ -118,15 +134,38 @@ def _parse_citations(raw_response: dict) -> list[Source]:
                 domain=domain,
             ))
         elif isinstance(cite, dict):
-            url = cite.get("url", "")
+            url = (
+                cite.get("url")
+                or cite.get("uri")
+                or cite.get("source")
+                or cite.get("link")
+                or ""
+            )
             domain = cite.get("domain", "")
             if not domain and url:
                 domain = urlparse(url).netloc
+            if not url or url in seen_urls:
+                continue
+            seen_urls.add(url)
             sources.append(Source(
                 url=url,
-                title=cite.get("title", ""),
-                snippet=cite.get("snippet", cite.get("text", "")),
+                title=cite.get("title", cite.get("name", domain)),
+                snippet=cite.get("snippet", cite.get("text", cite.get("quote", ""))),
                 domain=domain,
+            ))
+
+    content = message.get("content", "") if isinstance(message, dict) else ""
+    if isinstance(content, str):
+        for url in re.findall(r"https?://[^\s)\]>\"']+", content):
+            normalized = url.rstrip(".,;:")
+            if normalized in seen_urls:
+                continue
+            seen_urls.add(normalized)
+            sources.append(Source(
+                url=normalized,
+                title=urlparse(normalized).netloc,
+                snippet="Extracted from generated content",
+                domain=urlparse(normalized).netloc,
             ))
 
     return sources
@@ -158,8 +197,8 @@ async def _research_single(query: str, iteration: int, depth: str | None) -> tup
         query=query,
         findings=findings,
         sources=sources,
-        confidence=min(0.9, 0.5 + len(sources) * 0.05),
-        gaps=[],
+        confidence=min(0.9, 0.35 + len(sources) * 0.1),
+        gaps=[] if sources else ["No citations were returned by the research provider"],
         iteration=iteration,
     )
     return result, cost

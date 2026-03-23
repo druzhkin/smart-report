@@ -263,6 +263,7 @@ async def _run_pipeline(session_id: str, body: CreateReportRequest) -> None:
                 "session_id": session_id,
                 "report_id": session_id,
                 "original_request": body.request,
+                "selected_depth": body.depth,
                 "user_request": user_request.model_dump(),
                 "status": ReportStatus.INTAKE,
                 "messages": [],
@@ -326,19 +327,33 @@ async def _run_pipeline(session_id: str, body: CreateReportRequest) -> None:
                         _make_event(name, "error", err, session.cost_usd, session.tokens_used),
                     )
 
-            session.status = "completed"
-            await _upsert_report_summary(session)
-            await _push_event(
-                session_id,
-                _make_event(
-                    "complete",
-                    "done",
-                    "Report generation complete",
-                    session.cost_usd,
-                    session.tokens_used,
-                    report_urls=session.report_urls,
-                ),
-            )
+            if session.verdict and session.verdict != "PASS":
+                session.status = "failed"
+                await _upsert_report_summary(session)
+                await _push_event(
+                    session_id,
+                    _make_event(
+                        "pipeline",
+                        "error",
+                        f"Pipeline stopped after QA verdict {session.verdict}",
+                        session.cost_usd,
+                        session.tokens_used,
+                    ),
+                )
+            else:
+                session.status = "completed"
+                await _upsert_report_summary(session)
+                await _push_event(
+                    session_id,
+                    _make_event(
+                        "complete",
+                        "done",
+                        "Report generation complete",
+                        session.cost_usd,
+                        session.tokens_used,
+                        report_urls=session.report_urls,
+                    ),
+                )
 
     except Exception as exc:
         logger.error(f"Pipeline failed for session {session_id}: {exc}")

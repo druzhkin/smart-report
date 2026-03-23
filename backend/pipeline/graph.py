@@ -28,13 +28,26 @@ from backend.pipeline.state import AgentState
 
 
 def _get_budget(state: AgentState) -> float:
+    selected_depth = state.get("selected_depth")
+    if selected_depth in {"light", "standard", "deep", "exhaustive"}:
+        return {
+            "light": settings.budget_light,
+            "standard": settings.budget_standard,
+            "deep": settings.budget_deep,
+            "exhaustive": settings.budget_exhaustive,
+        }[selected_depth]
+
     intake = state.get("intake_result")
-    complexity = intake.complexity if intake else "medium"
-    return {
-        "low": settings.budget_light,
-        "medium": settings.budget_standard,
-        "high": settings.budget_deep,
-    }.get(complexity, settings.budget_standard)
+    intake_depth = intake.depth if intake else None
+    if intake_depth in {"light", "standard", "deep", "exhaustive"}:
+        return {
+            "light": settings.budget_light,
+            "standard": settings.budget_standard,
+            "deep": settings.budget_deep,
+            "exhaustive": settings.budget_exhaustive,
+        }[intake_depth]
+
+    return settings.budget_standard
 
 
 async def cost_guard_post_intake(state: AgentState) -> dict:
@@ -141,7 +154,16 @@ async def save_to_knowledge_library(state: AgentState) -> dict:
         logger.info(f"Report saved to {report_path}")
 
         try:
-            await ragflow.save_report(report, session_id)
+            await ragflow.save_report(
+                report,
+                session_id,
+                {
+                    "session_id": session_id,
+                    "qa_verdict": state.get("verdict", ""),
+                    "status": state.get("status", ""),
+                    "topic_tags": topic_tags,
+                },
+            )
         except Exception as exc:
             logger.warning(f"RAGFlow report save failed: {exc}")
 
@@ -160,7 +182,7 @@ async def save_to_knowledge_library(state: AgentState) -> dict:
     return {
         "final_report_paths": all_paths,
         "current_agent": "save_to_knowledge_library",
-        "status": "completed",
+        "status": "completed" if state.get("verdict") == "PASS" else "failed",
     }
 
 
@@ -180,18 +202,25 @@ def qa_decision(state: AgentState) -> str:
     iteration = state.get("iteration", 1)
     max_iter = state.get("max_iterations", 3)
 
-    if qa_iterations >= 3:
-        logger.info(f"QA -> save (qa_iterations={qa_iterations} reached, forcing PASS)")
-        return "pass"
     if verdict == "PASS":
         logger.info(f"QA -> save (PASS, iter={iteration})")
         return "pass"
-    if iteration >= max_iter:
-        logger.info(f"QA -> save (max_iterations={max_iter} reached, forcing PASS)")
-        return "pass"
+
     if verdict == "REJECT":
+        if qa_iterations >= 3 or iteration >= max_iter:
+            logger.info(
+                f"QA -> fail (REJECT persisted, qa_iterations={qa_iterations}, iter={iteration}, max_iter={max_iter})"
+            )
+            return "fail"
         logger.info(f"QA -> REJECT -> back to supervisor/research (iter={iteration})")
         return "reject"
+
+    if qa_iterations >= 3 or iteration >= max_iter:
+        logger.info(
+            f"QA -> fail (REVISE persisted, qa_iterations={qa_iterations}, iter={iteration}, max_iter={max_iter})"
+        )
+        return "fail"
+
     logger.info(f"QA -> REVISE -> back to renderer (iter={iteration})")
     return "revise"
 
@@ -245,6 +274,7 @@ def build_graph(checkpointer: Any = None) -> Any:
             "pass": "save_to_knowledge_library",
             "revise": "render_and_present",
             "reject": "supervisor",
+            "fail": "save_to_knowledge_library",
         },
     )
 

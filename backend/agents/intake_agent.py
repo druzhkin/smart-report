@@ -85,6 +85,7 @@ async def run_intake(state: AgentState) -> dict:
     model = get_model(AgentTask.INTAKE)
     user_request = state["user_request"]
     query = user_request.get("query", "")
+    selected_depth = state.get("selected_depth")
 
     system_prompt = _load_prompt("prompts/intake_system.txt")
 
@@ -109,7 +110,8 @@ async def run_intake(state: AgentState) -> dict:
 
     result.similar_reports = similar_reports
 
-    depth = result.depth if result.depth in BUDGET_MAP else "standard"
+    depth = selected_depth if selected_depth in BUDGET_MAP else result.depth
+    depth = depth if depth in BUDGET_MAP else "standard"
     result.depth = depth
     result.budget_limit = BUDGET_MAP[depth]
 

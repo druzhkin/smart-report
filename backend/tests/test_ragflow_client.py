@@ -4,6 +4,7 @@ import httpx
 import pytest
 import respx
 
+from backend.schemas.report_schema import ReportOutput, ReportStatus
 from backend.schemas.knowledge_unit import KnowledgeUnit
 
 
@@ -16,6 +17,8 @@ def ragflow_client(monkeypatch):
     monkeypatch.setattr(settings, "ragflow_api_key", "test-key")
     monkeypatch.setattr(settings, "ragflow_reports_dataset_id", "reports-ds")
     monkeypatch.setattr(settings, "ragflow_facts_dataset_id", "facts-ds")
+    monkeypatch.setattr(settings, "ragflow_reports_dataset_name", "smart-report-reports")
+    monkeypatch.setattr(settings, "ragflow_facts_dataset_name", "smart-report-facts")
     return RAGFlowClient()
 
 
@@ -129,3 +132,78 @@ async def test_save_facts_filters_non_verified(ragflow_client):
     request_json = route.calls[0].request.content.decode("utf-8")
     assert "Verified fact" in request_json
     assert "Rejected fact" not in request_json
+
+
+@pytest.mark.asyncio
+async def test_save_report_resolves_dataset_id_by_name(monkeypatch):
+    from backend.knowledge_library.ragflow_client import RAGFlowClient
+    from backend.config import settings
+
+    monkeypatch.setattr(settings, "ragflow_base_url", "http://localhost:9380")
+    monkeypatch.setattr(settings, "ragflow_api_key", "test-key")
+    monkeypatch.setattr(settings, "ragflow_reports_dataset_id", "")
+    monkeypatch.setattr(settings, "ragflow_facts_dataset_id", "")
+    monkeypatch.setattr(settings, "ragflow_reports_dataset_name", "smart-report-reports")
+    monkeypatch.setattr(settings, "ragflow_facts_dataset_name", "smart-report-facts")
+    client = RAGFlowClient()
+
+    with respx.mock:
+        list_route = respx.get("http://localhost:9380/api/v1/datasets").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "data": {
+                        "datasets": [
+                            {"id": "reports-ds", "name": "smart-report-reports"},
+                            {"id": "facts-ds", "name": "smart-report-facts"},
+                        ]
+                    }
+                },
+            )
+        )
+        save_route = respx.post("http://localhost:9380/api/v1/datasets/reports-ds/documents").mock(
+            return_value=httpx.Response(
+                200,
+                json={"data": {"document": {"id": "report-doc-456"}}},
+            )
+        )
+        document_id = await client.save_report(
+            "session-2",
+            "Resolved Dataset Report",
+            "# Title\nBody",
+            {"region": "RU"},
+        )
+
+    assert list_route.called
+    assert save_route.called
+    assert document_id == "report-doc-456"
+
+
+@pytest.mark.asyncio
+async def test_save_report_accepts_report_object_with_metadata(ragflow_client):
+    report = ReportOutput(
+        title="AI Report",
+        executive_summary="Summary",
+        sections=[],
+        status=ReportStatus.COMPLETED,
+    )
+
+    with respx.mock:
+        route = respx.post("http://localhost:9380/api/v1/datasets/reports-ds/documents").mock(
+            return_value=httpx.Response(
+                200,
+                json={"data": {"document": {"id": "report-doc-789"}}},
+            )
+        )
+        document_id = await ragflow_client.save_report(
+            report,
+            "session-3",
+            {"qa_verdict": "REJECT", "status": "failed"},
+        )
+
+    assert route.called
+    request_json = route.calls[0].request.content.decode("utf-8")
+    assert "AI Report" in request_json
+    assert "qa_verdict" in request_json
+    assert "failed" in request_json
+    assert document_id == "report-doc-789"

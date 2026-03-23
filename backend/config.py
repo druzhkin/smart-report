@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     ragflow_base_url: str = "http://localhost:9380"
     ragflow_reports_dataset_id: str = ""
     ragflow_facts_dataset_id: str = ""
+    ragflow_reports_dataset_name: str = "smart-report-reports"
+    ragflow_facts_dataset_name: str = "smart-report-facts"
 
     # Database
     postgres_url: str = Field(

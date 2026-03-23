@@ -21,6 +21,7 @@ class RAGFlowClient:
         self.base_url = settings.ragflow_base_url.rstrip("/")
         self.api_key = settings.ragflow_api_key
         self._sdk = None
+        self._dataset_id_cache: dict[str, str] = {}
 
     def _headers(self) -> dict[str, str]:
         headers = {"Content-Type": "application/json"}
@@ -46,6 +47,42 @@ class RAGFlowClient:
             response.raise_for_status()
             return response.json()
 
+    async def _list_datasets(self) -> list[dict[str, Any]]:
+        data = await self._request("GET", "/api/v1/datasets", params={"page": 1, "page_size": 200})
+        items = data.get("data", {})
+        if isinstance(items, dict):
+            return items.get("docs", items.get("datasets", []))
+        if isinstance(items, list):
+            return items
+        return []
+
+    async def _resolve_dataset_id(self, kind: str) -> str:
+        if kind in self._dataset_id_cache:
+            return self._dataset_id_cache[kind]
+
+        if kind == "reports":
+            configured_id = settings.ragflow_reports_dataset_id
+            dataset_name = settings.ragflow_reports_dataset_name
+        else:
+            configured_id = settings.ragflow_facts_dataset_id
+            dataset_name = settings.ragflow_facts_dataset_name
+
+        if configured_id:
+            self._dataset_id_cache[kind] = configured_id
+            return configured_id
+
+        datasets = await self._list_datasets()
+        for dataset in datasets:
+            if str(dataset.get("name", "")).strip().lower() == dataset_name.strip().lower():
+                dataset_id = str(dataset.get("id", ""))
+                if dataset_id:
+                    self._dataset_id_cache[kind] = dataset_id
+                    logger.info(f"Resolved RagFlow {kind} dataset id by name: {dataset_name} -> {dataset_id}")
+                    return dataset_id
+
+        logger.warning(f"RAGFlow {kind} dataset not found by name: {dataset_name}")
+        return ""
+
     @api_retry()
     async def search(
         self,
@@ -67,7 +104,7 @@ class RAGFlowClient:
         query: str,
         threshold: float = 0.85,
     ) -> LibraryHit | None:
-        dataset_id = settings.ragflow_reports_dataset_id or None
+        dataset_id = await self._resolve_dataset_id("reports") or None
         chunks = await self.search(query, dataset_id=dataset_id, top_k=5)
 
         best_chunk = None
@@ -98,22 +135,27 @@ class RAGFlowClient:
         content: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> str:
-        # Backward-compatible path: save_report(report_obj, session_id)
-        if not isinstance(session_id, str) and title is not None and content is None:
+        # Backward-compatible paths:
+        #   save_report(report_obj, session_id)
+        #   save_report(report_obj, session_id, metadata)
+        if not isinstance(session_id, str) and title is not None and (
+            content is None or isinstance(content, dict)
+        ):
             report = session_id
             actual_session_id = title
             payload = report.model_dump(mode="json") if hasattr(report, "model_dump") else {}
+            extra_metadata = content if isinstance(content, dict) else metadata
             return await self.save_report(
                 actual_session_id,
                 payload.get("title", f"report_{actual_session_id}"),
                 json.dumps(payload, ensure_ascii=False, default=str),
-                {"session_id": actual_session_id},
+                {"session_id": actual_session_id, **(extra_metadata or {})},
             )
 
         if not isinstance(session_id, str):
             raise TypeError("session_id must be a string")
 
-        dataset_id = settings.ragflow_reports_dataset_id
+        dataset_id = await self._resolve_dataset_id("reports")
         if not dataset_id:
             logger.warning("ragflow_reports_dataset_id not set, skipping report save")
             return ""
@@ -137,7 +179,7 @@ class RAGFlowClient:
 
     @api_retry()
     async def save_facts(self, facts: list[KnowledgeUnit]) -> None:
-        dataset_id = settings.ragflow_facts_dataset_id
+        dataset_id = await self._resolve_dataset_id("facts")
         if not dataset_id or not facts:
             return
 
@@ -164,7 +206,7 @@ class RAGFlowClient:
 
     @api_retry()
     async def get_sources(self, topic_tags: list[str]) -> list[SourceRecord]:
-        dataset_id = settings.ragflow_reports_dataset_id
+        dataset_id = await self._resolve_dataset_id("reports")
         if not dataset_id:
             return []
 
