@@ -1649,6 +1649,19 @@ class TestPromptKing:
         assert len(result["master_prompt"].techniques_applied) == 2
 
 
+class TestPromptKingGraphFallback:
+    async def test_prompt_king_node_uses_fallback_on_failure(self, prompt_king_state):
+        from backend.pipeline.graph import prompt_king_node
+
+        with patch("backend.pipeline.graph.run_prompt_king", AsyncMock(side_effect=RuntimeError("boom"))):
+            result = await prompt_king_node(prompt_king_state)
+
+        assert result["current_agent"] == "prompt_king"
+        assert isinstance(result["master_prompt"], MasterPrompt)
+        assert "## PROFILE" in result["master_prompt"].master_prompt
+        assert any(msg.get("role") == "prompt_king" for msg in result.get("messages", []))
+
+
 class TestSummarizationAgent:
     async def test_preserves_raw_research_results_and_emits_brief(self, base_state):
         from backend.agents.summarization_agent import run_summarization

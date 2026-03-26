@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import uuid
 from contextlib import asynccontextmanager
@@ -26,6 +27,7 @@ from backend.agents.viz_agent import run_viz_agent
 from backend.config import normalize_database_url, settings
 from backend.pipeline.cost_guard import BudgetExceededError, InsufficientEvidenceError
 from backend.pipeline.state import AgentState
+from backend.schemas.master_prompt import MasterPrompt, ReportSchema, SectionSchema
 
 
 def _get_budget(state: AgentState) -> float:
@@ -77,6 +79,76 @@ async def cost_guard_post_research(state: AgentState) -> dict:
             f"Budget exceeded after research: ${cost:.4f} > ${budget:.2f}"
         )
     return {"current_agent": "cost_guard"}
+
+
+def _fallback_master_prompt(state: AgentState, reason: str) -> MasterPrompt:
+    intake = state.get("intake_result")
+    language = getattr(intake, "language", "en") if intake else "en"
+    cleaned_query = getattr(intake, "cleaned_query", state.get("original_request", "")) if intake else state.get("original_request", "")
+    entities = getattr(intake, "key_entities", []) if intake else []
+    domain = getattr(intake, "domain", "general") if intake else "general"
+
+    if language == "ru":
+        sections = [
+            SectionSchema(title="Ключевые выводы", required=True),
+            SectionSchema(title="Анализ и контекст", required=True),
+            SectionSchema(title="Практические рекомендации", required=True),
+        ]
+        system_prompt = "Ты аналитик. Пиши структурированный отчёт только по подтверждённым фактам."
+        reliability_line = "Явно отмечай неопределённость и не выдумывай факты."
+    else:
+        sections = [
+            SectionSchema(title="Key Findings", required=True),
+            SectionSchema(title="Analysis and Context", required=True),
+            SectionSchema(title="Practical Recommendations", required=True),
+        ]
+        system_prompt = "You are an analyst. Write a structured report grounded in verifiable evidence."
+        reliability_line = "State uncertainty explicitly and avoid unsupported claims."
+
+    master_prompt_text = (
+        "## PROFILE\n"
+        "Senior research analyst\n\n"
+        "## KNOWLEDGE\n"
+        f"Domain: {domain}. Entities: {', '.join(entities) if entities else 'n/a'}.\n"
+        f"Query: {cleaned_query}\n\n"
+        "## REASONING\n"
+        "Decompose the problem into evidence-backed sub-questions and synthesize tradeoffs.\n\n"
+        "## RELIABILITY\n"
+        f"{reliability_line} Fallback activated because Prompt King failed: {reason}"
+    )
+
+    return MasterPrompt(
+        system_prompt=system_prompt,
+        user_prompt=cleaned_query,
+        master_prompt=master_prompt_text,
+        report_schema=ReportSchema(sections=sections),
+        target_model="anthropic/claude-sonnet-4",
+        temperature=0.3,
+    )
+
+
+async def prompt_king_node(state: AgentState) -> dict:
+    try:
+        return await run_prompt_king(state)
+    except Exception as exc:
+        logger.error(f"Prompt King failed, using fallback master prompt: {exc}")
+        fallback = _fallback_master_prompt(state, str(exc))
+        return {
+            "master_prompt": fallback,
+            "messages": state.get("messages", []) + [
+                {
+                    "role": "prompt_king",
+                    "content": json.dumps(
+                        {
+                            "warning": "prompt_king_fallback",
+                            "reason": str(exc),
+                        },
+                        ensure_ascii=False,
+                    ),
+                }
+            ],
+            "current_agent": "prompt_king",
+        }
 
 
 async def render_and_present(state: AgentState) -> dict:
@@ -296,7 +368,7 @@ def build_graph(checkpointer: Any = None) -> Any:
     wf.add_node("intake", run_intake)
     wf.add_node("cost_guard_post_intake", cost_guard_post_intake)
     wf.add_node("prompt_router", run_prompt_router)
-    wf.add_node("prompt_king", run_prompt_king)
+    wf.add_node("prompt_king", prompt_king_node)
     wf.add_node("prompt_splitter", run_prompt_splitter)
     wf.add_node("supervisor", run_supervisor)
     wf.add_node("research", run_research)
