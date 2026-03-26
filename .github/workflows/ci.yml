@@ -97,6 +97,7 @@ jobs:
       SMOKE_RAGFLOW_FACTS_DATASET_ID: ${{ secrets.SMOKE_RAGFLOW_FACTS_DATASET_ID }}
       SMOKE_RUN_REPORT: "1"
       SMOKE_REPORT_TIMEOUT_SEC: "420"
+      SMOKE_REPORT_DEPTH: "standard"
     steps:
       - name: Checkout
         uses: actions/checkout@v4

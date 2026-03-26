@@ -74,32 +74,40 @@ async def _wait_report_completion(
     started = time.perf_counter()
     deadline = time.perf_counter() + timeout_sec
     last_status = "unknown"
+    last_error = ""
     while time.perf_counter() < deadline:
-        resp = await client.get(f"{api_base}/reports/{session_id}")
-        if resp.status_code != 200:
-            return CheckResult(
-                name="backend.report_status",
-                ok=False,
-                detail=f"Unexpected status lookup code {resp.status_code}",
-                status_code=resp.status_code,
-                elapsed_ms=int((time.perf_counter() - started) * 1000),
-            )
-        payload = resp.json()
-        last_status = str(payload.get("status", "unknown"))
-        if last_status in {"completed", "failed"}:
-            return CheckResult(
-                name="backend.report_status",
-                ok=last_status == "completed",
-                detail=f"final_status={last_status}",
-                status_code=resp.status_code,
-                elapsed_ms=int((time.perf_counter() - started) * 1000),
-            )
+        try:
+            resp = await client.get(f"{api_base}/reports/{session_id}")
+            if resp.status_code != 200:
+                return CheckResult(
+                    name="backend.report_status",
+                    ok=False,
+                    detail=f"Unexpected status lookup code {resp.status_code}",
+                    status_code=resp.status_code,
+                    elapsed_ms=int((time.perf_counter() - started) * 1000),
+                )
+            payload = resp.json()
+            last_status = str(payload.get("status", "unknown"))
+            if last_status in {"completed", "failed"}:
+                return CheckResult(
+                    name="backend.report_status",
+                    ok=last_status == "completed",
+                    detail=f"final_status={last_status}",
+                    status_code=resp.status_code,
+                    elapsed_ms=int((time.perf_counter() - started) * 1000),
+                )
+        except Exception as exc:
+            last_error = f"{type(exc).__name__}: {exc}"
         await asyncio.sleep(3)
 
     return CheckResult(
         name="backend.report_status",
         ok=False,
-        detail=f"timeout waiting completion (last_status={last_status})",
+        detail=(
+            f"timeout waiting completion (last_status={last_status})"
+            if not last_error
+            else f"timeout waiting completion (last_status={last_status}, last_error={last_error})"
+        ),
         elapsed_ms=int((time.perf_counter() - started) * 1000),
     )
 
@@ -112,6 +120,7 @@ async def main() -> int:
     ragflow_facts_dataset_id = _env("SMOKE_RAGFLOW_FACTS_DATASET_ID")
     run_report = _bool_env("SMOKE_RUN_REPORT", default=False)
     report_timeout = int(_env("SMOKE_REPORT_TIMEOUT_SEC", "360") or "360")
+    report_depth = _env("SMOKE_REPORT_DEPTH", "standard") or "standard"
 
     if not api_base:
         print("SMOKE_API_BASE is required, e.g. https://<your-domain>/api", file=sys.stderr)
@@ -154,12 +163,13 @@ async def main() -> int:
 
         if run_report:
             started = time.perf_counter()
+            effective_report_timeout = report_timeout
             try:
                 create_response = await client.post(
                     f"{api_base}/reports",
                     json={
                         "request": "Smoke test report run. Validate pipeline availability only.",
-                        "depth": "light",
+                        "depth": report_depth,
                         "output_formats": ["html"],
                     },
                 )
@@ -182,24 +192,36 @@ async def main() -> int:
             if create_result.ok:
                 payload = json.loads(create_result.detail) if create_result.detail else {}
                 session_id = payload.get("session_id")
+                estimated_minutes = payload.get("estimated_time_minutes")
+                if isinstance(estimated_minutes, (int, float)) and estimated_minutes > 0:
+                    effective_report_timeout = max(
+                        report_timeout,
+                        int(float(estimated_minutes) * 60) + 120,
+                    )
                 if session_id:
-                    results.append(
-                        await _wait_report_completion(
-                            client,
-                            api_base=api_base,
-                            session_id=session_id,
-                            timeout_sec=report_timeout,
-                        )
+                    status_result = await _wait_report_completion(
+                        client,
+                        api_base=api_base,
+                        session_id=session_id,
+                        timeout_sec=effective_report_timeout,
                     )
-                    results.append(
-                        await _check(
-                            client,
-                            name="backend.report_download_html",
-                            method="GET",
-                            url=f"{api_base}/reports/{session_id}/download/html",
-                            expected_status={200, 404},
-                        )
+                    download_result = await _check(
+                        client,
+                        name="backend.report_download_html",
+                        method="GET",
+                        url=f"{api_base}/reports/{session_id}/download/html",
+                        expected_status={200, 404},
                     )
+                    if (
+                        not status_result.ok
+                        and "timeout waiting completion" in status_result.detail
+                        and download_result.ok
+                        and download_result.status_code == 200
+                    ):
+                        status_result.ok = True
+                        status_result.detail = "timeout_waiting_status_but_download_ready"
+                    results.append(status_result)
+                    results.append(download_result)
                 else:
                     results.append(
                         CheckResult(

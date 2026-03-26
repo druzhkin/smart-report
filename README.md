@@ -86,6 +86,7 @@ Optional CI secrets:
 - `SMOKE_RAGFLOW_FACTS_DATASET_ID`
 - `SMOKE_RUN_REPORT` (defaults to `1` in autonomous job)
 - `SMOKE_REPORT_TIMEOUT_SEC`
+- `SMOKE_REPORT_DEPTH` (`standard` by default)
 
 ## Railway
 
