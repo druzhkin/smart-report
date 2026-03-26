@@ -3,6 +3,7 @@ import json
 import os
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import AsyncGenerator
 
 from fastapi import APIRouter, HTTPException
@@ -216,6 +217,37 @@ async def _delete_report_summary(session_id: str) -> None:
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _artifact_path_candidates(session_id: str) -> dict[str, list[Path]]:
+    base = Path(settings.outputs_dir)
+    return {
+        "html": [base / session_id / "report.html", base / f"{session_id}.html"],
+        "pdf": [base / session_id / "report.pdf", base / f"{session_id}.pdf"],
+        "docx": [base / session_id / "report.docx", base / f"{session_id}.docx"],
+        "presentation": [base / session_id / "report.pptx", base / f"{session_id}.pptx"],
+        "json": [base / session_id / "report.json", base / f"{session_id}.json"],
+    }
+
+
+def _discover_report_urls(session_id: str) -> dict[str, str]:
+    discovered: dict[str, str] = {}
+    for fmt, candidates in _artifact_path_candidates(session_id).items():
+        if any(path.exists() for path in candidates):
+            discovered[fmt] = f"/api/reports/{session_id}/download/{fmt}"
+    return discovered
+
+
+def _load_report_from_disk(session_id: str) -> ReportOutput | None:
+    for path in _artifact_path_candidates(session_id)["json"]:
+        if not path.exists():
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            return ReportOutput.model_validate(payload)
+        except Exception as exc:
+            logger.warning(f"Failed to parse report JSON from {path}: {exc}")
+    return None
 
 
 def _make_event(
@@ -458,9 +490,16 @@ async def stream_report(session_id: str) -> EventSourceResponse:
 async def get_report(session_id: str) -> dict:
     if session_id in _sessions:
         session = _sessions[session_id]
+        if not session.report_urls:
+            session.report_urls = _discover_report_urls(session_id)
+        if session.report is None:
+            session.report = _load_report_from_disk(session_id)
+        effective_status = session.status
+        if effective_status == "failed" and (session.report or session.report_urls):
+            effective_status = "completed"
         return {
             "session_id": session_id,
-            "status": session.status,
+            "status": effective_status,
             "cost_usd": session.cost_usd,
             "tokens_used": session.tokens_used,
             "report_urls": session.report_urls,
@@ -487,13 +526,19 @@ async def get_report(session_id: str) -> dict:
     if row is None:
         raise HTTPException(status_code=404, detail="Session not found")
 
+    report_urls = _discover_report_urls(session_id)
+    report = _load_report_from_disk(session_id)
+    effective_status = row["status"]
+    if effective_status == "failed" and (report_urls or report):
+        effective_status = "completed"
+
     return {
         "session_id": row["session_id"],
-        "status": row["status"],
+        "status": effective_status,
         "cost_usd": row["cost_usd"] or 0.0,
         "tokens_used": 0,
-        "report_urls": {},
-        "report": None,
+        "report_urls": report_urls,
+        "report": report.model_dump(mode="json") if report else None,
         "created_at": row["created_at"],
         "title": row["title"],
     }

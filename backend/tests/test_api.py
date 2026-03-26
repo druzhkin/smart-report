@@ -132,6 +132,25 @@ class TestGetReport:
         # Report is None until pipeline completes
         assert resp.json()["report"] is None
 
+    def test_failed_session_with_artifacts_is_recovered_as_completed(
+        self, client, created_session, tmp_path, monkeypatch
+    ):
+        from backend.api.routes import reports as routes_module
+        from backend.config import settings
+
+        monkeypatch.setattr(settings, "outputs_dir", str(tmp_path))
+        out_dir = tmp_path / created_session
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / "report.html").write_text("<html><body>ok</body></html>", encoding="utf-8")
+
+        routes_module._sessions[created_session].status = "failed"
+
+        resp = client.get(f"/api/reports/{created_session}")
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["status"] == "completed"
+        assert payload["report_urls"]["html"].endswith(f"/api/reports/{created_session}/download/html")
+
 
 # ---------------------------------------------------------------------------
 # GET /api/reports/{id}/stream (SSE)

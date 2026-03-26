@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import uuid
 from contextlib import asynccontextmanager
@@ -134,6 +135,16 @@ async def save_to_knowledge_library(state: AgentState) -> dict:
     from backend.knowledge_library.ragflow_client import ragflow
     from backend.knowledge_library.sources_store import sources_store
 
+    async def _await_with_timeout(coro, timeout_seconds: float, op_name: str, default: Any = None) -> Any:
+        try:
+            return await asyncio.wait_for(coro, timeout=timeout_seconds)
+        except asyncio.TimeoutError:
+            logger.warning(f"{op_name} timed out after {timeout_seconds:.0f}s; continuing without blocking report delivery")
+            return default
+        except Exception as exc:
+            logger.warning(f"{op_name} failed: {exc}")
+            return default
+
     session_id: str = state.get("session_id", state.get("report_id", str(uuid.uuid4())))
     results = state.get("research_results", [])
     citation_verification = state.get("citation_verification")
@@ -141,13 +152,20 @@ async def save_to_knowledge_library(state: AgentState) -> dict:
     topic_tags: list[str] = list(intake.key_entities) if intake else []
 
     if citation_verification and results:
-        await facts_store.save_verified_facts(
-            results, citation_verification, session_id, topic_tags
+        await _await_with_timeout(
+            facts_store.save_verified_facts(results, citation_verification, session_id, topic_tags),
+            timeout_seconds=20,
+            op_name="facts_store.save_verified_facts",
+            default=0,
         )
 
     all_sources = [s for r in results for s in r.sources]
     if all_sources:
-        await sources_store.upsert_sources(all_sources, topic_tags)
+        await _await_with_timeout(
+            sources_store.upsert_sources(all_sources, topic_tags),
+            timeout_seconds=20,
+            op_name="sources_store.upsert_sources",
+        )
 
     paths: list[str] = []
     report = state.get("report")
@@ -161,8 +179,8 @@ async def save_to_knowledge_library(state: AgentState) -> dict:
         paths.append(report_path)
         logger.info(f"Report saved to {report_path}")
 
-        try:
-            await ragflow.save_report(
+        await _await_with_timeout(
+            ragflow.save_report(
                 report,
                 session_id,
                 {
@@ -171,16 +189,29 @@ async def save_to_knowledge_library(state: AgentState) -> dict:
                     "status": state.get("status", ""),
                     "topic_tags": topic_tags,
                 },
-            )
-        except Exception as exc:
-            logger.warning(f"RAGFlow report save failed: {exc}")
+            ),
+            timeout_seconds=20,
+            op_name="ragflow.save_report",
+            default="",
+        )
 
-    try:
-        verified_units = await facts_store.get_by_session(session_id)
-        if verified_units:
-            await ragflow.save_facts(verified_units)
-    except Exception as exc:
-        logger.warning(f"RAGFlow facts save failed: {exc}")
+    verified_units = await _await_with_timeout(
+        facts_store.get_by_session(session_id),
+        timeout_seconds=10,
+        op_name="facts_store.get_by_session",
+        default=[],
+    )
+    if verified_units:
+        max_facts_sync = 50
+        if len(verified_units) > max_facts_sync:
+            logger.warning(
+                f"RAGFlow facts sync capped at {max_facts_sync} (session={session_id}, total={len(verified_units)})"
+            )
+        await _await_with_timeout(
+            ragflow.save_facts(verified_units[:max_facts_sync]),
+            timeout_seconds=30,
+            op_name="ragflow.save_facts",
+        )
 
     logger.info(
         f"Knowledge library saved: {sum(len(r.findings) for r in results)} findings, "
