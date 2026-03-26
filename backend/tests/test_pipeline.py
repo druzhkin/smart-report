@@ -617,6 +617,32 @@ class TestRunIntake:
 
         assert result["intake_result"].depth == "standard"
 
+    async def test_parses_json_with_trailing_text(self, base_state):
+        from backend.agents.intake_agent import run_intake
+
+        raw_json = json.dumps(
+            {
+                "original_query": "Analyze AI agents",
+                "cleaned_query": "analyze ai agents",
+                "intent": "analysis",
+                "domain": "tech",
+                "complexity": "medium",
+                "depth": "standard",
+                "key_entities": ["AI agents"],
+                "clarifying_questions": [],
+                "language": "en",
+            }
+        ) + "\nNOTE: extra trailing text"
+
+        with (
+            patch("backend.agents.intake_agent._call_llm", return_value=raw_json),
+            patch("backend.agents.intake_agent._search_similar_reports", return_value=[]),
+        ):
+            result = await run_intake(base_state)
+
+        assert result["current_agent"] == "intake"
+        assert result["intake_result"].intent == "analysis"
+
     async def test_selected_depth_overrides_llm_depth(self, base_state):
         from backend.agents.intake_agent import run_intake
 

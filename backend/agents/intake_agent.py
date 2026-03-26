@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 
 import httpx
@@ -9,6 +10,7 @@ from backend.knowledge_library.ragflow_client import ragflow
 from backend.pipeline.model_router import AgentTask, get_model, estimate_cost
 from backend.pipeline.state import AgentState
 from backend.schemas.intake import IntakeResult, SimilarReport
+from backend.utils.json_parse import parse_llm_json, supports_json_mode
 from backend.utils.retry import llm_retry
 
 BUDGET_MAP: dict[str, float] = {
@@ -41,22 +43,41 @@ def _load_prompt(path: str) -> str:
 
 @llm_retry()
 async def _call_llm(system_prompt: str, user_message: str, model: str) -> str:
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message},
+        ],
+        "temperature": 0.2,
+    }
+    if supports_json_mode(model):
+        payload["response_format"] = {"type": "json_object"}
+
     async with httpx.AsyncClient(timeout=60) as client:
         resp = await client.post(
             f"{settings.openrouter_base_url}/chat/completions",
             headers={"Authorization": f"Bearer {settings.openrouter_api_key}"},
-            json={
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_message},
-                ],
-                "temperature": 0.2,
-                "response_format": {"type": "json_object"},
-            },
+            json=payload,
         )
         resp.raise_for_status()
         return resp.json()["choices"][0]["message"]["content"]
+
+
+def _fallback_intake(query: str) -> IntakeResult:
+    language = "ru" if re.search(r"[А-Яа-яЁё]", query) else "en"
+    cleaned = " ".join(query.split())
+    return IntakeResult(
+        original_query=query,
+        cleaned_query=cleaned or query,
+        intent="analysis",
+        domain="general",
+        complexity="medium",
+        depth="standard",
+        key_entities=[],
+        clarifying_questions=[],
+        language=language,
+    )
 
 
 async def _search_similar_reports(query: str) -> list[SimilarReport]:
@@ -103,7 +124,12 @@ async def run_intake(state: AgentState) -> dict:
         )
 
     raw = await _call_llm(system_prompt, user_message, model)
-    result = IntakeResult.model_validate_json(raw)
+    try:
+        parsed = parse_llm_json(raw, context="intake_agent")
+        result = IntakeResult.model_validate(parsed)
+    except Exception as exc:
+        logger.warning(f"Intake parse failed, using heuristic fallback: {exc}")
+        result = _fallback_intake(query)
 
     if len(result.clarifying_questions) > 5:
         result.clarifying_questions = result.clarifying_questions[:5]
