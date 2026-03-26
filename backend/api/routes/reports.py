@@ -110,13 +110,23 @@ CREATE TABLE IF NOT EXISTS reports (
     updated_at TEXT NOT NULL,
     cost_usd REAL DEFAULT 0.0,
     verdict TEXT DEFAULT NULL,
-    output_formats TEXT DEFAULT '[]'
+    output_formats TEXT DEFAULT '[]',
+    report_json TEXT DEFAULT NULL,
+    report_urls TEXT DEFAULT '{}'
 )
 """
 
 _ADD_UPDATED_AT_COLUMN_SQL = """
 ALTER TABLE reports
 ADD COLUMN IF NOT EXISTS updated_at TEXT NOT NULL DEFAULT '1970-01-01T00:00:00+00:00'
+"""
+_ADD_REPORT_JSON_COLUMN_SQL = """
+ALTER TABLE reports
+ADD COLUMN IF NOT EXISTS report_json TEXT DEFAULT NULL
+"""
+_ADD_REPORT_URLS_COLUMN_SQL = """
+ALTER TABLE reports
+ADD COLUMN IF NOT EXISTS report_urls TEXT DEFAULT '{}'
 """
 
 
@@ -130,6 +140,8 @@ async def _ensure_reports_table() -> None:
         async with engine.begin() as conn:
             await conn.execute(text(_CREATE_REPORTS_TABLE_SQL))
             await conn.execute(text(_ADD_UPDATED_AT_COLUMN_SQL))
+            await conn.execute(text(_ADD_REPORT_JSON_COLUMN_SQL))
+            await conn.execute(text(_ADD_REPORT_URLS_COLUMN_SQL))
     finally:
         await engine.dispose()
 
@@ -141,14 +153,16 @@ async def _upsert_report_summary(session: SessionMeta) -> None:
             async with engine.begin() as conn:
                 await conn.execute(text(_CREATE_REPORTS_TABLE_SQL))
                 await conn.execute(text(_ADD_UPDATED_AT_COLUMN_SQL))
+                await conn.execute(text(_ADD_REPORT_JSON_COLUMN_SQL))
+                await conn.execute(text(_ADD_REPORT_URLS_COLUMN_SQL))
                 await conn.execute(
                     text(
                         """
                         INSERT INTO reports (
-                            session_id, title, status, created_at, updated_at, cost_usd, verdict, output_formats
+                            session_id, title, status, created_at, updated_at, cost_usd, verdict, output_formats, report_json, report_urls
                         )
                         VALUES (
-                            :session_id, :title, :status, :created_at, :updated_at, :cost_usd, :verdict, :output_formats
+                            :session_id, :title, :status, :created_at, :updated_at, :cost_usd, :verdict, :output_formats, :report_json, :report_urls
                         )
                         ON CONFLICT(session_id) DO UPDATE SET
                             title = excluded.title,
@@ -156,7 +170,9 @@ async def _upsert_report_summary(session: SessionMeta) -> None:
                             updated_at = excluded.updated_at,
                             cost_usd = excluded.cost_usd,
                             verdict = excluded.verdict,
-                            output_formats = excluded.output_formats
+                            output_formats = excluded.output_formats,
+                            report_json = excluded.report_json,
+                            report_urls = excluded.report_urls
                         """
                     ),
                     {
@@ -168,6 +184,12 @@ async def _upsert_report_summary(session: SessionMeta) -> None:
                         "cost_usd": session.cost_usd,
                         "verdict": session.verdict,
                         "output_formats": json.dumps(session.output_formats),
+                        "report_json": (
+                            session.report.model_dump_json()
+                            if session.report is not None
+                            else None
+                        ),
+                        "report_urls": json.dumps(session.report_urls or {}),
                     },
                 )
         finally:
@@ -185,7 +207,7 @@ async def _list_report_summaries() -> list[ReportSummary]:
                 result = await conn.execute(
                     text(
                         """
-                        SELECT session_id, title, status, created_at, updated_at, cost_usd, verdict, output_formats
+                        SELECT session_id, title, status, created_at, updated_at, cost_usd, verdict, output_formats, report_json, report_urls
                         FROM reports
                         ORDER BY created_at DESC
                         """
@@ -588,7 +610,7 @@ async def get_report(session_id: str) -> dict:
                 result = await conn.execute(
                     text(
                         """
-                        SELECT session_id, title, status, created_at, updated_at, cost_usd, verdict, output_formats
+                        SELECT session_id, title, status, created_at, updated_at, cost_usd, verdict, output_formats, report_json, report_urls
                         FROM reports
                         WHERE session_id = :sid
                         """
@@ -606,7 +628,22 @@ async def get_report(session_id: str) -> dict:
         raise HTTPException(status_code=404, detail="Session not found")
 
     report_urls = _discover_report_urls(session_id)
+    db_report_urls: dict[str, str] = {}
+    try:
+        db_report_urls = json.loads(row.get("report_urls") or "{}")
+        if not isinstance(db_report_urls, dict):
+            db_report_urls = {}
+    except Exception:
+        db_report_urls = {}
+    if db_report_urls:
+        report_urls = {**db_report_urls, **report_urls}
+
     report = _load_report_from_disk(session_id)
+    if report is None and row.get("report_json"):
+        try:
+            report = ReportOutput.model_validate_json(row["report_json"])
+        except Exception as exc:
+            logger.warning(f"Failed to parse report_json from DB for {session_id}: {exc}")
     effective_status = row["status"]
     if (
         effective_status in {"running", "pending"}
