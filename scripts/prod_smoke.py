@@ -118,7 +118,7 @@ async def main() -> int:
         return 2
 
     results: list[CheckResult] = []
-    async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+    async with httpx.AsyncClient(timeout=30, follow_redirects=True, trust_env=False) as client:
         results.append(
             await _check(
                 client,

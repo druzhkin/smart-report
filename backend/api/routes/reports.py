@@ -328,7 +328,8 @@ async def _run_pipeline(session_id: str, body: CreateReportRequest) -> None:
                         _make_event(name, "error", err, session.cost_usd, session.tokens_used),
                     )
 
-            if session.verdict and session.verdict != "PASS":
+            has_artifacts = bool(session.report or session.report_urls)
+            if session.verdict and session.verdict != "PASS" and not has_artifacts:
                 session.status = "failed"
                 await _upsert_report_summary(session)
                 await _push_event(
@@ -344,6 +345,18 @@ async def _run_pipeline(session_id: str, body: CreateReportRequest) -> None:
             else:
                 session.status = "completed"
                 await _upsert_report_summary(session)
+                if session.verdict and session.verdict != "PASS":
+                    await _push_event(
+                        session_id,
+                        _make_event(
+                            "complete",
+                            "warning",
+                            f"Report generated with QA verdict {session.verdict}",
+                            session.cost_usd,
+                            session.tokens_used,
+                            report_urls=session.report_urls,
+                        ),
+                    )
                 await _push_event(
                     session_id,
                     _make_event(
