@@ -643,9 +643,6 @@ async def get_report(session_id: str) -> dict:
 
 @router.get("/reports/{session_id}/download/{format}")
 async def download_report(session_id: str, format: str) -> FileResponse:
-    if session_id not in _sessions:
-        raise HTTPException(status_code=404, detail="Session not found")
-
     ext_map = {
         "pdf": "pdf",
         "docx": "docx",

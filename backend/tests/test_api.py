@@ -261,6 +261,23 @@ class TestDownloadEndpoint:
         assert resp.headers["content-type"] == "application/pdf"
         assert resp.content == b"%PDF-1.4 fake content"
 
+    def test_download_works_even_if_session_not_in_memory(
+        self, client, tmp_path, monkeypatch, created_session
+    ):
+        from backend.api.routes import reports as routes_module
+        from backend.config import settings
+
+        monkeypatch.setattr(settings, "outputs_dir", str(tmp_path))
+        fake_html = tmp_path / created_session / "report.html"
+        fake_html.parent.mkdir(parents=True, exist_ok=True)
+        fake_html.write_text("<html>ok</html>", encoding="utf-8")
+
+        routes_module._sessions.pop(created_session, None)
+
+        resp = client.get(f"/api/reports/{created_session}/download/html")
+        assert resp.status_code == 200
+        assert "text/html" in resp.headers["content-type"]
+
     def test_docx_download_returns_file(self, client, tmp_path, monkeypatch, created_session):
         from backend.config import settings
 
