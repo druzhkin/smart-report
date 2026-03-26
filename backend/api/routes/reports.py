@@ -545,6 +545,7 @@ async def get_report(session_id: str) -> dict:
 
     # Fallback to DB (e.g. after server reload)
     try:
+        await _ensure_reports_table()
         engine = create_async_engine(_db_url(), future=True)
         try:
             async with engine.connect() as conn:
