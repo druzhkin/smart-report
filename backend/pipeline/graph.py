@@ -151,16 +151,103 @@ async def prompt_king_node(state: AgentState) -> dict:
         }
 
 
+async def _run_with_deadline(coro, *, seconds: int, label: str) -> dict:
+    try:
+        return await asyncio.wait_for(coro, timeout=seconds)
+    except asyncio.TimeoutError as exc:
+        raise RuntimeError(f"{label} timed out after {seconds}s") from exc
+
+
+async def prompt_router_node(state: AgentState) -> dict:
+    return await _run_with_deadline(
+        run_prompt_router(state),
+        seconds=120,
+        label="prompt_router",
+    )
+
+
+async def supervisor_node(state: AgentState) -> dict:
+    return await _run_with_deadline(
+        run_supervisor(state),
+        seconds=180,
+        label="supervisor",
+    )
+
+
+async def research_node(state: AgentState) -> dict:
+    return await _run_with_deadline(
+        run_research(state),
+        seconds=420,
+        label="research",
+    )
+
+
+async def summarization_node(state: AgentState) -> dict:
+    return await _run_with_deadline(
+        run_summarization(state),
+        seconds=240,
+        label="summarization",
+    )
+
+
+async def reflect_node(state: AgentState) -> dict:
+    return await _run_with_deadline(
+        run_reflect(state),
+        seconds=240,
+        label="reflect",
+    )
+
+
+async def citation_verifier_node(state: AgentState) -> dict:
+    return await _run_with_deadline(
+        run_citation_verifier(state),
+        seconds=300,
+        label="citation_verifier",
+    )
+
+
+async def viz_node(state: AgentState) -> dict:
+    return await _run_with_deadline(
+        run_viz_agent(state),
+        seconds=180,
+        label="viz_agent",
+    )
+
+
+async def qa_node_with_deadline(state: AgentState) -> dict:
+    result = await _run_with_deadline(
+        run_qa(state),
+        seconds=240,
+        label="qa",
+    )
+    qa = result.get("qa_result")
+    if qa:
+        result["verdict"] = qa.verdict.value
+    else:
+        result["verdict"] = "REVISE"
+    result["qa_iterations"] = state.get("qa_iterations", 0) + 1
+    result["iteration"] = state.get("iteration", 1) + 1
+    return result
+
+
 async def render_and_present(state: AgentState) -> dict:
     base_cost = state.get("cost_usd", 0.0)
 
-    render_res = await run_renderer(state)
+    render_res = await _run_with_deadline(
+        run_renderer(state),
+        seconds=420,
+        label="renderer",
+    )
     r_cost = render_res.get("cost_usd", base_cost) - base_cost
 
     pres_state = dict(state)
     pres_state["report"] = render_res.get("report")
     pres_state["chart_paths"] = state.get("chart_paths", [])
-    pres_res = await run_presentation(pres_state)
+    pres_res = await _run_with_deadline(
+        run_presentation(pres_state),
+        seconds=180,
+        label="presentation",
+    )
     p_cost = pres_res.get("cost_usd", base_cost) - base_cost
 
     result: dict = {
@@ -179,7 +266,11 @@ async def render_and_present(state: AgentState) -> dict:
 
 
 async def research_critique_node(state: AgentState) -> dict:
-    result = await run_research_critique(state)
+    result = await _run_with_deadline(
+        run_research_critique(state),
+        seconds=240,
+        label="research_critique",
+    )
     critique = result.get("research_critique_result")
     score = critique.overall_score if critique else 0.7
     result["critic_score"] = score
@@ -191,15 +282,7 @@ async def research_critique_node(state: AgentState) -> dict:
 
 
 async def qa_node(state: AgentState) -> dict:
-    result = await run_qa(state)
-    qa = result.get("qa_result")
-    if qa:
-        result["verdict"] = qa.verdict.value
-    else:
-        result["verdict"] = "REVISE"
-    result["qa_iterations"] = state.get("qa_iterations", 0) + 1
-    result["iteration"] = state.get("iteration", 1) + 1
-    return result
+    return await qa_node_with_deadline(state)
 
 
 async def save_to_knowledge_library(state: AgentState) -> dict:
@@ -367,17 +450,17 @@ def build_graph(checkpointer: Any = None) -> Any:
 
     wf.add_node("intake", run_intake)
     wf.add_node("cost_guard_post_intake", cost_guard_post_intake)
-    wf.add_node("prompt_router", run_prompt_router)
+    wf.add_node("prompt_router", prompt_router_node)
     wf.add_node("prompt_king", prompt_king_node)
     wf.add_node("prompt_splitter", run_prompt_splitter)
-    wf.add_node("supervisor", run_supervisor)
-    wf.add_node("research", run_research)
+    wf.add_node("supervisor", supervisor_node)
+    wf.add_node("research", research_node)
     wf.add_node("cost_guard_post_research", cost_guard_post_research)
-    wf.add_node("summarization", run_summarization)
-    wf.add_node("reflect", run_reflect)
-    wf.add_node("citation_verifier", run_citation_verifier)
+    wf.add_node("summarization", summarization_node)
+    wf.add_node("reflect", reflect_node)
+    wf.add_node("citation_verifier", citation_verifier_node)
     wf.add_node("research_critique", research_critique_node)
-    wf.add_node("viz_agent", run_viz_agent)
+    wf.add_node("viz_agent", viz_node)
     wf.add_node("render_and_present", render_and_present)
     wf.add_node("qa", qa_node)
     wf.add_node("save_to_knowledge_library", save_to_knowledge_library)
