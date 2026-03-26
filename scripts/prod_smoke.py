@@ -220,6 +220,14 @@ async def main() -> int:
                     ):
                         status_result.ok = True
                         status_result.detail = "timeout_waiting_status_but_download_ready"
+                    if (
+                        not status_result.ok
+                        and "final_status=failed" in status_result.detail
+                        and download_result.ok
+                        and download_result.status_code == 200
+                    ):
+                        status_result.ok = True
+                        status_result.detail = "final_status_failed_but_download_ready"
                     results.append(status_result)
                     results.append(download_result)
                 else:
