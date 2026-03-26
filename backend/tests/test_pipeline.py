@@ -343,6 +343,29 @@ class TestRunCitationVerifier:
         verification = result["citation_verification"]
         assert verification.checks[0].status == CitationStatus.PARTIAL
 
+    async def test_caps_number_of_checked_citations(self, base_state):
+        from backend.agents.citation_verifier import run_citation_verifier
+
+        sources = [
+            Source(url=f"https://example.com/{idx}", title=f"Source {idx}", snippet="Snippet")
+            for idx in range(60)
+        ]
+        research = ResearchResult(query="AI chips", sources=sources, findings=["Finding"])
+        state = {**base_state, "research_results": [research]}
+
+        with (
+            patch("backend.agents.citation_verifier._head_check", return_value=True),
+            patch("backend.agents.citation_verifier._fetch_content", return_value="Relevant content"),
+            patch(
+                "backend.agents.citation_verifier._get_embedder",
+                return_value=_make_mock_embedder(similarity=0.9),
+            ),
+        ):
+            result = await run_citation_verifier(state)
+
+        verification = result["citation_verification"]
+        assert verification.total == 40
+
 
 def _make_mock_embedder(similarity: float):
     """Return a mock SentenceTransformer that encodes to vectors with known cosine similarity."""

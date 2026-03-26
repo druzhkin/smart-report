@@ -31,6 +31,7 @@ SIMILARITY_THRESHOLDS = {
 
 MAX_CONTENT_CHARS = 8_000
 CONCURRENT_CHECKS = 10
+MAX_CITATION_CHECKS = 40
 REQUEST_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -252,6 +253,12 @@ async def run_citation_verifier(state: AgentState) -> dict:
                 if part and part.strip()
             )[:1_000]
             pairs.append((source.url, claim))
+
+    if len(pairs) > MAX_CITATION_CHECKS:
+        logger.warning(
+            f"Citation verification capped: checking first {MAX_CITATION_CHECKS} of {len(pairs)} citations"
+        )
+        pairs = pairs[:MAX_CITATION_CHECKS]
 
     if not pairs:
         logger.info("No citations to verify")
