@@ -286,6 +286,15 @@ def _load_report_from_disk(session_id: str) -> ReportOutput | None:
     return None
 
 
+def _safe_parse_iso(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except Exception:
+        return None
+
+
 def _make_event(
     step: str,
     status: str,
@@ -531,6 +540,33 @@ async def get_report(session_id: str) -> dict:
         if session.report is None:
             session.report = _load_report_from_disk(session_id)
         effective_status = session.status
+        if (
+            effective_status in {"running", "pending"}
+            and not session.report_urls
+            and session.report is None
+        ):
+            last_event_ts = _safe_parse_iso(
+                (_session_events.get(session_id, [])[-1].get("timestamp") if _session_events.get(session_id) else None)
+            )
+            last_activity = last_event_ts or session.created_at
+            if datetime.now(timezone.utc) - last_activity > timedelta(minutes=15):
+                effective_status = "failed"
+                session.status = "failed"
+                await _upsert_report_summary(session)
+                await _push_event(
+                    session_id,
+                    _make_event(
+                        "pipeline",
+                        "error",
+                        "Pipeline became stale (no activity for over 15 minutes)",
+                        session.cost_usd,
+                        session.tokens_used,
+                    ),
+                )
+                logger.warning(
+                    f"Recovered in-memory stale report session as failed (session_id={session_id}, "
+                    f"last_activity={last_activity.isoformat()})"
+                )
         if effective_status == "failed" and (session.report or session.report_urls):
             effective_status = "completed"
         return {

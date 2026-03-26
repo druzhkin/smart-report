@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -150,6 +151,17 @@ class TestGetReport:
         payload = resp.json()
         assert payload["status"] == "completed"
         assert payload["report_urls"]["html"].endswith(f"/api/reports/{created_session}/download/html")
+
+    def test_in_memory_stale_running_session_is_marked_failed(self, client, created_session):
+        from backend.api.routes import reports as routes_module
+
+        routes_module._sessions[created_session].status = "running"
+        routes_module._sessions[created_session].created_at = datetime.now(timezone.utc) - timedelta(minutes=20)
+        routes_module._session_events[created_session] = []
+
+        resp = client.get(f"/api/reports/{created_session}")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "failed"
 
 
 # ---------------------------------------------------------------------------
