@@ -8,6 +8,8 @@ on:
     branches:
       - main
   workflow_dispatch:
+  schedule:
+    - cron: "0 4 * * *"
 
 jobs:
   backend-tests:
@@ -68,22 +70,33 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Run frontend tests
-        run: npm test -- --watchAll=false
-
       - name: Build frontend
         run: npm run build
 
-  integration-tests:
-    name: Integration Tests
-    if: github.event_name == 'workflow_dispatch'
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Run frontend E2E tests
+        run: npm run test:e2e
+
+  autonomous-audit:
+    name: Autonomous Audit
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
+    permissions:
+      contents: read
+      issues: write
     env:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      FULL_AUDIT_RUN_INTEGRATION: "1"
       RUN_INTEGRATION_TESTS: "1"
+      SMOKE_API_BASE: ${{ secrets.SMOKE_API_BASE }}
+      SMOKE_RAGFLOW_BASE_URL: ${{ secrets.SMOKE_RAGFLOW_BASE_URL }}
+      SMOKE_RAGFLOW_API_KEY: ${{ secrets.SMOKE_RAGFLOW_API_KEY }}
+      SMOKE_RAGFLOW_REPORTS_DATASET_ID: ${{ secrets.SMOKE_RAGFLOW_REPORTS_DATASET_ID }}
+      SMOKE_RAGFLOW_FACTS_DATASET_ID: ${{ secrets.SMOKE_RAGFLOW_FACTS_DATASET_ID }}
+      SMOKE_RUN_REPORT: "1"
+      SMOKE_REPORT_TIMEOUT_SEC: "420"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -95,17 +108,80 @@ jobs:
           cache: "pip"
           cache-dependency-path: backend/pyproject.toml
 
-      - name: Verify OPENROUTER_API_KEY is configured
-        run: |
-          if [ -z "$OPENROUTER_API_KEY" ]; then
-            echo "OPENROUTER_API_KEY secret is required for integration tests."
-            exit 1
-          fi
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
 
       - name: Install backend dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          pip install -e "./backend[dev]"
 
-      - name: Run integration tests
-        run: pytest tests/test_pipeline_e2e.py -v
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+        working-directory: frontend
+
+      - name: Run full audit
+        id: run_full_audit
+        run: python scripts/full_audit.py
+        continue-on-error: true
+
+      - name: Build audit summary
+        if: always()
+        run: python scripts/audit_summary.py
+
+      - name: Upload audit artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: autonomous-audit
+          path: |
+            outputs/audit/latest.json
+            outputs/audit/summary.md
+
+      - name: Create issue on autonomous failure
+        if: steps.run_full_audit.outcome == 'failure'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require("fs");
+            const runUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+            let summary = "No summary available.";
+            try {
+              summary = fs.readFileSync("outputs/audit/summary.md", "utf8");
+            } catch {}
+
+            const title = `Autonomous audit failed (${new Date().toISOString().slice(0, 10)})`;
+            const body = [
+              "Autonomous CI audit failed.",
+              "",
+              `Run: ${runUrl}`,
+              "",
+              summary,
+            ].join("\n");
+
+            const { owner, repo } = context.repo;
+            const openIssues = await github.rest.issues.listForRepo({
+              owner,
+              repo,
+              state: "open",
+              per_page: 100,
+            });
+            const exists = openIssues.data.find((issue) => issue.title === title);
+            if (!exists) {
+              await github.rest.issues.create({
+                owner,
+                repo,
+                title,
+                body,
+              });
+            }
+
+      - name: Fail job if audit failed
+        if: steps.run_full_audit.outcome == 'failure'
+        run: exit 1

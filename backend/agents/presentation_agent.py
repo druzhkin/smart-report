@@ -317,12 +317,15 @@ async def run_presentation(state: AgentState) -> dict:
             logger.warning(f"Gamma export failed, trying Presenton fallback: {exc}")
 
     if settings.presenton_url:
-        url, file_path = await _presenton_create(markdown, slides_json)
-        result["presentation_url"] = url
-        result["presentation_path"] = file_path or slides_path
-        if file_path:
-            result["final_report_paths"] = state.get("final_report_paths", []) + [file_path]
-        return result
+        try:
+            url, file_path = await _presenton_create(markdown, slides_json)
+            result["presentation_url"] = url
+            result["presentation_path"] = file_path or slides_path
+            if file_path:
+                result["final_report_paths"] = state.get("final_report_paths", []) + [file_path]
+            return result
+        except Exception as exc:
+            logger.warning(f"Presenton fallback failed, using local slides JSON: {exc}")
 
     result["presentation_path"] = slides_path
     return result
