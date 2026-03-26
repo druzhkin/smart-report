@@ -2,7 +2,7 @@ import asyncio
 import json
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import AsyncGenerator
 
@@ -107,10 +107,16 @@ CREATE TABLE IF NOT EXISTS reports (
     title TEXT NOT NULL,
     status TEXT NOT NULL,
     created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
     cost_usd REAL DEFAULT 0.0,
     verdict TEXT DEFAULT NULL,
     output_formats TEXT DEFAULT '[]'
 )
+"""
+
+_ADD_UPDATED_AT_COLUMN_SQL = """
+ALTER TABLE reports
+ADD COLUMN IF NOT EXISTS updated_at TEXT NOT NULL DEFAULT '1970-01-01T00:00:00+00:00'
 """
 
 
@@ -123,6 +129,7 @@ async def _ensure_reports_table() -> None:
     try:
         async with engine.begin() as conn:
             await conn.execute(text(_CREATE_REPORTS_TABLE_SQL))
+            await conn.execute(text(_ADD_UPDATED_AT_COLUMN_SQL))
     finally:
         await engine.dispose()
 
@@ -133,18 +140,20 @@ async def _upsert_report_summary(session: SessionMeta) -> None:
         try:
             async with engine.begin() as conn:
                 await conn.execute(text(_CREATE_REPORTS_TABLE_SQL))
+                await conn.execute(text(_ADD_UPDATED_AT_COLUMN_SQL))
                 await conn.execute(
                     text(
                         """
                         INSERT INTO reports (
-                            session_id, title, status, created_at, cost_usd, verdict, output_formats
+                            session_id, title, status, created_at, updated_at, cost_usd, verdict, output_formats
                         )
                         VALUES (
-                            :session_id, :title, :status, :created_at, :cost_usd, :verdict, :output_formats
+                            :session_id, :title, :status, :created_at, :updated_at, :cost_usd, :verdict, :output_formats
                         )
                         ON CONFLICT(session_id) DO UPDATE SET
                             title = excluded.title,
                             status = excluded.status,
+                            updated_at = excluded.updated_at,
                             cost_usd = excluded.cost_usd,
                             verdict = excluded.verdict,
                             output_formats = excluded.output_formats
@@ -155,6 +164,7 @@ async def _upsert_report_summary(session: SessionMeta) -> None:
                         "title": (session.report.title if session.report else session.request[:120]) or "Untitled report",
                         "status": session.status,
                         "created_at": session.created_at.isoformat(),
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
                         "cost_usd": session.cost_usd,
                         "verdict": session.verdict,
                         "output_formats": json.dumps(session.output_formats),
@@ -175,7 +185,7 @@ async def _list_report_summaries() -> list[ReportSummary]:
                 result = await conn.execute(
                     text(
                         """
-                        SELECT session_id, title, status, created_at, cost_usd, verdict, output_formats
+                        SELECT session_id, title, status, created_at, updated_at, cost_usd, verdict, output_formats
                         FROM reports
                         ORDER BY created_at DESC
                         """
@@ -213,6 +223,32 @@ async def _delete_report_summary(session_id: str) -> None:
             )
     finally:
         await engine.dispose()
+
+
+async def _update_report_status(session_id: str, status: str) -> None:
+    try:
+        await _ensure_reports_table()
+        engine = create_async_engine(_db_url(), future=True)
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(
+                    text(
+                        """
+                        UPDATE reports
+                        SET status = :status, updated_at = :updated_at
+                        WHERE session_id = :session_id
+                        """
+                    ),
+                    {
+                        "session_id": session_id,
+                        "status": status,
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                    },
+                )
+        finally:
+            await engine.dispose()
+    except Exception as exc:
+        logger.warning(f"Failed to update status for stale session {session_id}: {exc}")
 
 
 def _now_iso() -> str:
@@ -513,7 +549,13 @@ async def get_report(session_id: str) -> dict:
         try:
             async with engine.connect() as conn:
                 result = await conn.execute(
-                    text("SELECT session_id, title, status, created_at, cost_usd, verdict, output_formats FROM reports WHERE session_id = :sid"),
+                    text(
+                        """
+                        SELECT session_id, title, status, created_at, updated_at, cost_usd, verdict, output_formats
+                        FROM reports
+                        WHERE session_id = :sid
+                        """
+                    ),
                     {"sid": session_id},
                 )
                 row = result.mappings().first()
@@ -529,6 +571,24 @@ async def get_report(session_id: str) -> dict:
     report_urls = _discover_report_urls(session_id)
     report = _load_report_from_disk(session_id)
     effective_status = row["status"]
+    if (
+        effective_status in {"running", "pending"}
+        and not report_urls
+        and report is None
+    ):
+        try:
+            updated_at = datetime.fromisoformat(row.get("updated_at") or row["created_at"])
+            is_stale = datetime.now(timezone.utc) - updated_at > timedelta(minutes=15)
+            if is_stale:
+                effective_status = "failed"
+                await _update_report_status(session_id, "failed")
+                logger.warning(
+                    f"Recovered stale report session as failed (session_id={session_id}, "
+                    f"last_update={updated_at.isoformat()})"
+                )
+        except Exception as exc:
+            logger.warning(f"Failed stale-session recovery for {session_id}: {exc}")
+
     if effective_status == "failed" and (report_urls or report):
         effective_status = "completed"
 
