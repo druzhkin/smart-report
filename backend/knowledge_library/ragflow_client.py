@@ -24,7 +24,7 @@ class RAGFlowClient:
         self._dataset_id_cache: dict[str, str] = {}
 
     def _headers(self) -> dict[str, str]:
-        headers = {"Content-Type": "application/json"}
+        headers: dict[str, str] = {}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
         return headers
@@ -37,15 +37,62 @@ class RAGFlowClient:
         return self._sdk
 
     async def _request(self, method: str, path: str, **kwargs) -> dict[str, Any]:
+        extra_headers = kwargs.pop("headers", {})
+        headers = {**self._headers(), **extra_headers}
+        if "json" in kwargs and "files" not in kwargs:
+            has_content_type = any(k.lower() == "content-type" for k in headers.keys())
+            if not has_content_type:
+                headers["Content-Type"] = "application/json"
+
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.request(
                 method,
                 f"{self.base_url}{path}",
-                headers={**self._headers(), **kwargs.pop("headers", {})},
+                headers=headers,
                 **kwargs,
             )
             response.raise_for_status()
-            return response.json()
+            payload = response.json()
+
+        if isinstance(payload, dict):
+            code = payload.get("code")
+            if code is not None and code != 0:
+                message = payload.get("message") or payload.get("error") or "unknown error"
+                raise RuntimeError(f"RAGFlow API error code={code}: {message}")
+            return payload
+        return {"data": payload}
+
+    async def _upload_text_document(
+        self,
+        *,
+        dataset_id: str,
+        name: str,
+        content: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> str:
+        uploaded = await self._request(
+            "POST",
+            f"/api/v1/datasets/{dataset_id}/documents",
+            files={"file": (name, content.encode("utf-8"), "text/markdown")},
+        )
+        raw_data = uploaded.get("data")
+        document_id = ""
+        if isinstance(raw_data, list) and raw_data:
+            document_id = str(raw_data[0].get("id", ""))
+        elif isinstance(raw_data, dict):
+            document_id = str((raw_data.get("document") or {}).get("id", ""))
+
+        if document_id and metadata:
+            await self._request(
+                "PUT",
+                f"/api/v1/datasets/{dataset_id}/documents/{document_id}",
+                json={
+                    "name": name,
+                    "meta_fields": metadata,
+                },
+            )
+
+        return document_id
 
     async def _list_datasets(self) -> list[dict[str, Any]]:
         data = await self._request("GET", "/api/v1/datasets", params={"page": 1, "page_size": 200})
@@ -96,7 +143,10 @@ class RAGFlowClient:
             "top_k": top_k,
         }
         data = await self._request("POST", "/api/v1/retrieval", json=payload)
-        return data.get("data", {}).get("chunks", [])
+        data_block = data.get("data")
+        if isinstance(data_block, dict):
+            return data_block.get("chunks", [])
+        return []
 
     @api_retry()
     async def search_similar_reports(
@@ -161,21 +211,24 @@ class RAGFlowClient:
             return ""
 
         body = {
-            "name": f"report_{session_id}.md",
-            "content": content or "",
-            "metadata": {
-                "session_id": session_id,
-                "title": title or "",
-                **(metadata or {}),
-            },
+            "session_id": session_id,
+            "title": title or "",
+            **(metadata or {}),
         }
-        data = await self._request(
-            "POST",
-            f"/api/v1/datasets/{dataset_id}/documents",
-            json=body,
+        doc_name = f"report_{session_id}.md"
+        doc_id = await self._upload_text_document(
+            dataset_id=dataset_id,
+            name=doc_name,
+            content=content or "",
+            metadata=body,
         )
-        document = (data.get("data") or {}).get("document", {})
-        return document.get("id", "")
+        if doc_id:
+            await self._request(
+                "POST",
+                f"/api/v1/datasets/{dataset_id}/chunks",
+                json={"document_ids": [doc_id]},
+            )
+        return doc_id
 
     @api_retry()
     async def save_facts(self, facts: list[KnowledgeUnit]) -> None:
@@ -186,22 +239,29 @@ class RAGFlowClient:
         verified_facts = [
             fact for fact in facts if getattr(fact, "verification_status", "VERIFIED") == "VERIFIED"
         ]
+        uploaded_doc_ids: list[str] = []
         for fact in verified_facts:
-            body = {
-                "name": f"fact_{fact.id}.md",
-                "content": fact.content,
-                "metadata": {
-                    "source_url": fact.source_url or fact.source,
-                    "reliability_score": fact.confidence,
-                    "topic_tags": fact.tags,
-                    "verification_status": fact.verification_status,
-                    "category": fact.category,
-                },
+            metadata = {
+                "source_url": fact.source_url or fact.source,
+                "reliability_score": fact.confidence,
+                "topic_tags": fact.tags,
+                "verification_status": fact.verification_status,
+                "category": fact.category,
             }
+            doc_id = await self._upload_text_document(
+                dataset_id=dataset_id,
+                name=f"fact_{fact.id}.md",
+                content=fact.content,
+                metadata=metadata,
+            )
+            if doc_id:
+                uploaded_doc_ids.append(doc_id)
+
+        if uploaded_doc_ids:
             await self._request(
                 "POST",
-                f"/api/v1/datasets/{dataset_id}/documents",
-                json=body,
+                f"/api/v1/datasets/{dataset_id}/chunks",
+                json={"document_ids": uploaded_doc_ids},
             )
 
     @api_retry()

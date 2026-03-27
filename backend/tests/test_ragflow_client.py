@@ -79,11 +79,17 @@ async def test_search_returns_none_below_threshold(ragflow_client):
 @pytest.mark.asyncio
 async def test_save_report_returns_document_id(ragflow_client):
     with respx.mock:
-        route = respx.post("http://localhost:9380/api/v1/datasets/reports-ds/documents").mock(
+        upload_route = respx.post("http://localhost:9380/api/v1/datasets/reports-ds/documents").mock(
             return_value=httpx.Response(
                 200,
-                json={"data": {"document": {"id": "report-doc-123"}}},
+                json={"code": 0, "data": [{"id": "report-doc-123"}]},
             )
+        )
+        update_route = respx.put(
+            "http://localhost:9380/api/v1/datasets/reports-ds/documents/report-doc-123"
+        ).mock(return_value=httpx.Response(200, json={"code": 0}))
+        parse_route = respx.post("http://localhost:9380/api/v1/datasets/reports-ds/chunks").mock(
+            return_value=httpx.Response(200, json={"code": 0})
         )
         document_id = await ragflow_client.save_report(
             "session-1",
@@ -92,7 +98,9 @@ async def test_save_report_returns_document_id(ragflow_client):
             {"region": "RU"},
         )
 
-    assert route.called
+    assert upload_route.called
+    assert update_route.called
+    assert parse_route.called
     assert document_id == "report-doc-123"
 
 
@@ -120,18 +128,26 @@ async def test_save_facts_filters_non_verified(ragflow_client):
     )
 
     with respx.mock:
-        route = respx.post("http://localhost:9380/api/v1/datasets/facts-ds/documents").mock(
+        upload_route = respx.post("http://localhost:9380/api/v1/datasets/facts-ds/documents").mock(
             return_value=httpx.Response(
                 200,
-                json={"data": {"document": {"id": "fact-doc-1"}}},
+                json={"code": 0, "data": [{"id": "fact-doc-1"}]},
             )
+        )
+        update_route = respx.put(
+            "http://localhost:9380/api/v1/datasets/facts-ds/documents/fact-doc-1"
+        ).mock(return_value=httpx.Response(200, json={"code": 0}))
+        parse_route = respx.post("http://localhost:9380/api/v1/datasets/facts-ds/chunks").mock(
+            return_value=httpx.Response(200, json={"code": 0})
         )
         await ragflow_client.save_facts([verified, rejected])
 
-    assert route.call_count == 1
-    request_json = route.calls[0].request.content.decode("utf-8")
-    assert "Verified fact" in request_json
-    assert "Rejected fact" not in request_json
+    assert upload_route.call_count == 1
+    assert update_route.call_count == 1
+    assert parse_route.call_count == 1
+    upload_payload = upload_route.calls[0].request.content.decode("utf-8", errors="ignore")
+    assert "Verified fact" in upload_payload
+    assert "Rejected fact" not in upload_payload
 
 
 @pytest.mark.asyncio
@@ -164,8 +180,14 @@ async def test_save_report_resolves_dataset_id_by_name(monkeypatch):
         save_route = respx.post("http://localhost:9380/api/v1/datasets/reports-ds/documents").mock(
             return_value=httpx.Response(
                 200,
-                json={"data": {"document": {"id": "report-doc-456"}}},
+                json={"code": 0, "data": [{"id": "report-doc-456"}]},
             )
+        )
+        update_route = respx.put(
+            "http://localhost:9380/api/v1/datasets/reports-ds/documents/report-doc-456"
+        ).mock(return_value=httpx.Response(200, json={"code": 0}))
+        parse_route = respx.post("http://localhost:9380/api/v1/datasets/reports-ds/chunks").mock(
+            return_value=httpx.Response(200, json={"code": 0})
         )
         document_id = await client.save_report(
             "session-2",
@@ -176,6 +198,8 @@ async def test_save_report_resolves_dataset_id_by_name(monkeypatch):
 
     assert list_route.called
     assert save_route.called
+    assert update_route.called
+    assert parse_route.called
     assert document_id == "report-doc-456"
 
 
@@ -192,8 +216,14 @@ async def test_save_report_accepts_report_object_with_metadata(ragflow_client):
         route = respx.post("http://localhost:9380/api/v1/datasets/reports-ds/documents").mock(
             return_value=httpx.Response(
                 200,
-                json={"data": {"document": {"id": "report-doc-789"}}},
+                json={"code": 0, "data": [{"id": "report-doc-789"}]},
             )
+        )
+        update_route = respx.put(
+            "http://localhost:9380/api/v1/datasets/reports-ds/documents/report-doc-789"
+        ).mock(return_value=httpx.Response(200, json={"code": 0}))
+        parse_route = respx.post("http://localhost:9380/api/v1/datasets/reports-ds/chunks").mock(
+            return_value=httpx.Response(200, json={"code": 0})
         )
         document_id = await ragflow_client.save_report(
             report,
@@ -202,8 +232,11 @@ async def test_save_report_accepts_report_object_with_metadata(ragflow_client):
         )
 
     assert route.called
-    request_json = route.calls[0].request.content.decode("utf-8")
-    assert "AI Report" in request_json
-    assert "qa_verdict" in request_json
-    assert "failed" in request_json
+    assert update_route.called
+    assert parse_route.called
+    upload_payload = route.calls[0].request.content.decode("utf-8", errors="ignore")
+    assert "AI Report" in upload_payload
+    update_payload = update_route.calls[0].request.content.decode("utf-8")
+    assert "qa_verdict" in update_payload
+    assert "failed" in update_payload
     assert document_id == "report-doc-789"
