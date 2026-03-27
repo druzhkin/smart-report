@@ -257,18 +257,48 @@ async def _list_report_summaries() -> list[ReportSummary]:
         logger.warning(f"Failed to load report summaries, returning empty list: {exc}")
         return []
 
-    return [
-        ReportSummary(
-            session_id=row["session_id"],
-            title=row["title"],
-            status=row["status"],
-            created_at=datetime.fromisoformat(row["created_at"]),
-            cost_usd=float(row["cost_usd"] or 0.0),
-            verdict=row["verdict"],
-            output_formats=json.loads(row["output_formats"] or "[]"),
+    summaries: list[ReportSummary] = []
+    stale_to_mark_failed: list[str] = []
+    for row in rows:
+        session_id = row["session_id"]
+        status = str(row["status"] or "pending")
+        created_at = datetime.fromisoformat(row["created_at"])
+
+        db_report_urls: dict[str, str] = {}
+        try:
+            parsed_urls = json.loads(row.get("report_urls") or "{}")
+            if isinstance(parsed_urls, dict):
+                db_report_urls = parsed_urls
+        except Exception:
+            db_report_urls = {}
+
+        has_artifacts = bool(db_report_urls or row.get("report_json") or _discover_report_urls(session_id))
+        if status == "failed" and has_artifacts:
+            status = "completed"
+
+        if status in {"running", "pending"} and not has_artifacts:
+            updated_raw = row.get("updated_at") or row["created_at"]
+            updated_at = _safe_parse_iso(updated_raw) or created_at
+            if datetime.now(timezone.utc) - updated_at > timedelta(minutes=15):
+                status = "failed"
+                stale_to_mark_failed.append(session_id)
+
+        summaries.append(
+            ReportSummary(
+                session_id=session_id,
+                title=row["title"],
+                status=status,
+                created_at=created_at,
+                cost_usd=float(row["cost_usd"] or 0.0),
+                verdict=row["verdict"],
+                output_formats=json.loads(row["output_formats"] or "[]"),
+            )
         )
-        for row in rows
-    ]
+
+    for session_id in stale_to_mark_failed:
+        await _update_report_status(session_id, "failed")
+
+    return summaries
 
 
 async def _delete_report_summary(session_id: str) -> None:

@@ -166,6 +166,62 @@ class TestGetReport:
 
 
 # ---------------------------------------------------------------------------
+# GET /api/reports (list)
+# ---------------------------------------------------------------------------
+
+
+class TestListReports:
+    def test_list_normalizes_failed_with_artifacts_to_completed(
+        self, client, created_session, tmp_path, monkeypatch
+    ):
+        from backend.api.routes import reports as routes_module
+        from backend.config import settings
+
+        monkeypatch.setattr(settings, "outputs_dir", str(tmp_path))
+        out_dir = tmp_path / created_session
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / "report.html").write_text("<html>ok</html>", encoding="utf-8")
+
+        routes_module._sessions[created_session].status = "failed"
+        asyncio.run(routes_module._upsert_report_summary(routes_module._sessions[created_session]))
+
+        resp = client.get("/api/reports")
+        assert resp.status_code == 200
+        entry = next(item for item in resp.json() if item["session_id"] == created_session)
+        assert entry["status"] == "completed"
+
+    def test_list_marks_stale_running_as_failed(self, client, created_session):
+        from backend.api.routes import reports as routes_module
+        from sqlalchemy import text
+        from sqlalchemy.ext.asyncio import create_async_engine
+
+        routes_module._sessions[created_session].status = "running"
+        routes_module._sessions[created_session].created_at = datetime.now(timezone.utc) - timedelta(minutes=20)
+        asyncio.run(routes_module._upsert_report_summary(routes_module._sessions[created_session]))
+
+        async def _set_old_updated_at() -> None:
+            engine = create_async_engine(routes_module._db_url(), future=True)
+            try:
+                async with engine.begin() as conn:
+                    await conn.execute(
+                        text("UPDATE reports SET updated_at = :ts WHERE session_id = :sid"),
+                        {
+                            "sid": created_session,
+                            "ts": (datetime.now(timezone.utc) - timedelta(minutes=20)).isoformat(),
+                        },
+                    )
+            finally:
+                await engine.dispose()
+
+        asyncio.run(_set_old_updated_at())
+
+        resp = client.get("/api/reports")
+        assert resp.status_code == 200
+        entry = next(item for item in resp.json() if item["session_id"] == created_session)
+        assert entry["status"] == "failed"
+
+
+# ---------------------------------------------------------------------------
 # GET /api/reports/{id}/stream (SSE)
 # ---------------------------------------------------------------------------
 
