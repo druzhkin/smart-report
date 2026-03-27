@@ -100,6 +100,8 @@ class ReportSummary(BaseModel):
 _sessions: dict[str, SessionMeta] = {}
 _session_events: dict[str, list[dict]] = {}
 _session_queues: dict[str, asyncio.Queue] = {}
+_reports_schema_lock = asyncio.Lock()
+_reports_schema_ready = False
 
 _CREATE_REPORTS_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS reports (
@@ -155,14 +157,31 @@ async def _ensure_reports_columns(conn) -> None:
 
 
 async def _ensure_reports_table() -> None:
-    engine = create_async_engine(_db_url(), future=True)
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(text(_CREATE_REPORTS_TABLE_SQL))
-            await _ensure_reports_columns(conn)
-            await conn.execute(text(_CREATE_REPORT_EVENTS_TABLE_SQL))
-    finally:
-        await engine.dispose()
+    global _reports_schema_ready
+    if _reports_schema_ready:
+        return
+
+    async with _reports_schema_lock:
+        if _reports_schema_ready:
+            return
+
+        engine = create_async_engine(_db_url(), future=True)
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text(_CREATE_REPORTS_TABLE_SQL))
+                await _ensure_reports_columns(conn)
+                await conn.execute(text(_CREATE_REPORT_EVENTS_TABLE_SQL))
+            _reports_schema_ready = True
+        except Exception as exc:
+            msg = str(exc).lower()
+            # Handle concurrent DDL races on Postgres across multiple instances.
+            if "pg_class_relname_nsp_index" in msg and "duplicate key value violates unique constraint" in msg:
+                logger.warning("Reports schema init raced with another instance; continuing")
+                _reports_schema_ready = True
+                return
+            raise
+        finally:
+            await engine.dispose()
 
 
 async def _upsert_report_summary(session: SessionMeta) -> None:
