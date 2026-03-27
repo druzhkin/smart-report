@@ -2391,6 +2391,37 @@ class TestSupervisorOrchestration:
         assert branch.next_action == "verify"
         assert branch.contradiction_notes
 
+    async def test_falls_back_when_planner_returns_empty_content(self, base_state):
+        from backend.agents.supervisor_agent import run_supervisor
+
+        decomposition = TaskDecomposition(
+            main_question="Analyze AI chip market",
+            subquestions=[
+                ResearchTask(id="market", question="Estimate market size", priority=1),
+                ResearchTask(id="pricing", question="Map competitor pricing", priority=1),
+            ],
+        )
+
+        with (
+            patch("backend.agents.supervisor_agent.retriever.retrieve", AsyncMock(return_value=[])),
+            respx.mock,
+        ):
+            route = respx.post(_OPENROUTER_URL).mock(
+                return_value=httpx.Response(
+                    200,
+                    json={"choices": [{"message": {"content": None}}]},
+                )
+            )
+            result = await run_supervisor({**base_state, "task_decomposition": decomposition})
+
+        assert route.called
+        assert result["data_queries"] == ["Estimate market size", "Map competitor pricing"]
+        batches = result["parallel_batches"]
+        assert batches.total_queries == 2
+        assert len(batches.batches) == 1
+        assert batches.batches[0].queries == ["Estimate market size", "Map competitor pricing"]
+        assert result["cost_usd"] >= base_state["cost_usd"]
+
 
 # ---------------------------------------------------------------------------
 # TestVizAgent

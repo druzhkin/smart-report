@@ -332,13 +332,18 @@ async def run_supervisor(state: AgentState) -> dict:
             for task in actionable_tasks
         ]
         raw = await _plan_batches(task_payload, model)
-        try:
-            parsed = parse_llm_json(raw, context="supervisor")
-            batches = ParallelBatches(**parsed)
-        except Exception as exc:
-            logger.warning(f"Supervisor parse failed, using dependency-aware fallback: {exc}")
+        raw_text = raw if isinstance(raw, str) else ""
+        if not raw_text.strip():
+            logger.warning("Supervisor planner returned empty content, using dependency-aware fallback")
             batches = _fallback_batches(actionable_tasks)
-        cost = estimate_cost(AgentTask.SUPERVISION, len(json.dumps(task_payload)) // 4, len(raw) // 4)
+        else:
+            try:
+                parsed = parse_llm_json(raw_text, context="supervisor")
+                batches = ParallelBatches(**parsed)
+            except Exception as exc:
+                logger.warning(f"Supervisor parse failed, using dependency-aware fallback: {exc}")
+                batches = _fallback_batches(actionable_tasks)
+        cost = estimate_cost(AgentTask.SUPERVISION, len(json.dumps(task_payload)) // 4, len(raw_text) // 4)
 
     data_queries = [task.question for task in actionable_tasks]
     iteration = state.get("iteration", 0) + 1
