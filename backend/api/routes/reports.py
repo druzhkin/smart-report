@@ -116,17 +116,13 @@ CREATE TABLE IF NOT EXISTS reports (
 )
 """
 
-_ADD_UPDATED_AT_COLUMN_SQL = """
-ALTER TABLE reports
-ADD COLUMN IF NOT EXISTS updated_at TEXT NOT NULL DEFAULT '1970-01-01T00:00:00+00:00'
-"""
-_ADD_REPORT_JSON_COLUMN_SQL = """
-ALTER TABLE reports
-ADD COLUMN IF NOT EXISTS report_json TEXT DEFAULT NULL
-"""
-_ADD_REPORT_URLS_COLUMN_SQL = """
-ALTER TABLE reports
-ADD COLUMN IF NOT EXISTS report_urls TEXT DEFAULT '{}'
+_CREATE_REPORT_EVENTS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS report_events (
+    id BIGSERIAL PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    event_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+)
 """
 
 
@@ -134,14 +130,37 @@ def _db_url() -> str:
     return normalize_database_url(settings.postgres_url, async_driver=True)
 
 
+async def _ensure_reports_columns(conn) -> None:
+    existing_columns: set[str] = set()
+    try:
+        probe = await conn.execute(text("SELECT * FROM reports LIMIT 0"))
+        existing_columns = {str(col) for col in probe.keys()}
+    except Exception:
+        existing_columns = set()
+
+    if "updated_at" not in existing_columns:
+        await conn.execute(
+            text(
+                "ALTER TABLE reports ADD COLUMN updated_at TEXT NOT NULL DEFAULT '1970-01-01T00:00:00+00:00'"
+            )
+        )
+    if "report_json" not in existing_columns:
+        await conn.execute(
+            text("ALTER TABLE reports ADD COLUMN report_json TEXT DEFAULT NULL")
+        )
+    if "report_urls" not in existing_columns:
+        await conn.execute(
+            text("ALTER TABLE reports ADD COLUMN report_urls TEXT DEFAULT '{}'")
+        )
+
+
 async def _ensure_reports_table() -> None:
     engine = create_async_engine(_db_url(), future=True)
     try:
         async with engine.begin() as conn:
             await conn.execute(text(_CREATE_REPORTS_TABLE_SQL))
-            await conn.execute(text(_ADD_UPDATED_AT_COLUMN_SQL))
-            await conn.execute(text(_ADD_REPORT_JSON_COLUMN_SQL))
-            await conn.execute(text(_ADD_REPORT_URLS_COLUMN_SQL))
+            await _ensure_reports_columns(conn)
+            await conn.execute(text(_CREATE_REPORT_EVENTS_TABLE_SQL))
     finally:
         await engine.dispose()
 
@@ -152,9 +171,8 @@ async def _upsert_report_summary(session: SessionMeta) -> None:
         try:
             async with engine.begin() as conn:
                 await conn.execute(text(_CREATE_REPORTS_TABLE_SQL))
-                await conn.execute(text(_ADD_UPDATED_AT_COLUMN_SQL))
-                await conn.execute(text(_ADD_REPORT_JSON_COLUMN_SQL))
-                await conn.execute(text(_ADD_REPORT_URLS_COLUMN_SQL))
+                await _ensure_reports_columns(conn)
+                await conn.execute(text(_CREATE_REPORT_EVENTS_TABLE_SQL))
                 await conn.execute(
                     text(
                         """
@@ -243,6 +261,10 @@ async def _delete_report_summary(session_id: str) -> None:
                 text("DELETE FROM reports WHERE session_id = :session_id"),
                 {"session_id": session_id},
             )
+            await conn.execute(
+                text("DELETE FROM report_events WHERE session_id = :session_id"),
+                {"session_id": session_id},
+            )
     finally:
         await engine.dispose()
 
@@ -271,6 +293,114 @@ async def _update_report_status(session_id: str, status: str) -> None:
             await engine.dispose()
     except Exception as exc:
         logger.warning(f"Failed to update status for stale session {session_id}: {exc}")
+
+
+async def _report_exists(session_id: str) -> bool:
+    try:
+        await _ensure_reports_table()
+        engine = create_async_engine(_db_url(), future=True)
+        try:
+            async with engine.connect() as conn:
+                result = await conn.execute(
+                    text("SELECT 1 FROM reports WHERE session_id = :sid"),
+                    {"sid": session_id},
+                )
+                return result.first() is not None
+        finally:
+            await engine.dispose()
+    except Exception as exc:
+        logger.warning(f"Failed to check report existence for {session_id}: {exc}")
+        return False
+
+
+async def _report_status_from_db(session_id: str) -> str | None:
+    try:
+        await _ensure_reports_table()
+        engine = create_async_engine(_db_url(), future=True)
+        try:
+            async with engine.connect() as conn:
+                result = await conn.execute(
+                    text("SELECT status FROM reports WHERE session_id = :sid"),
+                    {"sid": session_id},
+                )
+                row = result.first()
+                return str(row[0]) if row else None
+        finally:
+            await engine.dispose()
+    except Exception as exc:
+        logger.warning(f"Failed to fetch report status for {session_id}: {exc}")
+        return None
+
+
+async def _append_report_event(session_id: str, event: dict) -> None:
+    try:
+        await _ensure_reports_table()
+        engine = create_async_engine(_db_url(), future=True)
+        created_at = datetime.now(timezone.utc)
+        base_event_id = int(created_at.timestamp() * 1_000_000)
+        try:
+            async with engine.begin() as conn:
+                payload = {
+                    "session_id": session_id,
+                    "event_json": json.dumps(event, ensure_ascii=False),
+                    "created_at": created_at.isoformat(),
+                }
+                inserted = False
+                for offset in range(5):
+                    try:
+                        await conn.execute(
+                            text(
+                                """
+                                INSERT INTO report_events (id, session_id, event_json, created_at)
+                                VALUES (:id, :session_id, :event_json, :created_at)
+                                """
+                            ),
+                            {**payload, "id": base_event_id + offset},
+                        )
+                        inserted = True
+                        break
+                    except Exception:
+                        continue
+                if not inserted:
+                    raise RuntimeError("failed to persist report event after retries")
+        finally:
+            await engine.dispose()
+    except Exception as exc:
+        logger.warning(f"Failed to persist report event for {session_id}: {exc}")
+
+
+async def _load_report_events(session_id: str, after_id: int = 0) -> list[tuple[int, dict]]:
+    try:
+        await _ensure_reports_table()
+        engine = create_async_engine(_db_url(), future=True)
+        try:
+            async with engine.connect() as conn:
+                result = await conn.execute(
+                    text(
+                        """
+                        SELECT id, event_json
+                        FROM report_events
+                        WHERE session_id = :session_id AND id > :after_id
+                        ORDER BY id ASC
+                        LIMIT 500
+                        """
+                    ),
+                    {"session_id": session_id, "after_id": after_id},
+                )
+                rows = result.fetchall()
+        finally:
+            await engine.dispose()
+    except Exception as exc:
+        logger.warning(f"Failed to load report events for {session_id}: {exc}")
+        return []
+
+    parsed: list[tuple[int, dict]] = []
+    for row in rows:
+        try:
+            parsed.append((int(row[0]), json.loads(row[1])))
+        except Exception:
+            continue
+    return parsed
 
 
 def _now_iso() -> str:
@@ -339,6 +469,7 @@ def _make_event(
 
 async def _push_event(session_id: str, event: dict) -> None:
     _session_events.setdefault(session_id, []).append(event)
+    await _append_report_event(session_id, event)
     q = _session_queues.get(session_id)
     if q:
         await q.put(event)
@@ -532,23 +663,56 @@ async def list_reports() -> list[dict]:
 
 @router.get("/reports/{session_id}/stream")
 async def stream_report(session_id: str) -> EventSourceResponse:
-    if session_id not in _sessions:
-        raise HTTPException(status_code=404, detail="Session not found")
-
     async def generator() -> AsyncGenerator[dict, None]:
-        for ev in list(_session_events.get(session_id, [])):
-            yield {"data": json.dumps(ev)}
+        last_event_id = 0
+        replay = await _load_report_events(session_id=session_id, after_id=0)
+        for event_id, payload in replay:
+            last_event_id = event_id
+            yield {"data": json.dumps(payload)}
 
-        session = _sessions[session_id]
-        if session.status in ("completed", "failed"):
+        if session_id in _sessions:
+            session = _sessions[session_id]
+            for payload in list(_session_events.get(session_id, [])):
+                yield {"data": json.dumps(payload)}
+            if session.status in ("completed", "failed"):
+                return
+
+            q = _session_queues.get(session_id)
+            if q is None:
+                return
+            while True:
+                ev = await q.get()
+                if ev is None:
+                    break
+                yield {"data": json.dumps(ev)}
             return
 
-        q = _session_queues[session_id]
-        while True:
-            ev = await q.get()
-            if ev is None:
+        status = await _report_status_from_db(session_id)
+        if status is None:
+            return
+        if status in ("completed", "failed"):
+            return
+
+        # DB long-poll fallback for sessions not present in memory (e.g. after restart).
+        idle_rounds = 0
+        max_idle_rounds = 40  # ~60s with 1.5s sleep
+        while idle_rounds < max_idle_rounds:
+            updates = await _load_report_events(session_id=session_id, after_id=last_event_id)
+            if updates:
+                idle_rounds = 0
+                for event_id, payload in updates:
+                    last_event_id = event_id
+                    yield {"data": json.dumps(payload)}
+            else:
+                idle_rounds += 1
+
+            status = await _report_status_from_db(session_id)
+            if status in ("completed", "failed") and not updates:
                 break
-            yield {"data": json.dumps(ev)}
+            await asyncio.sleep(1.5)
+
+    if session_id not in _sessions and not await _report_exists(session_id):
+        raise HTTPException(status_code=404, detail="Session not found")
 
     return EventSourceResponse(generator())
 
@@ -716,21 +880,22 @@ async def download_report(session_id: str, format: str) -> FileResponse:
 
 @router.post("/reports/{session_id}/feedback")
 async def submit_feedback(session_id: str, body: FeedbackRequest) -> dict:
-    if session_id not in _sessions:
+    if session_id not in _sessions and not await _report_exists(session_id):
         raise HTTPException(status_code=404, detail="Session not found")
 
-    _sessions[session_id].feedback = {
-        "rating": body.rating,
-        "comment": body.comment,
-        "submitted_at": _now_iso(),
-    }
+    if session_id in _sessions:
+        _sessions[session_id].feedback = {
+            "rating": body.rating,
+            "comment": body.comment,
+            "submitted_at": _now_iso(),
+        }
     logger.info(f"Feedback saved for {session_id}: rating={body.rating}")
     return {"status": "ok"}
 
 
 @router.post("/reports/{session_id}/subscribe")
 async def subscribe_to_report(session_id: str, body: PushSubscriptionRequest) -> dict:
-    if session_id not in _sessions:
+    if session_id not in _sessions and not await _report_exists(session_id):
         raise HTTPException(status_code=404, detail="Session not found")
 
     await save_push_subscription(session_id, body.model_dump())

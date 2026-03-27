@@ -1,6 +1,7 @@
 """Tests for FastAPI REST endpoints."""
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -224,6 +225,29 @@ class TestSSEStream:
                 assert "status" in payload
                 assert "timestamp" in payload
 
+    def test_stream_works_from_db_when_session_not_in_memory(self, client):
+        from backend.api.routes import reports as routes_module
+
+        with patch("backend.api.routes.reports._run_pipeline", new_callable=AsyncMock):
+            create_resp = client.post("/api/reports", json={"request": "DB stream test"})
+        session_id = create_resp.json()["session_id"]
+
+        routes_module._sessions[session_id].status = "completed"
+        asyncio.run(routes_module._upsert_report_summary(routes_module._sessions[session_id]))
+        asyncio.run(
+            routes_module._push_event(
+                session_id,
+                routes_module._make_event("pipeline", "done", "done", 0.0, 0),
+            )
+        )
+        routes_module._sessions.pop(session_id, None)
+        routes_module._session_events.pop(session_id, None)
+        routes_module._session_queues.pop(session_id, None)
+
+        resp = client.get(f"/api/reports/{session_id}/stream")
+        assert resp.status_code == 200
+        assert "pipeline" in resp.text
+
 
 # ---------------------------------------------------------------------------
 # GET /api/reports/{id}/download/{format}
@@ -340,6 +364,39 @@ class TestFeedback:
         assert session.feedback is not None
         assert session.feedback["rating"] == 4
         assert session.feedback["comment"] == "Good"
+
+    def test_feedback_ok_for_db_session_without_memory(self, client):
+        from backend.api.routes import reports as routes_module
+
+        with patch("backend.api.routes.reports._run_pipeline", new_callable=AsyncMock):
+            create_resp = client.post("/api/reports", json={"request": "Feedback DB test"})
+        session_id = create_resp.json()["session_id"]
+        routes_module._sessions.pop(session_id, None)
+
+        resp = client.post(
+            f"/api/reports/{session_id}/feedback",
+            json={"rating": 4, "comment": "ok"},
+        )
+        assert resp.status_code == 200
+
+
+class TestSubscribe:
+    def test_subscribe_ok_for_db_session_without_memory(self, client):
+        from backend.api.routes import reports as routes_module
+
+        with patch("backend.api.routes.reports._run_pipeline", new_callable=AsyncMock):
+            create_resp = client.post("/api/reports", json={"request": "Subscribe DB test"})
+        session_id = create_resp.json()["session_id"]
+        routes_module._sessions.pop(session_id, None)
+
+        payload = {
+            "endpoint": "https://push.example.com/abc",
+            "keys": {"p256dh": "k1", "auth": "k2"},
+        }
+        with patch("backend.api.routes.reports.save_push_subscription", new_callable=AsyncMock) as save_mock:
+            resp = client.post(f"/api/reports/{session_id}/subscribe", json=payload)
+        assert resp.status_code == 200
+        assert save_mock.await_count == 1
 
 
 # ---------------------------------------------------------------------------
