@@ -86,10 +86,13 @@ async def _search_similar_reports(query: str) -> list[SimilarReport]:
             logger.debug("RAGFlow API key not configured, skipping similarity search")
             return []
 
-        chunks = await ragflow.search(query=query, top_k=5)
+        reports_dataset_id = await ragflow._resolve_dataset_id("reports")
+        if not reports_dataset_id:
+            return []
+        chunks = await ragflow.search(query=query, dataset_id=reports_dataset_id, top_k=5)
         return [
             SimilarReport(
-                chunk_id=chunk.get("chunk_id", ""),
+                chunk_id=chunk.get("chunk_id", chunk.get("id", "")),
                 content=chunk.get("content", "")[:500],
                 score=chunk.get("similarity", 0.0),
                 document_name=chunk.get("document_name", ""),

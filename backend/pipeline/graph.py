@@ -345,7 +345,7 @@ async def save_to_knowledge_library(state: AgentState) -> dict:
                     "topic_tags": topic_tags,
                 },
             ),
-            timeout_seconds=20,
+            timeout_seconds=45,
             op_name="ragflow.save_report",
             default="",
         )
@@ -364,7 +364,7 @@ async def save_to_knowledge_library(state: AgentState) -> dict:
             )
         await _await_with_timeout(
             ragflow.save_facts(verified_units[:max_facts_sync]),
-            timeout_seconds=30,
+            timeout_seconds=180,
             op_name="ragflow.save_facts",
         )
 

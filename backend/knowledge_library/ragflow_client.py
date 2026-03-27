@@ -137,9 +137,17 @@ class RAGFlowClient:
         dataset_id: str | None = None,
         top_k: int = 5,
     ) -> list[dict[str, Any]]:
+        dataset_ids: list[str] = []
+        if dataset_id:
+            dataset_ids = [dataset_id]
+        else:
+            reports_id = await self._resolve_dataset_id("reports")
+            facts_id = await self._resolve_dataset_id("facts")
+            dataset_ids = [ds for ds in [reports_id, facts_id] if ds]
+
         payload = {
             "question": query,
-            "dataset_ids": [dataset_id] if dataset_id else [],
+            "dataset_ids": dataset_ids,
             "top_k": top_k,
         }
         data = await self._request("POST", "/api/v1/retrieval", json=payload)
@@ -195,10 +203,23 @@ class RAGFlowClient:
             actual_session_id = title
             payload = report.model_dump(mode="json") if hasattr(report, "model_dump") else {}
             extra_metadata = content if isinstance(content, dict) else metadata
+            md_lines = [
+                f"# {payload.get('title', f'report_{actual_session_id}')}",
+                "",
+                "## Executive Summary",
+                str(payload.get("executive_summary") or "")[:4000],
+                "",
+            ]
+            for section in (payload.get("sections") or [])[:12]:
+                sec_title = str(section.get("title") or "Section")
+                sec_content = str(section.get("content") or "")[:4000]
+                md_lines.extend([f"## {sec_title}", sec_content, ""])
+
+            report_markdown = "\n".join(md_lines).strip()
             return await self.save_report(
                 actual_session_id,
                 payload.get("title", f"report_{actual_session_id}"),
-                json.dumps(payload, ensure_ascii=False, default=str),
+                report_markdown,
                 {"session_id": actual_session_id, **(extra_metadata or {})},
             )
 
