@@ -1,0 +1,61 @@
+{
+  "task_id": "7a9b9f03-ff38-4b52-bd8f-a16f2a0c4740",
+  "request_spec": {
+    "request_id": "ef433541-5548-4bce-a132-a0e7b7d934d5",
+    "original_query": "Evaluate LLM observability platforms for an enterprise document workflow product.",
+    "language": "en",
+    "report_type": "vendor_evaluation",
+    "goal": "Produce an evidence-backed analytical report for a real decision.",
+    "subject": "LLM observability platforms",
+    "decision_context": "Choose a primary platform for a production pilot in the next two quarters.",
+    "target_audience": "operator",
+    "time_horizon": "current",
+    "geography": "global",
+    "quality_target": "decision-grade",
+    "budget_tier": "standard",
+    "missing_critical_fields": []
+  },
+  "success_criteria": [
+    "Every recommendation must be tied to evidence.",
+    "Weak-source discovery hints cannot dominate the recommendation.",
+    "Limitations and unresolved gaps must be explicit."
+  ],
+  "evaluation_dimensions": [
+    "trace depth",
+    "evaluation tooling",
+    "self-hosting",
+    "governance"
+  ],
+  "constraints": [
+    "Prefer pragmatic operating cost and privacy-aware deployment."
+  ],
+  "must_cover_questions": [
+    "Which platform is strongest for traceability and evals?",
+    "Which options fit privacy-sensitive deployments?",
+    "Which tools are best for fast operator debugging?"
+  ],
+  "allowed_source_types": [
+    "official_documentation",
+    "vendor_page",
+    "benchmark",
+    "research_paper",
+    "high_quality_secondary"
+  ],
+  "blocked_source_types": [
+    "weak_secondary"
+  ],
+  "output_package": [
+    "md",
+    "html",
+    "pdf",
+    "docx",
+    "json"
+  ],
+  "max_budget_usd": 2.0,
+  "answers": {
+    "decision-context": "Choose a primary platform for a production pilot in the next two quarters.",
+    "dimensions": "trace depth, evaluation tooling, self-hosting, governance",
+    "geography": "global",
+    "budget": "Prefer pragmatic operating cost and privacy-aware deployment."
+  }
+}

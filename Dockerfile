@@ -5,6 +5,7 @@ COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 
 COPY frontend/ ./
+ENV NEXT_TELEMETRY_DISABLED=1
 ENV BACKEND_URL=http://127.0.0.1:8000
 RUN npm run build
 
@@ -44,10 +45,17 @@ ENV BACKEND_PORT=8000
 ENV HOSTNAME=0.0.0.0
 ENV BACKEND_URL=http://127.0.0.1:8000
 ENV OUTPUTS_DIR=/data/outputs
+ENV RUNS_DIR=/data/runs
+ENV REPORTS_GENERATED_DIR=/data/reports/generated
+ENV REPORTS_AUDITS_DIR=/data/reports/audits
+ENV REPORTS_EVALS_DIR=/data/reports/evals
 ENV ENABLE_APO_SCHEDULER=false
 
 RUN chmod +x docker/start-railway.sh
 
 EXPOSE 3000
+
+HEALTHCHECK --interval=20s --timeout=5s --start-period=45s --retries=5 \
+    CMD curl -f "http://127.0.0.1:${PORT}/api/healthz" || exit 1
 
 CMD ["./docker/start-railway.sh"]

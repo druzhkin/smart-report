@@ -1,0 +1,68 @@
+{
+  "case_id": "llm-observability",
+  "prompt": "Evaluate LLM observability platforms for an enterprise document workflow product.",
+  "expected_task_type": "vendor_evaluation",
+  "actual_task_type": "vendor_evaluation",
+  "status": "completed",
+  "passed": true,
+  "checks": [
+    {
+      "name": "report_type_matches",
+      "passed": true,
+      "details": "vendor_evaluation"
+    },
+    {
+      "name": "clarification_fields_present",
+      "passed": true,
+      "details": [
+        "decision_context",
+        "evaluation_dimensions",
+        "geography",
+        "budget"
+      ]
+    },
+    {
+      "name": "must_have_sections_present",
+      "passed": true,
+      "details": [
+        "Executive Summary",
+        "Evaluation Frame",
+        "Key Findings",
+        "Evidence Coverage",
+        "Sources"
+      ]
+    },
+    {
+      "name": "must_cover_questions_present",
+      "passed": true,
+      "details": [
+        "Which platform is strongest for traceability and evals?",
+        "Which options fit privacy-sensitive deployments?",
+        "Which tools are best for fast operator debugging?"
+      ]
+    },
+    {
+      "name": "minimum_evidence_met",
+      "passed": true,
+      "details": {
+        "evidence_items": 11,
+        "claims": 5,
+        "sources": 3
+      }
+    },
+    {
+      "name": "audit_released",
+      "passed": true,
+      "details": {
+        "release_status": "released",
+        "checks_passed": 6,
+        "checks_failed": 0,
+        "failures": [],
+        "warnings": []
+      }
+    }
+  ],
+  "report_dir": "C:\\Users\\rodina-adm\\Documents\\dev\\smart-report\\reports\\samples\\llm-observability",
+  "run_dir": "C:\\Users\\rodina-adm\\Documents\\dev\\smart-report\\tmp\\golden_runs\\llm-observability",
+  "event_count": 10
+}

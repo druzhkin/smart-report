@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend.main import app
+from backend.schemas.intake import IntakeResult
 
 
 # ---------------------------------------------------------------------------
@@ -81,6 +82,47 @@ class TestCreateReport:
                 resp = client.post("/api/reports", json={"request": "Test"})
             ids.append(resp.json()["session_id"])
         assert len(set(ids)) == 3  # all unique
+
+
+class TestClarifyReport:
+    def test_returns_semantic_questions_from_intake(self, client):
+        intake_result = IntakeResult(
+            original_query="test",
+            cleaned_query="test",
+            intent="analysis",
+            domain="general",
+            complexity="medium",
+            depth="standard",
+            key_entities=[],
+            clarifying_questions=[
+                "What exact comparison criteria matter most to you?",
+                "Do you need pricing and licensing constraints included?",
+            ],
+            language="en",
+        )
+        with patch(
+            "backend.agents.intake_agent.run_intake",
+            new=AsyncMock(return_value={"intake_result": intake_result}),
+        ):
+            resp = client.post(
+                "/api/reports/clarify",
+                json={"request": "compare free llm models", "depth": "standard"},
+            )
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["questions"] == intake_result.clarifying_questions
+
+    def test_returns_fallback_questions_if_intake_fails(self, client):
+        with patch(
+            "backend.agents.intake_agent.run_intake",
+            new=AsyncMock(side_effect=RuntimeError("provider down")),
+        ):
+            resp = client.post(
+                "/api/reports/clarify",
+                json={"request": "compare free llm models", "depth": "standard"},
+            )
+        assert resp.status_code == 200
+        assert len(resp.json()["questions"]) > 0
 
 
 class TestPricing:

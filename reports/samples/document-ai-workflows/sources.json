@@ -1,0 +1,44 @@
+[
+  {
+    "source_id": "8fdb455e-3f9a-4227-bbba-17b4ae82eded",
+    "url": "https://www.glean.com/",
+    "title": "Glean overview",
+    "domain": "glean.com",
+    "source_type": "vendor_page",
+    "publisher": "glean.com",
+    "published_at": "",
+    "reliability_score": 0.8500000000000001,
+    "selection_reason": "Matched search query 'AI document workflow platforms Which products act as knowledge assistants versus workflow operators? official docs benchmark' for question q1",
+    "question_links": [
+      "q1"
+    ]
+  },
+  {
+    "source_id": "96162806-58bc-41fe-b1b5-b94d16a16610",
+    "url": "https://www.box.com/ai",
+    "title": "Box AI overview",
+    "domain": "box.com",
+    "source_type": "vendor_page",
+    "publisher": "box.com",
+    "published_at": "",
+    "reliability_score": 0.8500000000000001,
+    "selection_reason": "Matched search query 'AI document workflow platforms Which products act as knowledge assistants versus workflow operators? official docs benchmark' for question q1",
+    "question_links": [
+      "q1"
+    ]
+  },
+  {
+    "source_id": "17169e73-d8dd-4c21-8304-539192e45e80",
+    "url": "https://www.notion.so/product/ai",
+    "title": "Notion AI overview",
+    "domain": "notion.so",
+    "source_type": "vendor_page",
+    "publisher": "notion.so",
+    "published_at": "",
+    "reliability_score": 0.8500000000000001,
+    "selection_reason": "Matched search query 'AI document workflow platforms Which products act as knowledge assistants versus workflow operators? official docs benchmark' for question q1",
+    "question_links": [
+      "q1"
+    ]
+  }
+]

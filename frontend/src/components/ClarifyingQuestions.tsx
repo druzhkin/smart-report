@@ -1,14 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { MessageCircle, SkipForward, ArrowRight } from "lucide-react";
+import { ArrowRight, MessageCircle, SkipForward } from "lucide-react";
+
+import type { ClarificationQuestion } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 
 interface ClarifyingQuestionsProps {
-  questions: string[];
+  questions: ClarificationQuestion[];
   onSubmit: (answers: Record<string, string>) => void;
   loading?: boolean;
 }
@@ -23,14 +24,12 @@ export function ClarifyingQuestions({
 
   if (questions.length === 0) return null;
 
+  const current = questions[currentIdx];
   const isLast = currentIdx >= questions.length - 1;
-  const allAnswered = questions.every(
-    (_, i) => answers[String(i)]?.trim()
-  );
+  const currentAnswer = answers[current.question_id] ?? "";
 
   const handleNext = () => {
-    if (isLast) return;
-    setCurrentIdx((i) => i + 1);
+    if (!isLast) setCurrentIdx((value) => value + 1);
   };
 
   const handleSkip = () => {
@@ -38,7 +37,7 @@ export function ClarifyingQuestions({
       onSubmit(answers);
       return;
     }
-    setCurrentIdx((i) => i + 1);
+    setCurrentIdx((value) => value + 1);
   };
 
   return (
@@ -46,84 +45,61 @@ export function ClarifyingQuestions({
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <MessageCircle className="h-4 w-4 text-primary" />
-          Clarifying Questions
+          Semantic Questions
         </CardTitle>
         <p className="text-sm text-muted-foreground">
-          Answer these to improve report quality ({currentIdx + 1}/{questions.length})
+          {currentIdx + 1}/{questions.length} questions. Answers become structured scope, not appended prompt text.
         </p>
       </CardHeader>
-      <CardContent>
-        <div className="space-y-4">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={currentIdx}
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              transition={{ duration: 0.2 }}
-            >
-              <label className="text-sm font-medium">
-                {questions[currentIdx]}
-              </label>
-              <Input
-                value={answers[String(currentIdx)] || ""}
-                onChange={(e) =>
-                  setAnswers((prev) => ({
-                    ...prev,
-                    [String(currentIdx)]: e.target.value,
-                  }))
-                }
-                placeholder="Your answer..."
-                className="mt-2"
-                autoFocus
-              />
-            </motion.div>
-          </AnimatePresence>
+      <CardContent className="space-y-4">
+        <div className="space-y-2">
+          <label className="text-sm font-medium">{current.prompt}</label>
+          <p className="text-xs text-muted-foreground">{current.rationale}</p>
+          <Input
+            value={currentAnswer}
+            onChange={(event) =>
+              setAnswers((prev) => ({
+                ...prev,
+                [current.question_id]: event.target.value,
+              }))
+            }
+            placeholder={current.placeholder || "Your answer"}
+            autoFocus
+          />
+        </div>
 
-          <div className="flex items-center justify-between pt-2">
-            <Button variant="ghost" size="sm" onClick={handleSkip}>
-              <SkipForward className="mr-1 h-4 w-4" />
-              {isLast ? "Skip & Generate" : "Skip"}
+        <div className="flex items-center justify-between pt-2">
+          <Button variant="ghost" size="sm" onClick={handleSkip}>
+            <SkipForward className="mr-1 h-4 w-4" />
+            {isLast ? "Skip & Start" : "Skip"}
+          </Button>
+
+          {!isLast ? (
+            <Button size="sm" onClick={handleNext} disabled={current.required && !currentAnswer.trim()}>
+              Next
+              <ArrowRight className="ml-1 h-4 w-4" />
             </Button>
+          ) : (
+            <Button size="sm" onClick={() => onSubmit(answers)} disabled={loading}>
+              {loading ? "Starting..." : "Lock Scope"}
+              <ArrowRight className="ml-1 h-4 w-4" />
+            </Button>
+          )}
+        </div>
 
-            <div className="flex gap-2">
-              {!isLast ? (
-                <Button
-                  size="sm"
-                  onClick={handleNext}
-                  disabled={!answers[String(currentIdx)]?.trim()}
-                >
-                  Next
-                  <ArrowRight className="ml-1 h-4 w-4" />
-                </Button>
-              ) : (
-                <Button
-                  size="sm"
-                  onClick={() => onSubmit(answers)}
-                  disabled={loading}
-                >
-                  {loading ? "Starting..." : "Generate Report"}
-                  <ArrowRight className="ml-1 h-4 w-4" />
-                </Button>
-              )}
-            </div>
-          </div>
-
-          <div className="flex gap-1.5 justify-center pt-1">
-            {questions.map((_, i) => (
-              <motion.div
-                key={i}
-                className={`h-1.5 rounded-full transition-colors ${
-                  i === currentIdx
-                    ? "w-6 bg-primary"
-                    : i < currentIdx
-                    ? "w-1.5 bg-primary/40"
-                    : "w-1.5 bg-muted"
-                }`}
-                layout
-              />
-            ))}
-          </div>
+        <div className="flex gap-1.5 justify-center pt-1">
+          {questions.map((question, index) => (
+            <div
+              key={question.question_id}
+              className={`h-1.5 rounded-full transition-colors ${
+                index === currentIdx
+                  ? "w-6 bg-primary"
+                  : index < currentIdx
+                  ? "w-2 bg-primary/40"
+                  : "w-2 bg-muted"
+              }`}
+            />
+          ))}
         </div>
       </CardContent>
     </Card>

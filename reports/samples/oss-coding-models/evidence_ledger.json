@@ -1,0 +1,122 @@
+[
+  {
+    "evidence_id": "3649fcd9-350d-4bbc-a603-4d71e5f9043e",
+    "question_id": "q1",
+    "source_id": "8b6b2b9a-e7a9-4f0d-a38f-e48e752d6a48",
+    "claim": "It is attractive when coding capability matters, but deployment flexibility and licensing need careful review in a self-hosted decision.",
+    "snippet": "It is attractive when coding capability matters, but deployment flexibility and licensing need careful review in a self-hosted decision.",
+    "confidence": 0.8500000000000001,
+    "extraction_method": "heuristic",
+    "supports": []
+  },
+  {
+    "evidence_id": "b05d7a58-2800-465c-88b4-c5c6efdd1cec",
+    "question_id": "q1",
+    "source_id": "d380438c-e307-49b5-b8fb-79f1c4f6dad1",
+    "claim": "Qwen2.5-Coder is described as an open-weight coding family with multilingual support and agent-style workflow fit.",
+    "snippet": "Qwen2.5-Coder is described as an open-weight coding family with multilingual support and agent-style workflow fit.",
+    "confidence": 0.95,
+    "extraction_method": "heuristic",
+    "supports": []
+  },
+  {
+    "evidence_id": "607d8be8-1475-4847-a506-fa5773f8e990",
+    "question_id": "q1",
+    "source_id": "d380438c-e307-49b5-b8fb-79f1c4f6dad1",
+    "claim": "Its main upside is flexible self-hosting with community adoption.",
+    "snippet": "Its main upside is flexible self-hosting with community adoption.",
+    "confidence": 0.8500000000000001,
+    "extraction_method": "heuristic",
+    "supports": []
+  },
+  {
+    "evidence_id": "25c5c1a2-87c9-45ad-8d99-9257e393d88d",
+    "question_id": "q1",
+    "source_id": "d380438c-e307-49b5-b8fb-79f1c4f6dad1",
+    "claim": "The main tradeoff is the need to validate quality and efficiency on the buyer's own workloads.",
+    "snippet": "The main tradeoff is the need to validate quality and efficiency on the buyer's own workloads.",
+    "confidence": 0.8500000000000001,
+    "extraction_method": "heuristic",
+    "supports": []
+  },
+  {
+    "evidence_id": "18bc366f-bc9e-4065-8bbe-93caaafae93a",
+    "question_id": "q2",
+    "source_id": "8b2fa5a0-b4dc-4c3d-afb9-342df8170021",
+    "claim": "In a coding-model evaluation it should not replace task-specific testing, but it is valuable for checking whether vendor claims are directionally supported by repeated public eval performance.",
+    "snippet": "In a coding-model evaluation it should not replace task-specific testing, but it is valuable for checking whether vendor claims are directionally supported by repeated public eval performance.",
+    "confidence": 0.9,
+    "extraction_method": "heuristic",
+    "supports": []
+  },
+  {
+    "evidence_id": "4a7fc688-2df9-445a-8192-000bea9fb15b",
+    "question_id": "q2",
+    "source_id": "8b6b2b9a-e7a9-4f0d-a38f-e48e752d6a48",
+    "claim": "It is attractive when coding capability matters, but deployment flexibility and licensing need careful review in a self-hosted decision.",
+    "snippet": "It is attractive when coding capability matters, but deployment flexibility and licensing need careful review in a self-hosted decision.",
+    "confidence": 0.8500000000000001,
+    "extraction_method": "heuristic",
+    "supports": []
+  },
+  {
+    "evidence_id": "2584376c-3e8c-44da-bb44-b1067a3ca636",
+    "question_id": "q2",
+    "source_id": "d380438c-e307-49b5-b8fb-79f1c4f6dad1",
+    "claim": "Qwen2.5-Coder is described as an open-weight coding family with multilingual support and agent-style workflow fit.",
+    "snippet": "Qwen2.5-Coder is described as an open-weight coding family with multilingual support and agent-style workflow fit.",
+    "confidence": 0.95,
+    "extraction_method": "heuristic",
+    "supports": []
+  },
+  {
+    "evidence_id": "4381924f-8990-43da-9ce9-2d37c163657f",
+    "question_id": "q2",
+    "source_id": "d380438c-e307-49b5-b8fb-79f1c4f6dad1",
+    "claim": "The main tradeoff is the need to validate quality and efficiency on the buyer's own workloads.",
+    "snippet": "The main tradeoff is the need to validate quality and efficiency on the buyer's own workloads.",
+    "confidence": 0.8500000000000001,
+    "extraction_method": "heuristic",
+    "supports": []
+  },
+  {
+    "evidence_id": "672dd1ac-1af6-4e03-850e-672a8a89b302",
+    "question_id": "q3",
+    "source_id": "8b6b2b9a-e7a9-4f0d-a38f-e48e752d6a48",
+    "claim": "It is attractive when coding capability matters, but deployment flexibility and licensing need careful review in a self-hosted decision.",
+    "snippet": "It is attractive when coding capability matters, but deployment flexibility and licensing need careful review in a self-hosted decision.",
+    "confidence": 0.8500000000000001,
+    "extraction_method": "heuristic",
+    "supports": []
+  },
+  {
+    "evidence_id": "d4b0632b-a3eb-4fdd-ae64-aac462d80a5e",
+    "question_id": "q3",
+    "source_id": "d380438c-e307-49b5-b8fb-79f1c4f6dad1",
+    "claim": "The main tradeoff is the need to validate quality and efficiency on the buyer's own workloads.",
+    "snippet": "The main tradeoff is the need to validate quality and efficiency on the buyer's own workloads.",
+    "confidence": 0.8500000000000001,
+    "extraction_method": "heuristic",
+    "supports": []
+  },
+  {
+    "evidence_id": "9ea7b778-d026-439c-84e7-28e9aa08619d",
+    "question_id": "q3",
+    "source_id": "d380438c-e307-49b5-b8fb-79f1c4f6dad1",
+    "claim": "Qwen2.5-Coder is described as an open-weight coding family with multilingual support and agent-style workflow fit.",
+    "snippet": "Qwen2.5-Coder is described as an open-weight coding family with multilingual support and agent-style workflow fit.",
+    "confidence": 0.95,
+    "extraction_method": "heuristic",
+    "supports": []
+  },
+  {
+    "evidence_id": "de32dc01-5b62-487d-824a-e9314a2f67bb",
+    "question_id": "q3",
+    "source_id": "d380438c-e307-49b5-b8fb-79f1c4f6dad1",
+    "claim": "Its main upside is flexible self-hosting with community adoption.",
+    "snippet": "Its main upside is flexible self-hosting with community adoption.",
+    "confidence": 0.8500000000000001,
+    "extraction_method": "heuristic",
+    "supports": []
+  }
+]

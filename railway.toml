@@ -1,0 +1,10 @@
+[build]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
+watchPatterns = ["backend/**", "frontend/**", "docker/**", "Dockerfile", "railway.toml", ".dockerignore"]
+
+[deploy]
+healthcheckPath = "/api/healthz"
+healthcheckTimeout = 300
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 5

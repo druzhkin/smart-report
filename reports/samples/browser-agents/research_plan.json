@@ -1,0 +1,87 @@
+{
+  "primary_questions": [
+    {
+      "question_id": "q1",
+      "question": "Which stacks are best for deterministic control versus agent abstraction?",
+      "priority": 1,
+      "required_evidence_count": 2
+    },
+    {
+      "question_id": "q2",
+      "question": "Where does hosted infrastructure reduce engineering load?",
+      "priority": 2,
+      "required_evidence_count": 2
+    },
+    {
+      "question_id": "q3",
+      "question": "What are the core security and observability tradeoffs?",
+      "priority": 3,
+      "required_evidence_count": 2
+    }
+  ],
+  "secondary_questions": [
+    {
+      "question_id": "s1",
+      "question": "Assess browser reliability implications for Browser automation stacks for AI agents",
+      "priority": 1,
+      "required_evidence_count": 1
+    },
+    {
+      "question_id": "s2",
+      "question": "Assess agent ergonomics implications for Browser automation stacks for AI agents",
+      "priority": 2,
+      "required_evidence_count": 1
+    },
+    {
+      "question_id": "s3",
+      "question": "Assess security implications for Browser automation stacks for AI agents",
+      "priority": 3,
+      "required_evidence_count": 1
+    },
+    {
+      "question_id": "s4",
+      "question": "Assess debuggability implications for Browser automation stacks for AI agents",
+      "priority": 4,
+      "required_evidence_count": 1
+    }
+  ],
+  "claims_to_validate": [
+    "Browser automation stacks for AI agents: browser reliability",
+    "Browser automation stacks for AI agents: agent ergonomics",
+    "Browser automation stacks for AI agents: security",
+    "Browser automation stacks for AI agents: debuggability"
+  ],
+  "claims_to_disprove": [
+    "Unqualified winner claim for Browser automation stacks for AI agents"
+  ],
+  "required_evidence_per_question": {
+    "q1": 2,
+    "q2": 2,
+    "q3": 2
+  },
+  "suggested_search_queries": [
+    "Browser automation stacks for AI agents Which stacks are best for deterministic control versus agent abstraction? official docs benchmark",
+    "Browser automation stacks for AI agents Where does hosted infrastructure reduce engineering load? official docs benchmark",
+    "Browser automation stacks for AI agents What are the core security and observability tradeoffs? official docs benchmark"
+  ],
+  "preferred_domains": [
+    "browserbase.com",
+    "playwright.dev",
+    "stagehand.dev"
+  ],
+  "required_source_mix": [
+    "official_documentation",
+    "vendor_page",
+    "benchmark",
+    "research_paper",
+    "high_quality_secondary"
+  ],
+  "chart_candidates": [
+    "evidence_coverage",
+    "source_mix"
+  ],
+  "stop_conditions": [
+    "At least 2 sources per primary question",
+    "No unresolved critical contradiction cluster"
+  ]
+}

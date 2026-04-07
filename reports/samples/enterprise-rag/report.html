@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Enterprise RAG and knowledge platforms: Decision Brief</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 900px; margin: 0 auto; padding: 40px 24px; color: #18212f; }
+    h1, h2 { color: #0f3d68; }
+    pre { white-space: pre-wrap; }
+    a { color: #0f5ea8; }
+  </style>
+</head>
+<body><h1>Enterprise RAG and knowledge platforms: Decision Brief</h1>
+<h2>Executive Summary</h2>
+<p>Enterprise RAG and knowledge platforms: coverage 2/3 primary questions, 5 recommendation-safe claims, contradiction count 0.</p>
+<h2>Decision Context</h2>
+<ul>
+<li>Goal: Produce an evidence-backed analytical report for a real decision.</li>
+<li>Subject: Enterprise RAG and knowledge platforms</li>
+<li>Decision context: Choose a primary platform for a production pilot in the next two quarters.</li>
+<li>Geography: global</li>
+<li>Time horizon: current</li>
+</ul>
+<h2>Evaluation Frame</h2>
+<ul>
+<li>retrieval quality</li>
+<li>operational maturity</li>
+<li>enterprise controls</li>
+<li>integration surface</li>
+</ul>
+<h2>Key Findings</h2>
+<ul>
+<li>Azure AI Search is strong when enterprise control, managed infrastructure, and Microsoft ecosystem fit matter. [Evidence: da931a1a-0979-4a5e-8761-7e43b6835722, bff99abc-ec56-4847-bb0c-ae1c3118da3f]</li>
+<li>LlamaIndex is strongest as a composable toolkit for teams that want control over ingestion, indexing, routing, and retrieval behavior. [Evidence: 1e4cd1c5-2cd5-451b-bbe9-ec0e10aa2711, 8e4001fd-37ce-46bb-af1c-9ab2d1116cb7]</li>
+<li>The cost is higher engineering ownership and a greater need for internal evaluation discipline. [Evidence: 731a972f-5f59-4811-91ed-0bfd6d291ee9, 13d909ca-cab0-48d2-b9b7-0a35c1cce50f]</li>
+<li>It offers operational maturity but is infrastructure-first rather than a full research-workflow product by itself. [Evidence: dc6b11a0-0520-4387-a6c3-c87d06621e6a, 3eccd1b6-280e-4044-9460-6953e440ad31]</li>
+<li>RAGFlow is positioned around document ingestion and retrieval workflow management rather than only low-level retrieval APIs. [Evidence: 803c2695-e56a-49f0-923d-31f7f3902b3e]</li>
+<li>That makes it attractive for knowledge-heavy use cases where business users need more than a raw vector stack. [Evidence: 821b49ae-5649-4876-87a8-9313b8fc81f8]</li>
+</ul>
+<h2>Comparative Analysis</h2>
+<ul>
+<li>Which offerings are managed platforms versus toolkits?</li>
+<li>Where do retrieval quality and workflow control diverge?</li>
+<li>What are the operational tradeoffs between turnkey and composable stacks?</li>
+</ul>
+<h2>Recommendation and Decision Posture</h2>
+<ul>
+<li>Prioritize options that score well on retrieval quality, operational maturity, enterprise controls. [Evidence: da931a1a-0979-4a5e-8761-7e43b6835722, bff99abc-ec56-4847-bb0c-ae1c3118da3f]</li>
+<li>Treat vendor claims as directional until validated against the target workload. [Evidence: 1e4cd1c5-2cd5-451b-bbe9-ec0e10aa2711, 8e4001fd-37ce-46bb-af1c-9ab2d1116cb7]</li>
+</ul>
+<h2>Gaps &amp; Risks</h2>
+<ul>
+<li>What are the operational tradeoffs between turnkey and composable stacks?</li>
+<li>Prefer pragmatic operating cost and privacy-aware deployment.</li>
+</ul>
+<h2>Evidence Coverage</h2>
+<ul>
+<li>Covered questions: 2/3</li>
+<li>Contradiction count: 0</li>
+</ul>
+<h2>Sources</h2>
+<ul>
+<li><a href="https://azure.microsoft.com/products/ai-services/ai-search">Azure AI Search</a></li>
+<li><a href="https://www.llamaindex.ai/">LlamaIndex overview</a></li>
+<li><a href="https://ragflow.io/">RAGFlow overview</a></li>
+</ul></body>
+</html>

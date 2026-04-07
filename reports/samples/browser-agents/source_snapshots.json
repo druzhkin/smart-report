@@ -1,0 +1,32 @@
+[
+  {
+    "source_id": "5e296041-f90b-4b11-bddd-918cff82707c",
+    "url": "https://playwright.dev/",
+    "title": "Playwright documentation",
+    "fetched_at": "2026-04-05T22:18:11.989962Z",
+    "content": "Playwright is the control-stack benchmark: deterministic browser automation, strong debugging primitives, and broad engineering trust. Teams still need to build orchestration and sandboxing around it for full AI-agent products.",
+    "excerpt": "Playwright remains the baseline for deterministic browser automation.",
+    "provider": "seeded",
+    "fetch_status": "ok"
+  },
+  {
+    "source_id": "dec4fc8f-4d41-48e0-b03c-dd00f0aed35d",
+    "url": "https://www.browserbase.com/",
+    "title": "Browserbase overview",
+    "fetched_at": "2026-04-05T22:18:11.989968Z",
+    "content": "Browserbase is strongest when the bottleneck is operating browsers at scale rather than controlling them locally. It reduces infrastructure burden, but it introduces dependency on a hosted browser layer.",
+    "excerpt": "Browserbase emphasizes hosted browser infrastructure and session operations.",
+    "provider": "seeded",
+    "fetch_status": "ok"
+  },
+  {
+    "source_id": "614e86e6-af9f-4d06-8e41-4420b9aac190",
+    "url": "https://stagehand.dev/",
+    "title": "Stagehand overview",
+    "fetched_at": "2026-04-05T22:18:11.989971Z",
+    "content": "Stagehand sits in the agent-ergonomics bucket: it tries to make browser actions more natural for LLM-driven systems while still grounding on deterministic execution. The key question is whether that productivity gain justifies another abstraction layer.",
+    "excerpt": "Stagehand positions itself as an LLM-native browser automation layer.",
+    "provider": "seeded",
+    "fetch_status": "ok"
+  }
+]

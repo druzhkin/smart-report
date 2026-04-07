@@ -1,0 +1,63 @@
+{
+  "task_id": "212fe327-806a-475e-99ff-5d41f78a99b4",
+  "request_spec": {
+    "request_id": "cabd6d84-46aa-4c08-bbbc-697e79636f8b",
+    "original_query": "Run a structured competitive scan of browser automation stacks for AI agents.",
+    "language": "en",
+    "report_type": "competitive_scan",
+    "goal": "Produce an evidence-backed analytical report for a real decision.",
+    "subject": "Browser automation stacks for AI agents",
+    "decision_context": "Choose a primary platform for a production pilot in the next two quarters.",
+    "target_audience": "operator",
+    "time_horizon": "current",
+    "geography": "global",
+    "quality_target": "decision-grade",
+    "budget_tier": "standard",
+    "missing_critical_fields": [
+      "decision_context"
+    ]
+  },
+  "success_criteria": [
+    "Every recommendation must be tied to evidence.",
+    "Weak-source discovery hints cannot dominate the recommendation.",
+    "Limitations and unresolved gaps must be explicit."
+  ],
+  "evaluation_dimensions": [
+    "browser reliability",
+    "agent ergonomics",
+    "security",
+    "debuggability"
+  ],
+  "constraints": [
+    "Prefer pragmatic operating cost and privacy-aware deployment."
+  ],
+  "must_cover_questions": [
+    "Which stacks are best for deterministic control versus agent abstraction?",
+    "Where does hosted infrastructure reduce engineering load?",
+    "What are the core security and observability tradeoffs?"
+  ],
+  "allowed_source_types": [
+    "official_documentation",
+    "vendor_page",
+    "benchmark",
+    "research_paper",
+    "high_quality_secondary"
+  ],
+  "blocked_source_types": [
+    "weak_secondary"
+  ],
+  "output_package": [
+    "md",
+    "html",
+    "pdf",
+    "docx",
+    "json"
+  ],
+  "max_budget_usd": 2.0,
+  "answers": {
+    "decision-context": "Choose a primary platform for a production pilot in the next two quarters.",
+    "dimensions": "browser reliability, agent ergonomics, security, debuggability",
+    "geography": "global",
+    "budget": "Prefer pragmatic operating cost and privacy-aware deployment."
+  }
+}

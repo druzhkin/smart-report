@@ -177,13 +177,17 @@ async def run_prompt_king(state: AgentState) -> dict:
         "task_template": task_template,
         "few_shot_examples": few_shot_examples,
         "master_prompt_sections": ["PROFILE", "KNOWLEDGE", "REASONING", "RELIABILITY"],
+        "language": intake.language,
         "instructions": (
             "Compose the master_prompt with 4 clearly labeled sections: "
             "## PROFILE, ## KNOWLEDGE, ## REASONING, ## RELIABILITY. "
             f"The PROFILE section must use this persona: {role_persona}. "
             "The KNOWLEDGE section must reference frameworks relevant to the domain and include few-shot examples. "
             "The REASONING section must specify analytical methodology using the selected techniques. "
-            "The RELIABILITY section must define quality guardrails, citation standards, and bias checks."
+            "The RELIABILITY section must define quality guardrails, citation standards, and bias checks. "
+            f"CRITICAL: ALL output (system_prompt, user_prompt, master_prompt, report section titles and descriptions) "
+            f"MUST be written in '{intake.language}' language. "
+            f"The report_schema section titles MUST also be in '{intake.language}'."
         ),
     }
 

@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -41,6 +43,10 @@ class Settings(BaseSettings):
 
     # Storage
     outputs_dir: str = "./outputs"
+    runs_dir: str = "data/runs"
+    reports_generated_dir: str = "reports/generated"
+    reports_audits_dir: str = "reports/audits"
+    reports_evals_dir: str = "reports/evals"
 
     # Development mode (cheap models, limited iterations)
     dev_mode: bool = False
@@ -65,6 +71,27 @@ class Settings(BaseSettings):
     # Push Notifications
     next_public_vapid_key: str = ""
     vapid_private_key: str = ""
+
+    # Networking
+    cors_allowed_origins: str = "http://localhost:3000"
+
+    @property
+    def cors_allowed_origins_list(self) -> list[str]:
+        return [
+            origin.strip()
+            for origin in self.cors_allowed_origins.split(",")
+            if origin.strip()
+        ]
+
+    @property
+    def runtime_dirs(self) -> list[Path]:
+        return [
+            Path(self.outputs_dir),
+            Path(self.runs_dir),
+            Path(self.reports_generated_dir),
+            Path(self.reports_audits_dir),
+            Path(self.reports_evals_dir),
+        ]
 
 
 settings = Settings()

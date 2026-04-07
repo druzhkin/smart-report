@@ -1,0 +1,63 @@
+{
+  "task_id": "c70d7ad3-71e8-425c-81b0-4c2d14f1d836",
+  "request_spec": {
+    "request_id": "fa97eb4f-8764-4840-8a5c-35caee5214dc",
+    "original_query": "Map the enterprise RAG platform landscape for internal knowledge assistants.",
+    "language": "en",
+    "report_type": "market_landscape",
+    "goal": "Produce an evidence-backed analytical report for a real decision.",
+    "subject": "Enterprise RAG and knowledge platforms",
+    "decision_context": "Choose a primary platform for a production pilot in the next two quarters.",
+    "target_audience": "operator",
+    "time_horizon": "current",
+    "geography": "global",
+    "quality_target": "decision-grade",
+    "budget_tier": "standard",
+    "missing_critical_fields": [
+      "decision_context"
+    ]
+  },
+  "success_criteria": [
+    "Every recommendation must be tied to evidence.",
+    "Weak-source discovery hints cannot dominate the recommendation.",
+    "Limitations and unresolved gaps must be explicit."
+  ],
+  "evaluation_dimensions": [
+    "retrieval quality",
+    "operational maturity",
+    "enterprise controls",
+    "integration surface"
+  ],
+  "constraints": [
+    "Prefer pragmatic operating cost and privacy-aware deployment."
+  ],
+  "must_cover_questions": [
+    "Which offerings are managed platforms versus toolkits?",
+    "Where do retrieval quality and workflow control diverge?",
+    "What are the operational tradeoffs between turnkey and composable stacks?"
+  ],
+  "allowed_source_types": [
+    "official_documentation",
+    "vendor_page",
+    "benchmark",
+    "research_paper",
+    "high_quality_secondary"
+  ],
+  "blocked_source_types": [
+    "weak_secondary"
+  ],
+  "output_package": [
+    "md",
+    "html",
+    "pdf",
+    "docx",
+    "json"
+  ],
+  "max_budget_usd": 2.0,
+  "answers": {
+    "decision-context": "Choose a primary platform for a production pilot in the next two quarters.",
+    "dimensions": "retrieval quality, operational maturity, enterprise controls, integration surface",
+    "geography": "global",
+    "budget": "Prefer pragmatic operating cost and privacy-aware deployment."
+  }
+}

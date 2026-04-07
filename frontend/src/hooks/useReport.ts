@@ -10,6 +10,10 @@ export function useReport(id: string) {
   const [loading, setLoading] = useState(true);
 
   const fetchReport = useCallback(async () => {
+    if (!id) {
+      setLoading(false);
+      return;
+    }
     try {
       const data = await getReport(id);
       setSession(data);
@@ -23,6 +27,10 @@ export function useReport(id: string) {
   }, [id]);
 
   useEffect(() => {
+    if (!id) {
+      setLoading(false);
+      return;
+    }
     fetchReport();
   }, [fetchReport]);
 

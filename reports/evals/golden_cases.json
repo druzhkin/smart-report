@@ -1,0 +1,182 @@
+[
+  {
+    "case_id": "oss-coding-models",
+    "prompt": "Compare open-source coding models for a self-hosted code review assistant.",
+    "expected_task_type": "vendor_evaluation",
+    "expected_clarification_fields": [
+      "decision_context",
+      "evaluation_dimensions",
+      "geography",
+      "budget"
+    ],
+    "must_have_sections": [
+      "Executive Summary",
+      "Decision Context",
+      "Key Findings",
+      "Recommendation and Decision Posture",
+      "Sources"
+    ],
+    "must_cover_questions": [
+      "Which options are truly self-hostable?",
+      "Which models show the strongest public coding signal?",
+      "What are the main quality versus operations tradeoffs?"
+    ],
+    "minimum_evidence_expectations": {
+      "min_evidence_items": 6,
+      "min_claims": 3,
+      "min_sources": 3
+    },
+    "pass_fail_criteria": [
+      "RequestSpec.report_type matches expected_task_type",
+      "Clarification pack includes expected clarification fields",
+      "Report markdown contains all must_have_sections",
+      "TaskSpec.must_cover_questions includes every must_cover_question",
+      "Evidence ledger, claim table, and source pack meet minimum evidence expectations",
+      "Audit release_status is released"
+    ]
+  },
+  {
+    "case_id": "llm-observability",
+    "prompt": "Evaluate LLM observability platforms for an enterprise document workflow product.",
+    "expected_task_type": "vendor_evaluation",
+    "expected_clarification_fields": [
+      "decision_context",
+      "evaluation_dimensions",
+      "geography",
+      "budget"
+    ],
+    "must_have_sections": [
+      "Executive Summary",
+      "Evaluation Frame",
+      "Key Findings",
+      "Evidence Coverage",
+      "Sources"
+    ],
+    "must_cover_questions": [
+      "Which platform is strongest for traceability and evals?",
+      "Which options fit privacy-sensitive deployments?",
+      "Which tools are best for fast operator debugging?"
+    ],
+    "minimum_evidence_expectations": {
+      "min_evidence_items": 6,
+      "min_claims": 3,
+      "min_sources": 3
+    },
+    "pass_fail_criteria": [
+      "RequestSpec.report_type matches expected_task_type",
+      "Clarification pack includes expected clarification fields",
+      "Report markdown contains all must_have_sections",
+      "TaskSpec.must_cover_questions includes every must_cover_question",
+      "Evidence ledger, claim table, and source pack meet minimum evidence expectations",
+      "Audit release_status is released"
+    ]
+  },
+  {
+    "case_id": "enterprise-rag",
+    "prompt": "Map the enterprise RAG platform landscape for internal knowledge assistants.",
+    "expected_task_type": "market_landscape",
+    "expected_clarification_fields": [
+      "decision_context",
+      "evaluation_dimensions",
+      "geography",
+      "budget"
+    ],
+    "must_have_sections": [
+      "Executive Summary",
+      "Decision Context",
+      "Comparative Analysis",
+      "Gaps & Risks",
+      "Sources"
+    ],
+    "must_cover_questions": [
+      "Which offerings are managed platforms versus toolkits?",
+      "Where do retrieval quality and workflow control diverge?",
+      "What are the operational tradeoffs between turnkey and composable stacks?"
+    ],
+    "minimum_evidence_expectations": {
+      "min_evidence_items": 6,
+      "min_claims": 3,
+      "min_sources": 3
+    },
+    "pass_fail_criteria": [
+      "RequestSpec.report_type matches expected_task_type",
+      "Clarification pack includes expected clarification fields",
+      "Report markdown contains all must_have_sections",
+      "TaskSpec.must_cover_questions includes every must_cover_question",
+      "Evidence ledger, claim table, and source pack meet minimum evidence expectations",
+      "Audit release_status is released"
+    ]
+  },
+  {
+    "case_id": "browser-agents",
+    "prompt": "Run a structured competitive scan of browser automation stacks for AI agents.",
+    "expected_task_type": "competitive_scan",
+    "expected_clarification_fields": [
+      "decision_context",
+      "evaluation_dimensions",
+      "geography",
+      "budget"
+    ],
+    "must_have_sections": [
+      "Executive Summary",
+      "Comparative Analysis",
+      "Recommendation and Decision Posture",
+      "Evidence Coverage",
+      "Sources"
+    ],
+    "must_cover_questions": [
+      "Which stacks are best for deterministic control versus agent abstraction?",
+      "Where does hosted infrastructure reduce engineering load?",
+      "What are the core security and observability tradeoffs?"
+    ],
+    "minimum_evidence_expectations": {
+      "min_evidence_items": 6,
+      "min_claims": 3,
+      "min_sources": 3
+    },
+    "pass_fail_criteria": [
+      "RequestSpec.report_type matches expected_task_type",
+      "Clarification pack includes expected clarification fields",
+      "Report markdown contains all must_have_sections",
+      "TaskSpec.must_cover_questions includes every must_cover_question",
+      "Evidence ledger, claim table, and source pack meet minimum evidence expectations",
+      "Audit release_status is released"
+    ]
+  },
+  {
+    "case_id": "document-ai-workflows",
+    "prompt": "Prepare a strategic brief on AI document workflow platforms for an operations team.",
+    "expected_task_type": "strategic_brief",
+    "expected_clarification_fields": [
+      "decision_context",
+      "evaluation_dimensions",
+      "geography",
+      "budget"
+    ],
+    "must_have_sections": [
+      "Executive Summary",
+      "Decision Context",
+      "Key Findings",
+      "Gaps & Risks",
+      "Sources"
+    ],
+    "must_cover_questions": [
+      "Which products act as knowledge assistants versus workflow operators?",
+      "Where does integration breadth matter more than model sophistication?",
+      "What are the main adoption and governance risks?"
+    ],
+    "minimum_evidence_expectations": {
+      "min_evidence_items": 6,
+      "min_claims": 3,
+      "min_sources": 3
+    },
+    "pass_fail_criteria": [
+      "RequestSpec.report_type matches expected_task_type",
+      "Clarification pack includes expected clarification fields",
+      "Report markdown contains all must_have_sections",
+      "TaskSpec.must_cover_questions includes every must_cover_question",
+      "Evidence ledger, claim table, and source pack meet minimum evidence expectations",
+      "Audit release_status is released"
+    ]
+  }
+]

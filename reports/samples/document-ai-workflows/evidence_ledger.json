@@ -1,0 +1,142 @@
+[
+  {
+    "evidence_id": "a5d07fc3-85a3-4091-88e3-4af93c5dcdb3",
+    "question_id": "q1",
+    "source_id": "8fdb455e-3f9a-4227-bbba-17b4ae82eded",
+    "claim": "Glean is strongest when the core problem is knowledge access across enterprise tools and permissions.",
+    "snippet": "Glean is strongest when the core problem is knowledge access across enterprise tools and permissions.",
+    "confidence": 0.8500000000000001,
+    "extraction_method": "heuristic",
+    "supports": []
+  },
+  {
+    "evidence_id": "a0dd0eb5-16e6-4d60-9617-c1b2c78664d7",
+    "question_id": "q1",
+    "source_id": "8fdb455e-3f9a-4227-bbba-17b4ae82eded",
+    "claim": "Its value is connector breadth and enterprise search positioning more than deep document workflow automation inside one content system.",
+    "snippet": "Its value is connector breadth and enterprise search positioning more than deep document workflow automation inside one content system.",
+    "confidence": 0.8500000000000001,
+    "extraction_method": "heuristic",
+    "supports": []
+  },
+  {
+    "evidence_id": "ca80eb20-6788-4bd3-b437-b75d438a71f3",
+    "question_id": "q1",
+    "source_id": "96162806-58bc-41fe-b1b5-b94d16a16610",
+    "claim": "Box AI makes the strongest case where controlled document workflows and governance inside an existing content platform are the priority.",
+    "snippet": "Box AI makes the strongest case where controlled document workflows and governance inside an existing content platform are the priority.",
+    "confidence": 0.8500000000000001,
+    "extraction_method": "heuristic",
+    "supports": []
+  },
+  {
+    "evidence_id": "462c2fc1-de49-4cec-8ee6-8bf3f05b79f3",
+    "question_id": "q1",
+    "source_id": "17169e73-d8dd-4c21-8304-539192e45e80",
+    "claim": "Notion AI is compelling when user adoption and low-friction workspace assistance matter more than heavyweight governance or cross-enterprise retrieval.",
+    "snippet": "Notion AI is compelling when user adoption and low-friction workspace assistance matter more than heavyweight governance or cross-enterprise retrieval.",
+    "confidence": 0.8500000000000001,
+    "extraction_method": "heuristic",
+    "supports": []
+  },
+  {
+    "evidence_id": "887a3468-3d79-4721-9dba-a1f744ed91a3",
+    "question_id": "q1",
+    "source_id": "17169e73-d8dd-4c21-8304-539192e45e80",
+    "claim": "It is strongest as a productivity layer, not as the single system of record for complex document operations.",
+    "snippet": "It is strongest as a productivity layer, not as the single system of record for complex document operations.",
+    "confidence": 0.8500000000000001,
+    "extraction_method": "heuristic",
+    "supports": []
+  },
+  {
+    "evidence_id": "386d393d-ed1b-4055-a22b-3ca5503e0fca",
+    "question_id": "q2",
+    "source_id": "8fdb455e-3f9a-4227-bbba-17b4ae82eded",
+    "claim": "Its value is connector breadth and enterprise search positioning more than deep document workflow automation inside one content system.",
+    "snippet": "Its value is connector breadth and enterprise search positioning more than deep document workflow automation inside one content system.",
+    "confidence": 0.8500000000000001,
+    "extraction_method": "heuristic",
+    "supports": []
+  },
+  {
+    "evidence_id": "1afbc477-e6f0-4343-a0ea-f328b05a6474",
+    "question_id": "q2",
+    "source_id": "8fdb455e-3f9a-4227-bbba-17b4ae82eded",
+    "claim": "Glean is strongest when the core problem is knowledge access across enterprise tools and permissions.",
+    "snippet": "Glean is strongest when the core problem is knowledge access across enterprise tools and permissions.",
+    "confidence": 0.8500000000000001,
+    "extraction_method": "heuristic",
+    "supports": []
+  },
+  {
+    "evidence_id": "1d54d0ef-a542-4fdc-a654-154bc076b9ad",
+    "question_id": "q2",
+    "source_id": "96162806-58bc-41fe-b1b5-b94d16a16610",
+    "claim": "Box AI makes the strongest case where controlled document workflows and governance inside an existing content platform are the priority.",
+    "snippet": "Box AI makes the strongest case where controlled document workflows and governance inside an existing content platform are the priority.",
+    "confidence": 0.8500000000000001,
+    "extraction_method": "heuristic",
+    "supports": []
+  },
+  {
+    "evidence_id": "ae586ad4-6c35-436e-ab60-79ae08b61eac",
+    "question_id": "q2",
+    "source_id": "17169e73-d8dd-4c21-8304-539192e45e80",
+    "claim": "Notion AI is compelling when user adoption and low-friction workspace assistance matter more than heavyweight governance or cross-enterprise retrieval.",
+    "snippet": "Notion AI is compelling when user adoption and low-friction workspace assistance matter more than heavyweight governance or cross-enterprise retrieval.",
+    "confidence": 0.8500000000000001,
+    "extraction_method": "heuristic",
+    "supports": []
+  },
+  {
+    "evidence_id": "4d95feab-ae16-41d4-8f26-cac452c72627",
+    "question_id": "q2",
+    "source_id": "17169e73-d8dd-4c21-8304-539192e45e80",
+    "claim": "It is strongest as a productivity layer, not as the single system of record for complex document operations.",
+    "snippet": "It is strongest as a productivity layer, not as the single system of record for complex document operations.",
+    "confidence": 0.8500000000000001,
+    "extraction_method": "heuristic",
+    "supports": []
+  },
+  {
+    "evidence_id": "18b93e5e-c803-4546-a78a-edf6bf15eb84",
+    "question_id": "q3",
+    "source_id": "8fdb455e-3f9a-4227-bbba-17b4ae82eded",
+    "claim": "Glean is strongest when the core problem is knowledge access across enterprise tools and permissions.",
+    "snippet": "Glean is strongest when the core problem is knowledge access across enterprise tools and permissions.",
+    "confidence": 0.8500000000000001,
+    "extraction_method": "heuristic",
+    "supports": []
+  },
+  {
+    "evidence_id": "e96a831b-bc54-4bc4-b6f9-3c7a4e2f658b",
+    "question_id": "q3",
+    "source_id": "96162806-58bc-41fe-b1b5-b94d16a16610",
+    "claim": "Box AI makes the strongest case where controlled document workflows and governance inside an existing content platform are the priority.",
+    "snippet": "Box AI makes the strongest case where controlled document workflows and governance inside an existing content platform are the priority.",
+    "confidence": 0.8500000000000001,
+    "extraction_method": "heuristic",
+    "supports": []
+  },
+  {
+    "evidence_id": "1717ac78-9a66-4849-ab32-ef050f9fa8b0",
+    "question_id": "q3",
+    "source_id": "17169e73-d8dd-4c21-8304-539192e45e80",
+    "claim": "Notion AI is compelling when user adoption and low-friction workspace assistance matter more than heavyweight governance or cross-enterprise retrieval.",
+    "snippet": "Notion AI is compelling when user adoption and low-friction workspace assistance matter more than heavyweight governance or cross-enterprise retrieval.",
+    "confidence": 0.8500000000000001,
+    "extraction_method": "heuristic",
+    "supports": []
+  },
+  {
+    "evidence_id": "4a9c5fee-2d46-4918-874b-e3ca487e1066",
+    "question_id": "q3",
+    "source_id": "17169e73-d8dd-4c21-8304-539192e45e80",
+    "claim": "It is strongest as a productivity layer, not as the single system of record for complex document operations.",
+    "snippet": "It is strongest as a productivity layer, not as the single system of record for complex document operations.",
+    "confidence": 0.8500000000000001,
+    "extraction_method": "heuristic",
+    "supports": []
+  }
+]

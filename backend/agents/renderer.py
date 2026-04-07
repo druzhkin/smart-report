@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from difflib import SequenceMatcher
 import json
 import os
 import re
@@ -56,9 +57,140 @@ Return valid JSON:
 
 LANG_NAMES = {"ru": "Russian", "en": "English", "de": "German", "fr": "French", "es": "Spanish", "zh": "Chinese", "ja": "Japanese", "ko": "Korean"}
 
+_INTERNAL_META_PHRASES = (
+    "i appreciate the detailed query",
+    "what the search results cover",
+    "limitations of the provided search results",
+    "citation verification failed",
+    "evidence quality:",
+    "hallucinated",
+    "open questions:",
+)
+
+_RECOMMENDATION_HINTS = (
+    "recommendation",
+    "рекомендац",
+    "top-",
+    "top ",
+    "итоговый рейтинг",
+    "best model",
+    "best models",
+    "лучшие модел",
+    "рейтинг",
+)
+
 
 def _get_renderer_prompt(lang: str = "en") -> str:
     return _SYSTEM_PROMPT_TEMPLATE.format(language_name=LANG_NAMES.get(lang, lang))
+
+
+def _looks_internal_or_meta(text: str) -> bool:
+    lowered = (text or "").lower()
+    return any(phrase in lowered for phrase in _INTERNAL_META_PHRASES)
+
+
+def _sanitize_signal(text: str, *, max_len: int = 220) -> str | None:
+    cleaned = " ".join((text or "").split()).strip()
+    cleaned = re.sub(r"^[#\-*]+\s*", "", cleaned)
+    if not cleaned:
+        return None
+    if _looks_internal_or_meta(cleaned):
+        return None
+    if len(cleaned) < 25:
+        return None
+    if cleaned.lower().startswith("sources"):
+        return None
+    return cleaned[:max_len].rstrip()
+
+
+def _clean_section_content(content: str) -> str:
+    lines = [line.rstrip() for line in (content or "").splitlines()]
+    filtered: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            filtered.append("")
+            continue
+        if stripped in {"•", "вЂў"}:
+            continue
+        if _looks_internal_or_meta(stripped):
+            continue
+        filtered.append(line)
+    normalized = "\n".join(filtered)
+    normalized = re.sub(r"\n{3,}", "\n\n", normalized).strip()
+    return normalized
+
+
+def _is_source_only_content(content: str) -> bool:
+    lines = [line.strip() for line in (content or "").splitlines() if line.strip()]
+    if not lines:
+        return True
+    non_link_lines = [
+        line
+        for line in lines
+        if not re.match(r"^[-*]?\s*https?://", line, flags=re.IGNORECASE)
+        and line.lower() != "sources"
+    ]
+    return len(non_link_lines) < 2
+
+
+def _dedupe_and_prune_sections(sections: list[ReportSection]) -> list[ReportSection]:
+    deduped: list[ReportSection] = []
+    fingerprints: list[str] = []
+
+    for section in sorted(sections, key=lambda item: item.order):
+        cleaned_content = _clean_section_content(section.content)
+        if not cleaned_content:
+            continue
+        if _is_source_only_content(cleaned_content):
+            continue
+        fingerprint = re.sub(r"\W+", " ", cleaned_content.lower()).strip()
+        if len(fingerprint) < 40:
+            continue
+        if any(
+            fingerprint == seen
+            or SequenceMatcher(None, fingerprint[:2500], seen[:2500]).ratio() >= 0.93
+            for seen in fingerprints
+        ):
+            continue
+        fingerprints.append(fingerprint)
+        deduped.append(
+            ReportSection(
+                title=section.title,
+                content=cleaned_content,
+                order=len(deduped) + 1,
+                sources=section.sources,
+            )
+        )
+
+    if not deduped:
+        return sections
+    return deduped
+
+
+def _is_recommendation_section(section: ReportSection) -> bool:
+    title = (section.title or "").lower()
+    content_head = "\n".join((section.content or "").splitlines()[:8]).lower()
+    blob = f"{title}\n{content_head}"
+    return any(marker in blob for marker in _RECOMMENDATION_HINTS)
+
+
+def _apply_recommendation_policy(sections: list[ReportSection], allow_recommendations: bool) -> list[ReportSection]:
+    if allow_recommendations:
+        return sections
+
+    filtered = [section for section in sections if not _is_recommendation_section(section)]
+    if not filtered:
+        return sections[:3]
+    return [
+        ReportSection(
+            title=section.title,
+            content=section.content,
+            order=index + 1,
+            sources=section.sources,
+        )
+        for index, section in enumerate(filtered)
+    ]
 
 
 def _tokenize(text: str) -> set[str]:
@@ -81,7 +213,11 @@ def _score_branch_match(section_title: str, section_description: str, branch: di
     return len(section_tokens & branch_tokens)
 
 
-def _build_section_packets(section_targets: list[dict], branch_packets: list[dict]) -> list[dict]:
+def _build_section_packets(
+    section_targets: list[dict],
+    branch_packets: list[dict],
+    claim_table: list[dict],
+) -> list[dict]:
     if not section_targets:
         return []
 
@@ -103,6 +239,25 @@ def _build_section_packets(section_targets: list[dict], branch_packets: list[dic
         if not matched and ranked:
             matched = ranked[:1]
 
+        usable_claims = [claim for claim in claim_table if claim.get("usable")]
+        claim_ranked = sorted(
+            usable_claims,
+            key=lambda claim: (
+                _score_branch_match(
+                    section.get("title", ""),
+                    section.get("description", ""),
+                    {
+                        "query": claim.get("section_hint", ""),
+                        "findings": [claim.get("claim", "")],
+                        "sources": [{"title": claim.get("source_title", "")}],
+                    },
+                ),
+                float(claim.get("claim_score", 0.0)),
+            ),
+            reverse=True,
+        )
+        matched_claims = claim_ranked[:6]
+
         allowed_sources = list(
             dict.fromkeys(
                 source.get("url", "")
@@ -111,6 +266,12 @@ def _build_section_packets(section_targets: list[dict], branch_packets: list[dic
                 if source.get("url")
             )
         )
+        allowed_sources.extend(
+            claim.get("source_url", "")
+            for claim in matched_claims
+            if claim.get("source_url")
+        )
+        allowed_sources = list(dict.fromkeys(allowed_sources))
         packets.append(
             {
                 "title": section.get("title", f"Section {index}"),
@@ -118,6 +279,7 @@ def _build_section_packets(section_targets: list[dict], branch_packets: list[dic
                 "required": section.get("required", True),
                 "order": index,
                 "matched_branches": matched,
+                "matched_claims": matched_claims,
                 "allowed_sources": allowed_sources,
                 "subsections": section.get("subsections", []),
             }
@@ -127,24 +289,54 @@ def _build_section_packets(section_targets: list[dict], branch_packets: list[dic
 
 def _build_executive_summary_packet(
     branch_packets: list[dict],
+    claim_table: list[dict],
     evidence_items: list[dict],
     critique: dict | None,
     citation: dict | None,
     reflect: dict | None,
+    synthesis_payload: dict | None,
 ) -> dict:
     top_signals: list[str] = []
+    for claim in sorted(claim_table, key=lambda item: float(item.get("claim_score", 0.0)), reverse=True):
+        if not claim.get("usable"):
+            continue
+        sanitized = _sanitize_signal(str(claim.get("claim", "")))
+        if sanitized:
+            top_signals.append(sanitized)
+        if len(top_signals) >= 6:
+            break
+
     for branch in sorted(branch_packets, key=lambda item: item.get("confidence", 0.0), reverse=True):
-        top_signals.extend(branch.get("findings", [])[:2])
+        for finding in branch.get("findings", [])[:3]:
+            sanitized = _sanitize_signal(finding)
+            if sanitized:
+                top_signals.append(sanitized)
         if len(top_signals) >= 6:
             break
     if not top_signals:
-        top_signals.extend(item.get("claim", "") for item in evidence_items[:6] if item.get("claim"))
+        for item in evidence_items[:8]:
+            sanitized = _sanitize_signal(item.get("claim", ""))
+            if sanitized:
+                top_signals.append(sanitized)
+            if len(top_signals) >= 6:
+                break
 
-    open_questions = []
+    open_questions: list[str] = []
+    requires_verification_notice = False
     if critique:
-        open_questions.extend(critique.get("blocking_issues", [])[:3])
+        for issue in critique.get("blocking_issues", [])[:4]:
+            issue_lower = (issue or "").lower()
+            if "citation" in issue_lower or "halluc" in issue_lower:
+                requires_verification_notice = True
+                continue
+            sanitized = _sanitize_signal(issue, max_len=180)
+            if sanitized:
+                open_questions.append(sanitized)
     if reflect:
-        open_questions.extend(reflect.get("gaps", [])[:3])
+        for gap in reflect.get("gaps", [])[:4]:
+            sanitized = _sanitize_signal(gap, max_len=180)
+            if sanitized:
+                open_questions.append(sanitized)
 
     unique_domains = {
         source.get("domain", "")
@@ -152,6 +344,12 @@ def _build_executive_summary_packet(
         for source in branch.get("sources", [])
         if source.get("domain")
     }
+    if claim_table:
+        unique_domains.update(
+            claim.get("domain", "")
+            for claim in claim_table
+            if claim.get("domain")
+        )
     return {
         "top_signals": list(dict.fromkeys(signal for signal in top_signals if signal))[:6],
         "open_questions": list(dict.fromkeys(question for question in open_questions if question))[:4],
@@ -161,13 +359,17 @@ def _build_executive_summary_packet(
         "citation_passed": citation.get("passed") if citation else None,
         "verified_count": citation.get("verified_count", 0) if citation else 0,
         "citation_total": citation.get("total", 0) if citation else 0,
+        "requires_verification_notice": requires_verification_notice,
+        "synthesis_ready": bool((synthesis_payload or {}).get("ready")),
+        "allow_recommendations": bool((synthesis_payload or {}).get("allow_recommendations")),
+        "synthesis_blockers": list((synthesis_payload or {}).get("blocking_reasons") or [])[:3],
     }
 
 
 def _compose_executive_summary(packet: dict, llm_summary: str) -> str:
     llm_summary = (llm_summary or "").strip()
     if llm_summary and len(llm_summary) >= 120:
-        base = llm_summary
+        base = _clean_section_content(llm_summary)
     else:
         top_signals = packet.get("top_signals", [])
         opening = top_signals[0] if top_signals else "The current evidence base supports a directional conclusion, but confidence varies by branch."
@@ -185,14 +387,17 @@ def _compose_executive_summary(packet: dict, llm_summary: str) -> str:
 
     citation_total = packet.get("citation_total", 0)
     if citation_total:
-        quality_line = (
-            f"Evidence quality: {packet.get('verified_count', 0)}/{citation_total} citations verified"
-        )
         if packet.get("citation_passed") is False:
-            quality_line += ", so conclusions should be treated with caution."
+            quality_line = (
+                "Evidence quality is mixed; low-confidence claims were de-prioritized in this summary."
+            )
         else:
-            quality_line += "."
+            quality_line = (
+                f"Evidence quality: {packet.get('verified_count', 0)}/{citation_total} citations verified."
+            )
         summary_parts.append(quality_line)
+    elif packet.get("requires_verification_notice"):
+        summary_parts.append("Some claims require additional verification before operational decisions.")
 
     open_questions = packet.get("open_questions", [])[:3]
     if open_questions:
@@ -200,7 +405,19 @@ def _compose_executive_summary(packet: dict, llm_summary: str) -> str:
             "Open questions:\n" + "\n".join(f"- {question}" for question in open_questions)
         )
 
-    return "\n\n".join(part for part in summary_parts if part).strip()
+    if not packet.get("synthesis_ready", True):
+        blockers = packet.get("synthesis_blockers", [])
+        summary_parts.append(
+            "Synthesis gate warning: evidence quality was insufficient for decision-grade recommendations."
+        )
+        if blockers:
+            summary_parts.append("Current blockers:\n" + "\n".join(f"- {item}" for item in blockers))
+    elif not packet.get("allow_recommendations", True):
+        summary_parts.append(
+            "Recommendation policy: rankings/top-lists were withheld due to verification quality constraints."
+        )
+
+    return _clean_section_content("\n\n".join(part for part in summary_parts if part)).strip()
 
 
 def _build_orchestration_metadata(state: AgentState, context: dict) -> dict:
@@ -253,6 +470,11 @@ def _build_orchestration_metadata(state: AgentState, context: dict) -> dict:
                 "verified_count": citation.verified_count if citation else 0,
                 "total": citation.total if citation else 0,
             },
+            "synthesis_gate": context.get("synthesis_payload", {}),
+            "claim_table_stats": {
+                "total": len(context.get("claim_table", [])),
+                "usable": sum(1 for claim in context.get("claim_table", []) if claim.get("usable")),
+            },
             "available_charts": context.get("available_charts", []),
         }
     }
@@ -276,11 +498,18 @@ def _normalize_rendered_sections(parsed_sections: list[dict], section_packets: l
             if not filtered_sources:
                 filtered_sources = allowed_sources[:6]
 
-            content = str(llm_section.get("content", "")).strip()
+            content = _clean_section_content(str(llm_section.get("content", "")))
             if not content:
-                branch_notes = []
+                branch_notes: list[str] = []
+                for claim in packet.get("matched_claims", []):
+                    sanitized = _sanitize_signal(claim.get("claim", ""), max_len=320)
+                    if sanitized:
+                        branch_notes.append(sanitized)
                 for branch in packet.get("matched_branches", []):
-                    branch_notes.extend(branch.get("findings", [])[:3])
+                    for finding in branch.get("findings", [])[:3]:
+                        sanitized = _sanitize_signal(finding, max_len=320)
+                        if sanitized:
+                            branch_notes.append(sanitized)
                 content = "\n\n".join(branch_notes) or "Evidence for this section is limited; uncertainty is noted."
 
             output_sections.append(
@@ -315,6 +544,9 @@ def _build_render_context(state: AgentState) -> dict:
     reflect = state.get("reflect_result")
     evidence_items = list(state.get("evidence_items", []) or [])
     research_tasks = list(state.get("research_tasks", []) or [])
+    claim_table = list(state.get("claim_table", []) or [])
+    synthesis_payload = dict(state.get("synthesis_payload") or {})
+    allow_recommendations = bool(state.get("allow_recommendations", True))
 
     section_targets: list[dict] = []
     if master_prompt and master_prompt.report_schema and master_prompt.report_schema.sections:
@@ -347,17 +579,19 @@ def _build_render_context(state: AgentState) -> dict:
             }
         )
 
-    section_packets = _build_section_packets(section_targets, branch_packets)
+    section_packets = _build_section_packets(section_targets, branch_packets, claim_table)
     citation_payload = citation.model_dump(mode="json") if citation else None
     critique_payload = critique.model_dump(mode="json") if critique else None
     reflect_payload = reflect.model_dump(mode="json") if reflect else None
     evidence_payload = [item.model_dump(mode="json") for item in evidence_items[:24]]
     executive_summary_packet = _build_executive_summary_packet(
         branch_packets,
+        claim_table,
         evidence_payload,
         critique_payload,
         citation_payload,
         reflect_payload,
+        synthesis_payload,
     )
 
     return {
@@ -370,6 +604,9 @@ def _build_render_context(state: AgentState) -> dict:
         "research_tasks": [task.model_dump(mode="json") for task in research_tasks],
         "research_branches": branch_packets,
         "section_packets": section_packets,
+        "claim_table": claim_table[:80],
+        "synthesis_payload": synthesis_payload,
+        "allow_recommendations": allow_recommendations,
         "evidence_items": evidence_payload,
         "research_brief": state.get("research_brief", ""),
         "reflection": reflect_payload,
@@ -381,6 +618,12 @@ def _build_render_context(state: AgentState) -> dict:
             "primary_rule": "Write from evidence and cited branches, not from generic prose.",
             "if_evidence_missing": "Explicitly note uncertainty instead of inventing detail.",
             "section_source_rule": "Every section should inherit only sources that support its claims.",
+            "claim_table_rule": "Only use claim_table items where usable=true for decision-grade claims.",
+            "recommendation_rule": (
+                "Recommendations/top rankings are allowed."
+                if allow_recommendations
+                else "Do not output Top-N/rankings/best-choice recommendations; provide neutral analysis only."
+            ),
         },
     }
 
@@ -610,6 +853,50 @@ def _build_docx(report: ReportOutput, chart_paths: list[str], output_path: str) 
     return output_path
 
 
+def _write_synthesis_artifacts(out_dir: str, context: dict) -> dict[str, str]:
+    claim_path = os.path.join(out_dir, "claim_table.json")
+    synthesis_path = os.path.join(out_dir, "synthesis.md")
+
+    claim_table = list(context.get("claim_table", []) or [])
+    with open(claim_path, "w", encoding="utf-8") as f:
+        json.dump(claim_table, f, ensure_ascii=False, indent=2)
+
+    payload = dict(context.get("synthesis_payload") or {})
+    metrics = dict(payload.get("metrics") or {})
+    lines = [
+        "# Synthesis Gate",
+        "",
+        f"- ready: `{bool(payload.get('ready'))}`",
+        f"- allow_recommendations: `{bool(payload.get('allow_recommendations'))}`",
+        f"- total_claims: `{int(metrics.get('total_claims', 0))}`",
+        f"- verified_claims: `{int(metrics.get('verified_claims', 0))}`",
+        f"- usable_claims: `{int(metrics.get('usable_claims', 0))}`",
+        f"- verified_ratio: `{float(metrics.get('verified_ratio', 0.0)):.2f}`",
+        f"- low_authority_ratio: `{float(metrics.get('low_authority_ratio', 0.0)):.2f}`",
+        "",
+        "## Blocking Reasons",
+    ]
+    blockers = list(payload.get("blocking_reasons") or [])
+    if blockers:
+        lines.extend([f"- {item}" for item in blockers])
+    else:
+        lines.append("- none")
+
+    lines.extend(["", "## Top Claims", ""])
+    for claim in list(payload.get("top_claims") or [])[:12]:
+        text = _sanitize_signal(claim.get("claim", ""), max_len=240) or ""
+        if not text:
+            continue
+        lines.append(
+            f"- ({claim.get('citation_status', 'UNVERIFIED')}, score={float(claim.get('claim_score', 0.0)):.2f}) {text}"
+        )
+
+    with open(synthesis_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines).strip() + "\n")
+
+    return {"claim_table_path": claim_path, "synthesis_path": synthesis_path}
+
+
 @traceable(name="renderer")
 async def run_renderer(state: AgentState) -> dict:
     logger.info("Renderer agent started")
@@ -622,6 +909,7 @@ async def run_renderer(state: AgentState) -> dict:
     chart_paths = state.get("chart_paths", [])
     lang = intake.language if intake else "en"
     context = _build_render_context(state)
+    synthesis_artifacts = _write_synthesis_artifacts(out_dir, context)
 
     context_json = json.dumps(context, default=str)
     raw = await _call_llm(_get_renderer_prompt(lang), context_json, model)
@@ -633,6 +921,13 @@ async def run_renderer(state: AgentState) -> dict:
         raise RendererError(str(exc)) from exc
 
     sections = _normalize_rendered_sections(parsed.get("sections", []), context.get("section_packets", []))
+    sections = _apply_recommendation_policy(
+        sections,
+        allow_recommendations=bool(context.get("allow_recommendations", True)),
+    )
+    sections = _dedupe_and_prune_sections(sections)
+    metadata = _build_orchestration_metadata(state, context)
+    metadata["process_artifacts"] = synthesis_artifacts
     report = ReportOutput(
         id=state.get("report_id", ""),
         title=parsed.get("title", "Untitled Report"),
@@ -642,7 +937,7 @@ async def run_renderer(state: AgentState) -> dict:
         ),
         sections=sections,
         total_cost_usd=state.get("cost_usd", 0),
-        metadata=_build_orchestration_metadata(state, context),
+        metadata=metadata,
     )
 
     html_content = _build_html(report, chart_paths, lang=lang)

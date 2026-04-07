@@ -1,0 +1,87 @@
+{
+  "primary_questions": [
+    {
+      "question_id": "q1",
+      "question": "Which offerings are managed platforms versus toolkits?",
+      "priority": 1,
+      "required_evidence_count": 2
+    },
+    {
+      "question_id": "q2",
+      "question": "Where do retrieval quality and workflow control diverge?",
+      "priority": 2,
+      "required_evidence_count": 2
+    },
+    {
+      "question_id": "q3",
+      "question": "What are the operational tradeoffs between turnkey and composable stacks?",
+      "priority": 3,
+      "required_evidence_count": 2
+    }
+  ],
+  "secondary_questions": [
+    {
+      "question_id": "s1",
+      "question": "Assess retrieval quality implications for Enterprise RAG and knowledge platforms",
+      "priority": 1,
+      "required_evidence_count": 1
+    },
+    {
+      "question_id": "s2",
+      "question": "Assess operational maturity implications for Enterprise RAG and knowledge platforms",
+      "priority": 2,
+      "required_evidence_count": 1
+    },
+    {
+      "question_id": "s3",
+      "question": "Assess enterprise controls implications for Enterprise RAG and knowledge platforms",
+      "priority": 3,
+      "required_evidence_count": 1
+    },
+    {
+      "question_id": "s4",
+      "question": "Assess integration surface implications for Enterprise RAG and knowledge platforms",
+      "priority": 4,
+      "required_evidence_count": 1
+    }
+  ],
+  "claims_to_validate": [
+    "Enterprise RAG and knowledge platforms: retrieval quality",
+    "Enterprise RAG and knowledge platforms: operational maturity",
+    "Enterprise RAG and knowledge platforms: enterprise controls",
+    "Enterprise RAG and knowledge platforms: integration surface"
+  ],
+  "claims_to_disprove": [
+    "Unqualified winner claim for Enterprise RAG and knowledge platforms"
+  ],
+  "required_evidence_per_question": {
+    "q1": 2,
+    "q2": 2,
+    "q3": 2
+  },
+  "suggested_search_queries": [
+    "Enterprise RAG and knowledge platforms Which offerings are managed platforms versus toolkits? official docs benchmark",
+    "Enterprise RAG and knowledge platforms Where do retrieval quality and workflow control diverge? official docs benchmark",
+    "Enterprise RAG and knowledge platforms What are the operational tradeoffs between turnkey and composable stacks? official docs benchmark"
+  ],
+  "preferred_domains": [
+    "azure.microsoft.com",
+    "llamaindex.ai",
+    "ragflow.io"
+  ],
+  "required_source_mix": [
+    "official_documentation",
+    "vendor_page",
+    "benchmark",
+    "research_paper",
+    "high_quality_secondary"
+  ],
+  "chart_candidates": [
+    "evidence_coverage",
+    "source_mix"
+  ],
+  "stop_conditions": [
+    "At least 2 sources per primary question",
+    "No unresolved critical contradiction cluster"
+  ]
+}

@@ -1,0 +1,93 @@
+[
+  {
+    "claim_id": "C-01",
+    "statement": "Azure AI Search is strong when enterprise control, managed infrastructure, and Microsoft ecosystem fit matter.",
+    "question_id": "q1",
+    "supporting_evidence_ids": [
+      "da931a1a-0979-4a5e-8761-7e43b6835722",
+      "bff99abc-ec56-4847-bb0c-ae1c3118da3f",
+      "35882eaf-1f94-42a3-be90-72821126b5e0"
+    ],
+    "source_ids": [
+      "b651abee-0317-41eb-a2d5-cf8ce2ca33bb"
+    ],
+    "confidence": 0.8500000000000001,
+    "contradiction_notes": [],
+    "recommendation_safe": true
+  },
+  {
+    "claim_id": "C-02",
+    "statement": "LlamaIndex is strongest as a composable toolkit for teams that want control over ingestion, indexing, routing, and retrieval behavior.",
+    "question_id": "q1",
+    "supporting_evidence_ids": [
+      "1e4cd1c5-2cd5-451b-bbe9-ec0e10aa2711",
+      "8e4001fd-37ce-46bb-af1c-9ab2d1116cb7",
+      "7756efb7-0fc5-42ae-aadb-1abef406ec6e"
+    ],
+    "source_ids": [
+      "4221c8d9-a05b-4a0f-b765-97ea4a41d8b6"
+    ],
+    "confidence": 0.8500000000000001,
+    "contradiction_notes": [],
+    "recommendation_safe": true
+  },
+  {
+    "claim_id": "C-03",
+    "statement": "The cost is higher engineering ownership and a greater need for internal evaluation discipline.",
+    "question_id": "q1",
+    "supporting_evidence_ids": [
+      "731a972f-5f59-4811-91ed-0bfd6d291ee9",
+      "13d909ca-cab0-48d2-b9b7-0a35c1cce50f",
+      "60efd997-2a93-4c4a-9d72-8fcd0e0ea04b"
+    ],
+    "source_ids": [
+      "4221c8d9-a05b-4a0f-b765-97ea4a41d8b6"
+    ],
+    "confidence": 0.8500000000000001,
+    "contradiction_notes": [],
+    "recommendation_safe": true
+  },
+  {
+    "claim_id": "C-05",
+    "statement": "It offers operational maturity but is infrastructure-first rather than a full research-workflow product by itself.",
+    "question_id": "q2",
+    "supporting_evidence_ids": [
+      "dc6b11a0-0520-4387-a6c3-c87d06621e6a",
+      "3eccd1b6-280e-4044-9460-6953e440ad31"
+    ],
+    "source_ids": [
+      "b651abee-0317-41eb-a2d5-cf8ce2ca33bb"
+    ],
+    "confidence": 0.8500000000000001,
+    "contradiction_notes": [],
+    "recommendation_safe": true
+  },
+  {
+    "claim_id": "C-08",
+    "statement": "RAGFlow is positioned around document ingestion and retrieval workflow management rather than only low-level retrieval APIs.",
+    "question_id": "q2",
+    "supporting_evidence_ids": [
+      "803c2695-e56a-49f0-923d-31f7f3902b3e"
+    ],
+    "source_ids": [
+      "e57625d3-abe8-4968-97c5-f84233fc69c8"
+    ],
+    "confidence": 0.8500000000000001,
+    "contradiction_notes": [],
+    "recommendation_safe": true
+  },
+  {
+    "claim_id": "C-09",
+    "statement": "That makes it attractive for knowledge-heavy use cases where business users need more than a raw vector stack.",
+    "question_id": "q2",
+    "supporting_evidence_ids": [
+      "821b49ae-5649-4876-87a8-9313b8fc81f8"
+    ],
+    "source_ids": [
+      "e57625d3-abe8-4968-97c5-f84233fc69c8"
+    ],
+    "confidence": 0.8500000000000001,
+    "contradiction_notes": [],
+    "recommendation_safe": true
+  }
+]

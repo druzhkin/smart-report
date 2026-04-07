@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LLM observability platforms: Decision Brief</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 900px; margin: 0 auto; padding: 40px 24px; color: #18212f; }
+    h1, h2 { color: #0f3d68; }
+    pre { white-space: pre-wrap; }
+    a { color: #0f5ea8; }
+  </style>
+</head>
+<body><h1>LLM observability platforms: Decision Brief</h1>
+<h2>Executive Summary</h2>
+<p>LLM observability platforms: coverage 1/3 primary questions, 5 recommendation-safe claims, contradiction count 0.</p>
+<h2>Decision Context</h2>
+<ul>
+<li>Goal: Produce an evidence-backed analytical report for a real decision.</li>
+<li>Subject: LLM observability platforms</li>
+<li>Decision context: Choose a primary platform for a production pilot in the next two quarters.</li>
+<li>Geography: global</li>
+<li>Time horizon: current</li>
+</ul>
+<h2>Evaluation Frame</h2>
+<ul>
+<li>trace depth</li>
+<li>evaluation tooling</li>
+<li>self-hosting</li>
+<li>governance</li>
+</ul>
+<h2>Key Findings</h2>
+<ul>
+<li>It is strongest when a team wants one surface for debugging runs and measuring regression over time. [Evidence: 21c6568d-0e64-4639-b577-f6474ac8eb78, 92d68e51-8420-4fac-8c09-1134ea08d528]</li>
+<li>Langfuse combines tracing and scoring with open-source and self-hosted deployment paths. [Evidence: 4f6a9500-7cb6-4a75-af94-52bad5800ea1, b88f0092-1f06-402a-85e8-d3a5ff004492]</li>
+<li>Helicone is strong when lightweight instrumentation and cost visibility matter more than a heavyweight evaluation stack. [Evidence: 185eab29-49e9-4ea4-b965-618841ab91b1, 769171c7-bceb-4e6c-be15-ac32190527d6]</li>
+<li>It is attractive for teams that need observability plus privacy control and do not want to depend entirely on SaaS-only operations. [Evidence: 17c02e13-7048-4960-9574-9863cd573f5c]</li>
+<li>It is a practical fit for operational analytics, but less obviously the best choice when experiment rigor is the main buying criterion. [Evidence: 1ddc9cbe-8646-4f8b-b5cb-0ede02a7d75e]</li>
+</ul>
+<h2>Comparative Analysis</h2>
+<ul>
+<li>Which platform is strongest for traceability and evals?</li>
+<li>Which options fit privacy-sensitive deployments?</li>
+<li>Which tools are best for fast operator debugging?</li>
+</ul>
+<h2>Recommendation and Decision Posture</h2>
+<ul>
+<li>Bounded recommendation: evidence is informative but not strong enough for an unqualified winner call.</li>
+</ul>
+<h2>Gaps &amp; Risks</h2>
+<ul>
+<li>Which options fit privacy-sensitive deployments?</li>
+<li>Which tools are best for fast operator debugging?</li>
+<li>Prefer pragmatic operating cost and privacy-aware deployment.</li>
+</ul>
+<h2>Evidence Coverage</h2>
+<ul>
+<li>Covered questions: 1/3</li>
+<li>Contradiction count: 0</li>
+</ul>
+<h2>Sources</h2>
+<ul>
+<li><a href="https://www.langchain.com/langsmith">LangSmith overview</a></li>
+<li><a href="https://langfuse.com/docs">Langfuse documentation</a></li>
+<li><a href="https://www.helicone.ai/docs">Helicone docs</a></li>
+</ul></body>
+</html>

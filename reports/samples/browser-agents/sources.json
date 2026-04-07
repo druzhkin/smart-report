@@ -1,0 +1,44 @@
+[
+  {
+    "source_id": "5e296041-f90b-4b11-bddd-918cff82707c",
+    "url": "https://playwright.dev/",
+    "title": "Playwright documentation",
+    "domain": "playwright.dev",
+    "source_type": "official_documentation",
+    "publisher": "playwright.dev",
+    "published_at": "",
+    "reliability_score": 0.99,
+    "selection_reason": "Matched search query 'Browser automation stacks for AI agents Which stacks are best for deterministic control versus agent abstraction? official docs benchmark' for question q1",
+    "question_links": [
+      "q1"
+    ]
+  },
+  {
+    "source_id": "dec4fc8f-4d41-48e0-b03c-dd00f0aed35d",
+    "url": "https://www.browserbase.com/",
+    "title": "Browserbase overview",
+    "domain": "browserbase.com",
+    "source_type": "vendor_page",
+    "publisher": "browserbase.com",
+    "published_at": "",
+    "reliability_score": 0.8500000000000001,
+    "selection_reason": "Matched search query 'Browser automation stacks for AI agents Which stacks are best for deterministic control versus agent abstraction? official docs benchmark' for question q1",
+    "question_links": [
+      "q1"
+    ]
+  },
+  {
+    "source_id": "614e86e6-af9f-4d06-8e41-4420b9aac190",
+    "url": "https://stagehand.dev/",
+    "title": "Stagehand overview",
+    "domain": "stagehand.dev",
+    "source_type": "vendor_page",
+    "publisher": "stagehand.dev",
+    "published_at": "",
+    "reliability_score": 0.8500000000000001,
+    "selection_reason": "Matched search query 'Browser automation stacks for AI agents Which stacks are best for deterministic control versus agent abstraction? official docs benchmark' for question q1",
+    "question_links": [
+      "q1"
+    ]
+  }
+]

@@ -744,7 +744,7 @@ class TestQADecision:
 
         assert decision == "fail"
 
-    def test_critique_skips_expensive_revise_when_budget_is_nearly_spent(self):
+    def test_critique_aborts_when_quality_low_and_budget_nearly_spent(self):
         from backend.pipeline.graph import critique_decision
 
         decision = critique_decision(
@@ -764,7 +764,47 @@ class TestQADecision:
             }
         )
 
+        assert decision == "abort"
+
+    def test_synthesis_decision_proceeds_when_ready(self):
+        from backend.pipeline.graph import synthesis_decision
+
+        decision = synthesis_decision({"synthesis_ready": True})
         assert decision == "proceed"
+
+    def test_synthesis_decision_revises_when_not_ready_with_budget(self):
+        from backend.pipeline.graph import synthesis_decision
+
+        decision = synthesis_decision(
+            {
+                "synthesis_ready": False,
+                "selected_depth": "standard",
+                "cost_usd": 0.2,
+                "revision_count": 1,
+                "max_iterations": 3,
+                "synthesis_payload": {
+                    "blocking_reasons": ["Too few usable claims to produce a decision-grade synthesis."]
+                },
+            }
+        )
+        assert decision == "revise"
+
+    def test_synthesis_decision_aborts_when_not_ready_and_no_budget(self):
+        from backend.pipeline.graph import synthesis_decision
+
+        decision = synthesis_decision(
+            {
+                "synthesis_ready": False,
+                "selected_depth": "standard",
+                "cost_usd": 1.95,
+                "revision_count": 2,
+                "max_iterations": 3,
+                "synthesis_payload": {
+                    "blocking_reasons": ["Citation verification did not pass quality threshold."]
+                },
+            }
+        )
+        assert decision == "abort"
 
 
 class TestResearchFailFast:
@@ -808,6 +848,76 @@ class TestResearchFailFast:
                 with pytest.raises(BudgetExceededError, match="Budget exceeded"):
                     async with pipeline_context():
                         raise BudgetExceededError("Budget exceeded after research: $4.5240 > $2.00")
+
+
+class TestSynthesisGate:
+    async def test_synthesis_gate_marks_ready_with_verified_primary_claims(self, base_state):
+        from backend.agents.synthesis_agent import run_synthesis_gate
+
+        citation = CitationVerificationResult(
+            checks=[
+                CitationCheckResult(
+                    url=f"https://arxiv.org/abs/{idx}",
+                    status=CitationStatus.VERIFIED,
+                )
+                for idx in range(6)
+            ]
+        )
+        citation.compute_stats()
+
+        evidence = [
+            {
+                "id": str(idx),
+                "query_id": "q",
+                "claim": f"Claim {idx}: model throughput is {20 + idx} tokens per second on RTX 4080 with Q4 quantization.",
+                "source_url": f"https://arxiv.org/abs/{idx}",
+                "source_title": f"Paper {idx}",
+                "snippet": "Measured throughput on local GPU.",
+                "domain": "arxiv.org",
+                "confidence": 0.9,
+                "verification_status": "VERIFIED",
+                "tags": [],
+            }
+            for idx in range(6)
+        ]
+
+        result = await run_synthesis_gate({**base_state, "citation_verification": citation, "evidence_items": evidence})
+        assert result["synthesis_ready"] is True
+        assert result["allow_recommendations"] is True
+
+    async def test_synthesis_gate_blocks_when_low_authority_sources_dominate(self, base_state):
+        from backend.agents.synthesis_agent import run_synthesis_gate
+
+        citation = CitationVerificationResult(
+            checks=[
+                CitationCheckResult(
+                    url=f"https://www.youtube.com/watch?v={idx}",
+                    status=CitationStatus.VERIFIED,
+                )
+                for idx in range(6)
+            ]
+        )
+        citation.compute_stats()
+
+        evidence = [
+            {
+                "id": str(idx),
+                "query_id": "q",
+                "claim": f"Claim {idx}: benchmark result with unclear methodology and limited reproducibility notes.",
+                "source_url": f"https://www.youtube.com/watch?v={idx}",
+                "source_title": f"Video {idx}",
+                "snippet": "Video benchmark without reproducible setup.",
+                "domain": "www.youtube.com",
+                "confidence": 0.9,
+                "verification_status": "VERIFIED",
+                "tags": [],
+            }
+            for idx in range(6)
+        ]
+
+        result = await run_synthesis_gate({**base_state, "citation_verification": citation, "evidence_items": evidence})
+        assert result["synthesis_ready"] is False
+        assert result["allow_recommendations"] is False
 
 
 class TestReflectAndCritique:
@@ -2262,6 +2372,17 @@ class TestPromptSplitter:
 
 
 class TestSupervisorOrchestration:
+    async def test_preserves_revision_count_instead_of_resetting(self, base_state):
+        from backend.agents.supervisor_agent import run_supervisor
+
+        decomposition = TaskDecomposition(
+            main_question="Analyze AI chip market",
+            subquestions=[ResearchTask(id="market", question="Estimate market size", priority=1)],
+        )
+
+        result = await run_supervisor({**base_state, "task_decomposition": decomposition, "revision_count": 2})
+        assert result["revision_count"] == 2
+
     async def test_uses_structured_task_decomposition(self, base_state):
         from backend.agents.supervisor_agent import run_supervisor
 

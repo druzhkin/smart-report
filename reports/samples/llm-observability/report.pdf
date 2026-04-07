@@ -1,0 +1,169 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Count 2 /Kids [5 0 R 7 0 R] >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Length 2073 >>
+stream
+BT
+/F1 10 Tf
+72 770 Td
+14 TL
+(LLM observability platforms: Decision Brief) Tj
+T*
+T*
+(# LLM observability platforms: Decision Brief) Tj
+T*
+T*
+(## Executive Summary) Tj
+T*
+T*
+(LLM observability platforms: coverage 1/3 primary questions, 5 recommendation-safe claims,) Tj
+T*
+(contradiction count 0.) Tj
+T*
+T*
+(## Decision Context) Tj
+T*
+T*
+(- Goal: Produce an evidence-backed analytical report for a real decision.) Tj
+T*
+(- Subject: LLM observability platforms) Tj
+T*
+(- Decision context: Choose a primary platform for a production pilot in the next two) Tj
+T*
+(quarters.) Tj
+T*
+(- Geography: global) Tj
+T*
+(- Time horizon: current) Tj
+T*
+T*
+(## Evaluation Frame) Tj
+T*
+T*
+(- trace depth) Tj
+T*
+(- evaluation tooling) Tj
+T*
+(- self-hosting) Tj
+T*
+(- governance) Tj
+T*
+T*
+(## Key Findings) Tj
+T*
+T*
+(- It is strongest when a team wants one surface for debugging runs and measuring regression) Tj
+T*
+(over time. [Evidence: 21c6568d-0e64-4639-b577-f6474ac8eb78,) Tj
+T*
+(92d68e51-8420-4fac-8c09-1134ea08d528]) Tj
+T*
+(- Langfuse combines tracing and scoring with open-source and self-hosted deployment paths.) Tj
+T*
+([Evidence: 4f6a9500-7cb6-4a75-af94-52bad5800ea1, b88f0092-1f06-402a-85e8-d3a5ff004492]) Tj
+T*
+(- Helicone is strong when lightweight instrumentation and cost visibility matter more than a) Tj
+T*
+(heavyweight evaluation stack. [Evidence: 185eab29-49e9-4ea4-b965-618841ab91b1,) Tj
+T*
+(769171c7-bceb-4e6c-be15-ac32190527d6]) Tj
+T*
+(- It is attractive for teams that need observability plus privacy control and do not want to) Tj
+T*
+(depend entirely on SaaS-only operations. [Evidence: 17c02e13-7048-4960-9574-9863cd573f5c]) Tj
+T*
+(- It is a practical fit for operational analytics, but less obviously the best choice when) Tj
+T*
+(experiment rigor is the main buying criterion. [Evidence:) Tj
+T*
+(1ddc9cbe-8646-4f8b-b5cb-0ede02a7d75e]) Tj
+T*
+T*
+(## Comparative Analysis) Tj
+T*
+T*
+(- Which platform is strongest for traceability and evals?) Tj
+T*
+(- Which options fit privacy-sensitive deployments?) Tj
+T*
+(- Which tools are best for fast operator debugging?) Tj
+T*
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 4 0 R >>
+endobj
+6 0 obj
+<< /Length 743 >>
+stream
+BT
+/F1 10 Tf
+72 770 Td
+14 TL
+T*
+(## Recommendation and Decision Posture) Tj
+T*
+T*
+(- Bounded recommendation: evidence is informative but not strong enough for an unqualified) Tj
+T*
+(winner call.) Tj
+T*
+T*
+(## Gaps & Risks) Tj
+T*
+T*
+(- Which options fit privacy-sensitive deployments?) Tj
+T*
+(- Which tools are best for fast operator debugging?) Tj
+T*
+(- Prefer pragmatic operating cost and privacy-aware deployment.) Tj
+T*
+T*
+(## Evidence Coverage) Tj
+T*
+T*
+(- Covered questions: 1/3) Tj
+T*
+(- Contradiction count: 0) Tj
+T*
+T*
+(## Sources) Tj
+T*
+T*
+(- [LangSmith overview]\(https://www.langchain.com/langsmith\)) Tj
+T*
+(- [Langfuse documentation]\(https://langfuse.com/docs\)) Tj
+T*
+(- [Helicone docs]\(https://www.helicone.ai/docs\)) Tj
+T*
+ET
+endstream
+endobj
+7 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 6 0 R >>
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000127 00000 n 
+0000000197 00000 n 
+0000002322 00000 n 
+0000002448 00000 n 
+0000003242 00000 n 
+trailer
+<< /Size 8 /Root 1 0 R >>
+startxref
+3368
+%%EOF

@@ -1,0 +1,44 @@
+[
+  {
+    "source_id": "aae49a65-0c05-4f7e-acfa-ae173ebd1652",
+    "url": "https://www.langchain.com/langsmith",
+    "title": "LangSmith overview",
+    "domain": "langchain.com",
+    "source_type": "vendor_page",
+    "publisher": "langchain.com",
+    "published_at": "",
+    "reliability_score": 0.8500000000000001,
+    "selection_reason": "Matched search query 'LLM observability platforms Which platform is strongest for traceability and evals? official docs benchmark' for question q1",
+    "question_links": [
+      "q1"
+    ]
+  },
+  {
+    "source_id": "9533d366-f5f5-48c8-9cf2-9564880c7ad2",
+    "url": "https://langfuse.com/docs",
+    "title": "Langfuse documentation",
+    "domain": "langfuse.com",
+    "source_type": "vendor_page",
+    "publisher": "langfuse.com",
+    "published_at": "",
+    "reliability_score": 0.8500000000000001,
+    "selection_reason": "Matched search query 'LLM observability platforms Which platform is strongest for traceability and evals? official docs benchmark' for question q1",
+    "question_links": [
+      "q1"
+    ]
+  },
+  {
+    "source_id": "d99185bb-d471-44b4-a71a-beabb9bd43b9",
+    "url": "https://www.helicone.ai/docs",
+    "title": "Helicone docs",
+    "domain": "helicone.ai",
+    "source_type": "vendor_page",
+    "publisher": "helicone.ai",
+    "published_at": "",
+    "reliability_score": 0.8500000000000001,
+    "selection_reason": "Matched search query 'LLM observability platforms Which platform is strongest for traceability and evals? official docs benchmark' for question q1",
+    "question_links": [
+      "q1"
+    ]
+  }
+]

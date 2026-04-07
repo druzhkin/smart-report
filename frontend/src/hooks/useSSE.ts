@@ -13,50 +13,29 @@ export interface PipelineStep {
 }
 
 const STEP_LABELS: Record<string, string> = {
-  intake: "Analyzing Request",
-  cost_guard: "Budget Check",
-  prompt_router: "Routing Model",
-  prompt_king: "Building Prompt",
-  prompt_splitter: "Splitting Sections",
-  supervisor: "Orchestrating",
-  research: "Deep Research",
-  summarization: "Summarizing",
-  reflect: "Quality Reflection",
-  citation_verifier: "Verifying Citations",
-  research_critique: "Research Critique",
-  viz_agent: "Creating Visualizations",
-  render_and_present: "Rendering Report",
-  qa: "Final QA",
-  save_to_knowledge_library: "Saving to Library",
+  pipeline: "Pipeline",
+  planning: "Planning Research",
+  search: "Selecting Sources",
+  evidence: "Building Evidence Ledger",
+  report: "Rendering Report",
+  audit: "Running Release Gate",
   complete: "Complete",
 };
 
 const DISPLAY_STEPS = [
-  { key: "intake", label: "Intake" },
   { key: "planning", label: "Planning" },
-  { key: "research", label: "Research" },
-  { key: "reflection", label: "Review" },
-  { key: "visualization", label: "Charts" },
-  { key: "rendering", label: "Rendering" },
-  { key: "qa", label: "Final QA" },
+  { key: "search", label: "Sources" },
+  { key: "evidence", label: "Evidence" },
+  { key: "report", label: "Report" },
+  { key: "audit", label: "Audit" },
 ];
 
 const STEP_MAPPING: Record<string, string> = {
-  intake: "intake",
-  cost_guard: "planning",
-  prompt_router: "planning",
-  prompt_king: "planning",
-  prompt_splitter: "planning",
-  supervisor: "planning",
-  research: "research",
-  summarization: "research",
-  reflect: "reflection",
-  citation_verifier: "reflection",
-  research_critique: "reflection",
-  viz_agent: "visualization",
-  render_and_present: "rendering",
-  qa: "qa",
-  save_to_knowledge_library: "qa",
+  planning: "planning",
+  search: "search",
+  evidence: "evidence",
+  report: "report",
+  audit: "audit",
 };
 
 interface UseSSEReturn {

@@ -18,6 +18,19 @@ def _slugify(value: str) -> str:
     return slug or "task"
 
 
+def _compact_text(text: str, max_len: int = 240) -> str:
+    compact = " ".join((text or "").split()).strip()
+    if len(compact) <= max_len:
+        return compact
+    return compact[: max_len - 1].rstrip() + "…"
+
+
+def _safe_task_question(section_title: str, query: str) -> str:
+    title = _compact_text(section_title, max_len=90)
+    objective = _compact_text(query, max_len=190)
+    return f"{title}: {objective}"
+
+
 def _infer_hypotheses(query: str) -> list[ResearchHypothesis]:
     hypotheses: list[ResearchHypothesis] = []
     text = query.lower()
@@ -48,11 +61,12 @@ def _infer_hypotheses(query: str) -> list[ResearchHypothesis]:
 def _build_fallback_decomposition(state: AgentState) -> TaskDecomposition:
     intake = state.get("intake_result")
     master = state.get("master_prompt")
-    query = (
+    query_raw = (
         master.user_prompt
         if master and master.user_prompt
         else state.get("user_request", {}).get("query", state.get("original_request", ""))
     )
+    query = _compact_text(query_raw, max_len=220)
 
     section_titles = []
     if master and master.report_schema and master.report_schema.sections:
@@ -74,7 +88,7 @@ def _build_fallback_decomposition(state: AgentState) -> TaskDecomposition:
         subquestions.append(
             ResearchTask(
                 id=task_id,
-                question=f"{section_title}: {query}",
+                question=_safe_task_question(section_title, query),
                 depends_on=depends_on,
                 priority=1 if idx <= 3 else 2,
                 rationale=f"Cover the '{section_title}' angle before synthesis.",

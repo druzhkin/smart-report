@@ -1,0 +1,15 @@
+{
+  "request_id": "1ac519fb-3ea9-45df-9184-fe8f4b511eac",
+  "original_query": "Compare open-source coding models for a self-hosted code review assistant.",
+  "language": "en",
+  "report_type": "vendor_evaluation",
+  "goal": "Produce an evidence-backed analytical report for a real decision.",
+  "subject": "Open-source coding models for self-hosted assistants",
+  "decision_context": "Choose a primary platform for a production pilot in the next two quarters.",
+  "target_audience": "operator",
+  "time_horizon": "current",
+  "geography": "global",
+  "quality_target": "decision-grade",
+  "budget_tier": "standard",
+  "missing_critical_fields": []
+}

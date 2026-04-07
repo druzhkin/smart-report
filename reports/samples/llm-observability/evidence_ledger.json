@@ -1,0 +1,112 @@
+[
+  {
+    "evidence_id": "21c6568d-0e64-4639-b577-f6474ac8eb78",
+    "question_id": "q1",
+    "source_id": "aae49a65-0c05-4f7e-acfa-ae173ebd1652",
+    "claim": "It is strongest when a team wants one surface for debugging runs and measuring regression over time.",
+    "snippet": "It is strongest when a team wants one surface for debugging runs and measuring regression over time.",
+    "confidence": 0.8500000000000001,
+    "extraction_method": "heuristic",
+    "supports": []
+  },
+  {
+    "evidence_id": "4f6a9500-7cb6-4a75-af94-52bad5800ea1",
+    "question_id": "q1",
+    "source_id": "9533d366-f5f5-48c8-9cf2-9564880c7ad2",
+    "claim": "Langfuse combines tracing and scoring with open-source and self-hosted deployment paths.",
+    "snippet": "Langfuse combines tracing and scoring with open-source and self-hosted deployment paths.",
+    "confidence": 0.8500000000000001,
+    "extraction_method": "heuristic",
+    "supports": []
+  },
+  {
+    "evidence_id": "185eab29-49e9-4ea4-b965-618841ab91b1",
+    "question_id": "q1",
+    "source_id": "d99185bb-d471-44b4-a71a-beabb9bd43b9",
+    "claim": "Helicone is strong when lightweight instrumentation and cost visibility matter more than a heavyweight evaluation stack.",
+    "snippet": "Helicone is strong when lightweight instrumentation and cost visibility matter more than a heavyweight evaluation stack.",
+    "confidence": 0.8500000000000001,
+    "extraction_method": "heuristic",
+    "supports": []
+  },
+  {
+    "evidence_id": "92d68e51-8420-4fac-8c09-1134ea08d528",
+    "question_id": "q2",
+    "source_id": "aae49a65-0c05-4f7e-acfa-ae173ebd1652",
+    "claim": "It is strongest when a team wants one surface for debugging runs and measuring regression over time.",
+    "snippet": "It is strongest when a team wants one surface for debugging runs and measuring regression over time.",
+    "confidence": 0.8500000000000001,
+    "extraction_method": "heuristic",
+    "supports": []
+  },
+  {
+    "evidence_id": "17c02e13-7048-4960-9574-9863cd573f5c",
+    "question_id": "q2",
+    "source_id": "9533d366-f5f5-48c8-9cf2-9564880c7ad2",
+    "claim": "It is attractive for teams that need observability plus privacy control and do not want to depend entirely on SaaS-only operations.",
+    "snippet": "It is attractive for teams that need observability plus privacy control and do not want to depend entirely on SaaS-only operations.",
+    "confidence": 0.8500000000000001,
+    "extraction_method": "heuristic",
+    "supports": []
+  },
+  {
+    "evidence_id": "b88f0092-1f06-402a-85e8-d3a5ff004492",
+    "question_id": "q2",
+    "source_id": "9533d366-f5f5-48c8-9cf2-9564880c7ad2",
+    "claim": "Langfuse combines tracing and scoring with open-source and self-hosted deployment paths.",
+    "snippet": "Langfuse combines tracing and scoring with open-source and self-hosted deployment paths.",
+    "confidence": 0.8500000000000001,
+    "extraction_method": "heuristic",
+    "supports": []
+  },
+  {
+    "evidence_id": "769171c7-bceb-4e6c-be15-ac32190527d6",
+    "question_id": "q2",
+    "source_id": "d99185bb-d471-44b4-a71a-beabb9bd43b9",
+    "claim": "Helicone is strong when lightweight instrumentation and cost visibility matter more than a heavyweight evaluation stack.",
+    "snippet": "Helicone is strong when lightweight instrumentation and cost visibility matter more than a heavyweight evaluation stack.",
+    "confidence": 0.8500000000000001,
+    "extraction_method": "heuristic",
+    "supports": []
+  },
+  {
+    "evidence_id": "8160c64c-a64a-4c6c-ab2c-9962751de0f8",
+    "question_id": "q3",
+    "source_id": "aae49a65-0c05-4f7e-acfa-ae173ebd1652",
+    "claim": "It is strongest when a team wants one surface for debugging runs and measuring regression over time.",
+    "snippet": "It is strongest when a team wants one surface for debugging runs and measuring regression over time.",
+    "confidence": 0.8500000000000001,
+    "extraction_method": "heuristic",
+    "supports": []
+  },
+  {
+    "evidence_id": "f7581623-d99a-4f1e-ab1e-5a523390533d",
+    "question_id": "q3",
+    "source_id": "9533d366-f5f5-48c8-9cf2-9564880c7ad2",
+    "claim": "Langfuse combines tracing and scoring with open-source and self-hosted deployment paths.",
+    "snippet": "Langfuse combines tracing and scoring with open-source and self-hosted deployment paths.",
+    "confidence": 0.8500000000000001,
+    "extraction_method": "heuristic",
+    "supports": []
+  },
+  {
+    "evidence_id": "1ddc9cbe-8646-4f8b-b5cb-0ede02a7d75e",
+    "question_id": "q3",
+    "source_id": "d99185bb-d471-44b4-a71a-beabb9bd43b9",
+    "claim": "It is a practical fit for operational analytics, but less obviously the best choice when experiment rigor is the main buying criterion.",
+    "snippet": "It is a practical fit for operational analytics, but less obviously the best choice when experiment rigor is the main buying criterion.",
+    "confidence": 0.8500000000000001,
+    "extraction_method": "heuristic",
+    "supports": []
+  },
+  {
+    "evidence_id": "cc719cb1-46f6-4991-8d8a-c32739417799",
+    "question_id": "q3",
+    "source_id": "d99185bb-d471-44b4-a71a-beabb9bd43b9",
+    "claim": "Helicone is strong when lightweight instrumentation and cost visibility matter more than a heavyweight evaluation stack.",
+    "snippet": "Helicone is strong when lightweight instrumentation and cost visibility matter more than a heavyweight evaluation stack.",
+    "confidence": 0.8500000000000001,
+    "extraction_method": "heuristic",
+    "supports": []
+  }
+]

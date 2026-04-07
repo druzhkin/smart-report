@@ -1,0 +1,79 @@
+[
+  {
+    "claim_id": "C-02",
+    "statement": "Qwen2.5-Coder is described as an open-weight coding family with multilingual support and agent-style workflow fit.",
+    "question_id": "q1",
+    "supporting_evidence_ids": [
+      "b05d7a58-2800-465c-88b4-c5c6efdd1cec",
+      "2584376c-3e8c-44da-bb44-b1067a3ca636",
+      "9ea7b778-d026-439c-84e7-28e9aa08619d"
+    ],
+    "source_ids": [
+      "d380438c-e307-49b5-b8fb-79f1c4f6dad1"
+    ],
+    "confidence": 0.95,
+    "contradiction_notes": [],
+    "recommendation_safe": true
+  },
+  {
+    "claim_id": "C-05",
+    "statement": "In a coding-model evaluation it should not replace task-specific testing, but it is valuable for checking whether vendor claims are directionally supported by repeated public eval performance.",
+    "question_id": "q2",
+    "supporting_evidence_ids": [
+      "18bc366f-bc9e-4065-8bbe-93caaafae93a"
+    ],
+    "source_ids": [
+      "8b2fa5a0-b4dc-4c3d-afb9-342df8170021"
+    ],
+    "confidence": 0.9,
+    "contradiction_notes": [],
+    "recommendation_safe": true
+  },
+  {
+    "claim_id": "C-01",
+    "statement": "It is attractive when coding capability matters, but deployment flexibility and licensing need careful review in a self-hosted decision.",
+    "question_id": "q1",
+    "supporting_evidence_ids": [
+      "3649fcd9-350d-4bbc-a603-4d71e5f9043e",
+      "4a7fc688-2df9-445a-8192-000bea9fb15b",
+      "672dd1ac-1af6-4e03-850e-672a8a89b302"
+    ],
+    "source_ids": [
+      "8b6b2b9a-e7a9-4f0d-a38f-e48e752d6a48"
+    ],
+    "confidence": 0.8500000000000001,
+    "contradiction_notes": [],
+    "recommendation_safe": true
+  },
+  {
+    "claim_id": "C-03",
+    "statement": "Its main upside is flexible self-hosting with community adoption.",
+    "question_id": "q1",
+    "supporting_evidence_ids": [
+      "607d8be8-1475-4847-a506-fa5773f8e990",
+      "de32dc01-5b62-487d-824a-e9314a2f67bb"
+    ],
+    "source_ids": [
+      "d380438c-e307-49b5-b8fb-79f1c4f6dad1"
+    ],
+    "confidence": 0.8500000000000001,
+    "contradiction_notes": [],
+    "recommendation_safe": true
+  },
+  {
+    "claim_id": "C-04",
+    "statement": "The main tradeoff is the need to validate quality and efficiency on the buyer's own workloads.",
+    "question_id": "q1",
+    "supporting_evidence_ids": [
+      "25c5c1a2-87c9-45ad-8d99-9257e393d88d",
+      "4381924f-8990-43da-9ce9-2d37c163657f",
+      "d4b0632b-a3eb-4fdd-ae64-aac462d80a5e"
+    ],
+    "source_ids": [
+      "d380438c-e307-49b5-b8fb-79f1c4f6dad1"
+    ],
+    "confidence": 0.8500000000000001,
+    "contradiction_notes": [],
+    "recommendation_safe": true
+  }
+]

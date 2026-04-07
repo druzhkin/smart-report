@@ -23,6 +23,10 @@ os.environ.setdefault("RAGFLOW_API_KEY", "")
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///./test.db")
 os.environ.setdefault("POSTGRES_URL", "sqlite+aiosqlite:///./test.db")
 os.environ.setdefault("OUTPUTS_DIR", "/tmp/smart-report-test-outputs")
+os.environ.setdefault("RUNS_DIR", str(ROOT / "backend" / ".test-artifacts" / "runs"))
+os.environ.setdefault("REPORTS_GENERATED_DIR", str(ROOT / "backend" / ".test-artifacts" / "reports"))
+os.environ.setdefault("REPORTS_AUDITS_DIR", str(ROOT / "backend" / ".test-artifacts" / "audits"))
+os.environ.setdefault("REPORTS_EVALS_DIR", str(ROOT / "backend" / ".test-artifacts" / "evals"))
 
 _LOCAL_TMP = ROOT / "backend" / ".pytest-temp"
 _LOCAL_TMP.mkdir(parents=True, exist_ok=True)

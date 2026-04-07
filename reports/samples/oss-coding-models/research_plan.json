@@ -1,0 +1,87 @@
+{
+  "primary_questions": [
+    {
+      "question_id": "q1",
+      "question": "Which options are truly self-hostable?",
+      "priority": 1,
+      "required_evidence_count": 2
+    },
+    {
+      "question_id": "q2",
+      "question": "Which models show the strongest public coding signal?",
+      "priority": 2,
+      "required_evidence_count": 2
+    },
+    {
+      "question_id": "q3",
+      "question": "What are the main quality versus operations tradeoffs?",
+      "priority": 3,
+      "required_evidence_count": 2
+    }
+  ],
+  "secondary_questions": [
+    {
+      "question_id": "s1",
+      "question": "Assess code quality implications for Open-source coding models for self-hosted assistants",
+      "priority": 1,
+      "required_evidence_count": 1
+    },
+    {
+      "question_id": "s2",
+      "question": "Assess deployment flexibility implications for Open-source coding models for self-hosted assistants",
+      "priority": 2,
+      "required_evidence_count": 1
+    },
+    {
+      "question_id": "s3",
+      "question": "Assess licensing implications for Open-source coding models for self-hosted assistants",
+      "priority": 3,
+      "required_evidence_count": 1
+    },
+    {
+      "question_id": "s4",
+      "question": "Assess cost implications for Open-source coding models for self-hosted assistants",
+      "priority": 4,
+      "required_evidence_count": 1
+    }
+  ],
+  "claims_to_validate": [
+    "Open-source coding models for self-hosted assistants: code quality",
+    "Open-source coding models for self-hosted assistants: deployment flexibility",
+    "Open-source coding models for self-hosted assistants: licensing",
+    "Open-source coding models for self-hosted assistants: cost"
+  ],
+  "claims_to_disprove": [
+    "Unqualified winner claim for Open-source coding models for self-hosted assistants"
+  ],
+  "required_evidence_per_question": {
+    "q1": 2,
+    "q2": 2,
+    "q3": 2
+  },
+  "suggested_search_queries": [
+    "Open-source coding models for self-hosted assistants Which options are truly self-hostable? official docs benchmark",
+    "Open-source coding models for self-hosted assistants Which models show the strongest public coding signal? official docs benchmark",
+    "Open-source coding models for self-hosted assistants What are the main quality versus operations tradeoffs? official docs benchmark"
+  ],
+  "preferred_domains": [
+    "livebench.ai",
+    "mistral.ai",
+    "qwenlm.github.io"
+  ],
+  "required_source_mix": [
+    "official_documentation",
+    "vendor_page",
+    "benchmark",
+    "research_paper",
+    "high_quality_secondary"
+  ],
+  "chart_candidates": [
+    "evidence_coverage",
+    "source_mix"
+  ],
+  "stop_conditions": [
+    "At least 2 sources per primary question",
+    "No unresolved critical contradiction cluster"
+  ]
+}

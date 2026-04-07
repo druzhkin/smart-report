@@ -32,25 +32,60 @@ MAX_INPUT_CHARS = 12000
 
 @llm_retry()
 async def _call_summarize(text: str, model: str) -> str:
+    base_messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": text[:MAX_INPUT_CHARS]},
+    ]
     payload: dict = {
         "model": model,
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": text[:MAX_INPUT_CHARS]},
-        ],
+        "messages": base_messages,
         "temperature": 0.2,
         "max_tokens": 2500,
     }
     if supports_json_mode(model):
         payload["response_format"] = {"type": "json_object"}
+
+    fallback_payloads: list[dict] = [payload]
+    if "response_format" in payload:
+        fallback_payloads.append({**payload, "response_format": None})
+    fallback_payloads.append(
+        {
+            "model": "openai/gpt-4.1-mini",
+            "messages": base_messages,
+            "temperature": 0.2,
+            "max_tokens": 1800,
+            "response_format": {"type": "json_object"},
+        }
+    )
+    fallback_payloads.append(
+        {
+            "model": "openai/gpt-4.1-mini",
+            "messages": base_messages,
+            "temperature": 0.2,
+            "max_tokens": 1800,
+        }
+    )
+
     async with httpx.AsyncClient(timeout=90) as client:
-        resp = await client.post(
-            f"{settings.openrouter_base_url}/chat/completions",
-            headers={"Authorization": f"Bearer {settings.openrouter_api_key}"},
-            json=payload,
-        )
-        resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"]
+        last_exc: Exception | None = None
+        for candidate in fallback_payloads:
+            candidate = {k: v for k, v in candidate.items() if v is not None}
+            try:
+                resp = await client.post(
+                    f"{settings.openrouter_base_url}/chat/completions",
+                    headers={"Authorization": f"Bearer {settings.openrouter_api_key}"},
+                    json=candidate,
+                )
+                resp.raise_for_status()
+                return resp.json()["choices"][0]["message"]["content"]
+            except httpx.HTTPStatusError as exc:
+                last_exc = exc
+                if exc.response.status_code == 400:
+                    continue
+                raise
+        if last_exc:
+            raise last_exc
+        raise RuntimeError("Summarization call failed without response")
 
 
 async def _summarize_one(result: ResearchResult, model: str) -> tuple[dict, float]:

@@ -1,0 +1,81 @@
+[
+  {
+    "claim_id": "C-01",
+    "statement": "Glean is strongest when the core problem is knowledge access across enterprise tools and permissions.",
+    "question_id": "q1",
+    "supporting_evidence_ids": [
+      "a5d07fc3-85a3-4091-88e3-4af93c5dcdb3",
+      "1afbc477-e6f0-4343-a0ea-f328b05a6474",
+      "18b93e5e-c803-4546-a78a-edf6bf15eb84"
+    ],
+    "source_ids": [
+      "8fdb455e-3f9a-4227-bbba-17b4ae82eded"
+    ],
+    "confidence": 0.8500000000000001,
+    "contradiction_notes": [],
+    "recommendation_safe": true
+  },
+  {
+    "claim_id": "C-02",
+    "statement": "Its value is connector breadth and enterprise search positioning more than deep document workflow automation inside one content system.",
+    "question_id": "q1",
+    "supporting_evidence_ids": [
+      "a0dd0eb5-16e6-4d60-9617-c1b2c78664d7",
+      "386d393d-ed1b-4055-a22b-3ca5503e0fca"
+    ],
+    "source_ids": [
+      "8fdb455e-3f9a-4227-bbba-17b4ae82eded"
+    ],
+    "confidence": 0.8500000000000001,
+    "contradiction_notes": [],
+    "recommendation_safe": true
+  },
+  {
+    "claim_id": "C-03",
+    "statement": "Box AI makes the strongest case where controlled document workflows and governance inside an existing content platform are the priority.",
+    "question_id": "q1",
+    "supporting_evidence_ids": [
+      "ca80eb20-6788-4bd3-b437-b75d438a71f3",
+      "1d54d0ef-a542-4fdc-a654-154bc076b9ad",
+      "e96a831b-bc54-4bc4-b6f9-3c7a4e2f658b"
+    ],
+    "source_ids": [
+      "96162806-58bc-41fe-b1b5-b94d16a16610"
+    ],
+    "confidence": 0.8500000000000001,
+    "contradiction_notes": [],
+    "recommendation_safe": true
+  },
+  {
+    "claim_id": "C-04",
+    "statement": "Notion AI is compelling when user adoption and low-friction workspace assistance matter more than heavyweight governance or cross-enterprise retrieval.",
+    "question_id": "q1",
+    "supporting_evidence_ids": [
+      "462c2fc1-de49-4cec-8ee6-8bf3f05b79f3",
+      "ae586ad4-6c35-436e-ab60-79ae08b61eac",
+      "1717ac78-9a66-4849-ab32-ef050f9fa8b0"
+    ],
+    "source_ids": [
+      "17169e73-d8dd-4c21-8304-539192e45e80"
+    ],
+    "confidence": 0.8500000000000001,
+    "contradiction_notes": [],
+    "recommendation_safe": true
+  },
+  {
+    "claim_id": "C-05",
+    "statement": "It is strongest as a productivity layer, not as the single system of record for complex document operations.",
+    "question_id": "q1",
+    "supporting_evidence_ids": [
+      "887a3468-3d79-4721-9dba-a1f744ed91a3",
+      "4d95feab-ae16-41d4-8f26-cac452c72627",
+      "4a9c5fee-2d46-4918-874b-e3ca487e1066"
+    ],
+    "source_ids": [
+      "17169e73-d8dd-4c21-8304-539192e45e80"
+    ],
+    "confidence": 0.8500000000000001,
+    "contradiction_notes": [],
+    "recommendation_safe": true
+  }
+]

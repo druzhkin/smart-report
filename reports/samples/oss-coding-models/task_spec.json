@@ -1,0 +1,61 @@
+{
+  "task_id": "1b8950c9-d31e-4aec-925a-67b4573076c3",
+  "request_spec": {
+    "request_id": "1ac519fb-3ea9-45df-9184-fe8f4b511eac",
+    "original_query": "Compare open-source coding models for a self-hosted code review assistant.",
+    "language": "en",
+    "report_type": "vendor_evaluation",
+    "goal": "Produce an evidence-backed analytical report for a real decision.",
+    "subject": "Open-source coding models for self-hosted assistants",
+    "decision_context": "Choose a primary platform for a production pilot in the next two quarters.",
+    "target_audience": "operator",
+    "time_horizon": "current",
+    "geography": "global",
+    "quality_target": "decision-grade",
+    "budget_tier": "standard",
+    "missing_critical_fields": []
+  },
+  "success_criteria": [
+    "Every recommendation must be tied to evidence.",
+    "Weak-source discovery hints cannot dominate the recommendation.",
+    "Limitations and unresolved gaps must be explicit."
+  ],
+  "evaluation_dimensions": [
+    "code quality",
+    "deployment flexibility",
+    "licensing",
+    "cost"
+  ],
+  "constraints": [
+    "Prefer pragmatic operating cost and privacy-aware deployment."
+  ],
+  "must_cover_questions": [
+    "Which options are truly self-hostable?",
+    "Which models show the strongest public coding signal?",
+    "What are the main quality versus operations tradeoffs?"
+  ],
+  "allowed_source_types": [
+    "official_documentation",
+    "vendor_page",
+    "benchmark",
+    "research_paper",
+    "high_quality_secondary"
+  ],
+  "blocked_source_types": [
+    "weak_secondary"
+  ],
+  "output_package": [
+    "md",
+    "html",
+    "pdf",
+    "docx",
+    "json"
+  ],
+  "max_budget_usd": 2.0,
+  "answers": {
+    "decision-context": "Choose a primary platform for a production pilot in the next two quarters.",
+    "dimensions": "code quality, deployment flexibility, licensing, cost",
+    "geography": "global",
+    "budget": "Prefer pragmatic operating cost and privacy-aware deployment."
+  }
+}

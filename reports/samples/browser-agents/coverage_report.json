@@ -1,0 +1,34 @@
+{
+  "total_questions": 3,
+  "covered_questions": 1,
+  "coverage_ratio": 0.3333333333333333,
+  "strong_source_ratio": 0.5,
+  "contradiction_count": 0,
+  "questions": [
+    {
+      "question_id": "q1",
+      "question": "Which stacks are best for deterministic control versus agent abstraction?",
+      "evidence_count": 9,
+      "source_count": 5,
+      "status": "covered"
+    },
+    {
+      "question_id": "q2",
+      "question": "Where does hosted infrastructure reduce engineering load?",
+      "evidence_count": 1,
+      "source_count": 1,
+      "status": "gap"
+    },
+    {
+      "question_id": "q3",
+      "question": "What are the core security and observability tradeoffs?",
+      "evidence_count": 0,
+      "source_count": 0,
+      "status": "gap"
+    }
+  ],
+  "gaps": [
+    "Where does hosted infrastructure reduce engineering load?",
+    "What are the core security and observability tradeoffs?"
+  ]
+}

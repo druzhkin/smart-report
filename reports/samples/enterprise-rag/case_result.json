@@ -1,0 +1,68 @@
+{
+  "case_id": "enterprise-rag",
+  "prompt": "Map the enterprise RAG platform landscape for internal knowledge assistants.",
+  "expected_task_type": "market_landscape",
+  "actual_task_type": "market_landscape",
+  "status": "completed",
+  "passed": true,
+  "checks": [
+    {
+      "name": "report_type_matches",
+      "passed": true,
+      "details": "market_landscape"
+    },
+    {
+      "name": "clarification_fields_present",
+      "passed": true,
+      "details": [
+        "decision_context",
+        "evaluation_dimensions",
+        "geography",
+        "budget"
+      ]
+    },
+    {
+      "name": "must_have_sections_present",
+      "passed": true,
+      "details": [
+        "Executive Summary",
+        "Decision Context",
+        "Comparative Analysis",
+        "Gaps & Risks",
+        "Sources"
+      ]
+    },
+    {
+      "name": "must_cover_questions_present",
+      "passed": true,
+      "details": [
+        "Which offerings are managed platforms versus toolkits?",
+        "Where do retrieval quality and workflow control diverge?",
+        "What are the operational tradeoffs between turnkey and composable stacks?"
+      ]
+    },
+    {
+      "name": "minimum_evidence_met",
+      "passed": true,
+      "details": {
+        "evidence_items": 13,
+        "claims": 6,
+        "sources": 3
+      }
+    },
+    {
+      "name": "audit_released",
+      "passed": true,
+      "details": {
+        "release_status": "released",
+        "checks_passed": 6,
+        "checks_failed": 0,
+        "failures": [],
+        "warnings": []
+      }
+    }
+  ],
+  "report_dir": "C:\\Users\\rodina-adm\\Documents\\dev\\smart-report\\reports\\samples\\enterprise-rag",
+  "run_dir": "C:\\Users\\rodina-adm\\Documents\\dev\\smart-report\\tmp\\golden_runs\\enterprise-rag",
+  "event_count": 10
+}

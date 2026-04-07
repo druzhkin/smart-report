@@ -1,0 +1,32 @@
+[
+  {
+    "source_id": "aae49a65-0c05-4f7e-acfa-ae173ebd1652",
+    "url": "https://www.langchain.com/langsmith",
+    "title": "LangSmith overview",
+    "fetched_at": "2026-04-05T22:19:26.961930Z",
+    "content": "LangSmith focuses on trace inspection, dataset-backed evaluation, prompt comparisons, and production monitoring. It is strongest when a team wants one surface for debugging runs and measuring regression over time.",
+    "excerpt": "LangSmith is positioned around traces, datasets, and experiments.",
+    "provider": "seeded",
+    "fetch_status": "ok"
+  },
+  {
+    "source_id": "9533d366-f5f5-48c8-9cf2-9564880c7ad2",
+    "url": "https://langfuse.com/docs",
+    "title": "Langfuse documentation",
+    "fetched_at": "2026-04-05T22:19:26.961943Z",
+    "content": "Langfuse combines tracing and scoring with open-source and self-hosted deployment paths. It is attractive for teams that need observability plus privacy control and do not want to depend entirely on SaaS-only operations.",
+    "excerpt": "Langfuse documents tracing, scoring, and self-hosted deployment patterns.",
+    "provider": "seeded",
+    "fetch_status": "ok"
+  },
+  {
+    "source_id": "d99185bb-d471-44b4-a71a-beabb9bd43b9",
+    "url": "https://www.helicone.ai/docs",
+    "title": "Helicone docs",
+    "fetched_at": "2026-04-05T22:19:26.961949Z",
+    "content": "Helicone is strong when lightweight instrumentation and cost visibility matter more than a heavyweight evaluation stack. It is a practical fit for operational analytics, but less obviously the best choice when experiment rigor is the main buying criterion.",
+    "excerpt": "Helicone emphasizes logging, caching, analytics, and cost visibility.",
+    "provider": "seeded",
+    "fetch_status": "ok"
+  }
+]

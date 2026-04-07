@@ -1,519 +1,84 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { motion } from "framer-motion";
-import {
-  ArrowLeft,
-  Download,
-  ExternalLink,
-  FileImage,
-  FileText,
-  Globe,
-  Loader2,
-  Presentation,
-} from "lucide-react";
-import Link from "next/link";
+import { ArrowLeft, Loader2 } from "lucide-react";
+
 import { CostTracker } from "@/components/CostTracker";
 import { ReportProgress } from "@/components/ReportProgress";
-import { Badge } from "@/components/ui/badge";
+import { ReportViewer } from "@/components/ReportViewer";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Card, CardContent } from "@/components/ui/card";
 import { useReport } from "@/hooks/useReport";
 import { useSSE } from "@/hooks/useSSE";
-import { getDownloadUrl, type ReportData, type SessionMeta } from "@/lib/api";
-
-type ReportMetadata = Record<string, unknown>;
-type BranchTrace = {
-  question?: string;
-  status?: string;
-  next_action?: string;
-  action_reason?: string;
-  source_strategy?: string;
-  source_count?: number;
-  confidence?: number;
-  gaps?: string[];
-  contradiction_notes?: string[];
-};
-
-type OrchestrationTrace = {
-  task_count?: number;
-  branch_count?: number;
-  actionable_branches?: string[];
-  branch_states?: BranchTrace[];
-  contradictions?: Array<{ topic?: string; reason?: string }>;
-  reflection?: {
-    quality_score?: number | null;
-    needs_more_research?: boolean | null;
-    gaps?: string[];
-  };
-  critique?: {
-    verdict?: string | null;
-    overall_score?: number | null;
-    blocking_issues?: string[];
-    follow_up_queries?: string[];
-  };
-  citations?: {
-    passed?: boolean | null;
-    verified_count?: number;
-    total?: number;
-  };
-};
-
-function asString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value : null;
-}
-
-function asStringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter((item): item is string => typeof item === "string" && item.length > 0);
-}
-
-function extractChartNames(metadata: ReportMetadata): string[] {
-  const direct = asStringArray(metadata.charts);
-  if (direct.length > 0) return direct;
-
-  const available = asStringArray(metadata.available_charts);
-  if (available.length > 0) return available;
-
-  const chartObjects = Array.isArray(metadata.chart_paths) ? metadata.chart_paths : [];
-  return chartObjects
-    .map((item) => (typeof item === "string" ? item.split(/[\\/]/).pop() ?? "" : ""))
-    .filter(Boolean);
-}
-
-function getOrchestrationTrace(metadata: ReportMetadata): OrchestrationTrace | null {
-  const raw = metadata.orchestration;
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-  return raw as OrchestrationTrace;
-}
-
-function extractHtmlUrl(session: SessionMeta | null): string | null {
-  return session?.report_urls?.html ?? null;
-}
-
-function extractPdfUrl(session: SessionMeta | null): string | null {
-  return session?.report_urls?.pdf ?? null;
-}
-
-function extractPresentationInfo(report: ReportData | null, session: SessionMeta | null) {
-  const metadata = (report?.metadata ?? {}) as ReportMetadata;
-  const presentationUrl =
-    asString(metadata.presentation_url) ??
-    asString(metadata.gamma_url) ??
-    asString(metadata.slides_url) ??
-    session?.report_urls?.presentation ??
-    null;
-  const presentationPath =
-    asString(metadata.presentation_path) ?? asString(metadata.pptx_path) ?? null;
-
-  return { presentationUrl, presentationPath };
-}
-
-function PDFViewer({ src }: { src: string }) {
-  return (
-    <div className="overflow-hidden rounded-2xl border bg-white">
-      <iframe
-        src={src}
-        title="PDF viewer"
-        className="h-[70vh] w-full"
-      />
-    </div>
-  );
-}
-
-function HtmlViewer({ src }: { src: string }) {
-  return (
-    <div className="overflow-hidden rounded-2xl border bg-white">
-      <iframe
-        src={src}
-        title="HTML report"
-        className="h-[70vh] w-full"
-      />
-    </div>
-  );
-}
-
-function DocumentTab({
-  report,
-  session,
-  sessionId,
-}: {
-  report: ReportData;
-  session: SessionMeta | null;
-  sessionId: string;
-}) {
-  const pdfUrl = extractPdfUrl(session);
-  const htmlUrl = extractHtmlUrl(session);
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 16 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="space-y-6"
-    >
-      <div className="flex flex-wrap gap-3">
-        {["pdf", "docx", "html"].map((format) => (
-          <Button key={format} variant="outline" asChild>
-            <a href={getDownloadUrl(sessionId, format)} download>
-              <Download className="mr-2 h-4 w-4" />
-              {format.toUpperCase()}
-            </a>
-          </Button>
-        ))}
-      </div>
-
-      <Card className="border-primary/10 bg-primary/5">
-        <CardHeader>
-          <CardTitle className="text-sm uppercase tracking-[0.2em] text-primary">
-            Executive Summary
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm leading-7 text-foreground/90">
-            {report.executive_summary}
-          </p>
-        </CardContent>
-      </Card>
-
-      {pdfUrl ? (
-        <PDFViewer src={pdfUrl} />
-      ) : htmlUrl ? (
-        <HtmlViewer src={htmlUrl} />
-      ) : (
-        <Card>
-          <CardContent className="flex min-h-[320px] items-center justify-center text-center text-sm text-muted-foreground">
-            Документ ещё не готов для предпросмотра.
-          </CardContent>
-        </Card>
-      )}
-    </motion.div>
-  );
-}
-
-function SlidesTab({
-  report,
-  session,
-  sessionId,
-}: {
-  report: ReportData;
-  session: SessionMeta | null;
-  sessionId: string;
-}) {
-  const { presentationUrl, presentationPath } = extractPresentationInfo(report, session);
-  const presentationDownloadUrl = session?.report_urls?.presentation ?? getDownloadUrl(sessionId, "pptx");
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 16 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="space-y-6"
-    >
-      {presentationUrl && /^https?:\/\//.test(presentationUrl) ? (
-        <div className="space-y-4">
-          <div className="flex flex-wrap items-center gap-3">
-            <Button variant="outline" asChild>
-              <a href={presentationUrl} target="_blank" rel="noreferrer">
-                <ExternalLink className="mr-2 h-4 w-4" />
-                Открыть презентацию
-              </a>
-            </Button>
-          </div>
-          <div className="overflow-hidden rounded-2xl border bg-white">
-            <iframe
-              src={presentationUrl}
-              title="Slides viewer"
-              className="h-[70vh] w-full"
-            />
-          </div>
-        </div>
-      ) : presentationPath ? (
-        <Card>
-          <CardContent className="flex min-h-[280px] flex-col items-center justify-center gap-4 text-center">
-            <Presentation className="h-12 w-12 text-muted-foreground/40" />
-            <div className="space-y-2">
-              <p className="text-base font-medium">PPTX готов к скачиванию</p>
-              <p className="text-sm text-muted-foreground">
-                Онлайн-предпросмотр недоступен, но файл уже собран.
-              </p>
-            </div>
-            <Button asChild>
-              <a href={presentationDownloadUrl} download>
-                <Download className="mr-2 h-4 w-4" />
-                Скачать PPTX
-              </a>
-            </Button>
-          </CardContent>
-        </Card>
-      ) : (
-        <Card>
-          <CardContent className="flex min-h-[280px] flex-col items-center justify-center gap-3 text-center">
-            <Presentation className="h-12 w-12 text-muted-foreground/35" />
-            <p className="text-sm text-muted-foreground">
-              Презентация генерируется...
-            </p>
-          </CardContent>
-        </Card>
-      )}
-    </motion.div>
-  );
-}
-
-function DataTab({
-  report,
-  sessionId,
-}: {
-  report: ReportData;
-  sessionId: string;
-}) {
-  const metadata = (report.metadata ?? {}) as ReportMetadata;
-  const chartNames = extractChartNames(metadata);
-  const trace = getOrchestrationTrace(metadata);
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 16 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="space-y-6"
-    >
-      {chartNames.length === 0 ? (
-        <Card>
-          <CardContent className="flex min-h-[260px] flex-col items-center justify-center gap-3 text-center">
-            <FileImage className="h-12 w-12 text-muted-foreground/35" />
-            <p className="text-sm text-muted-foreground">
-              Графики ещё не доступны.
-            </p>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid gap-6">
-          {chartNames.map((chartName) => {
-              const chartUrl = `/api/reports/${sessionId}/charts/${chartName}`;
-            return (
-              <Card key={chartName}>
-                <CardHeader className="flex flex-row items-center justify-between">
-                  <CardTitle className="text-base">{chartName}</CardTitle>
-                  <Button variant="ghost" size="sm" asChild>
-                    <a href={chartUrl} target="_blank" rel="noreferrer">
-                      <ExternalLink className="h-4 w-4" />
-                    </a>
-                  </Button>
-                </CardHeader>
-                <CardContent>
-                  <img
-                    src={chartUrl}
-                    alt={chartName}
-                    className="w-full rounded-xl border bg-white object-contain"
-                  />
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      )}
-
-      {trace && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Orchestration Trace</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-5">
-            <div className="grid gap-3 md:grid-cols-3">
-              <div className="rounded-xl border p-4">
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">Branches</p>
-                <p className="mt-1 text-2xl font-semibold">{trace.branch_count ?? 0}</p>
-              </div>
-              <div className="rounded-xl border p-4">
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">Critique</p>
-                <p className="mt-1 text-2xl font-semibold">{trace.critique?.verdict ?? "n/a"}</p>
-              </div>
-              <div className="rounded-xl border p-4">
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">Citations</p>
-                <p className="mt-1 text-2xl font-semibold">
-                  {trace.citations?.verified_count ?? 0}/{trace.citations?.total ?? 0}
-                </p>
-              </div>
-            </div>
-
-            {Array.isArray(trace.branch_states) && trace.branch_states.length > 0 && (
-              <div className="space-y-3">
-                <p className="text-sm font-semibold">Branch States</p>
-                {trace.branch_states.map((branch, index) => (
-                  <div key={`${branch.question ?? "branch"}-${index}`} className="rounded-xl border p-4">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-sm font-medium">{branch.question ?? "Untitled branch"}</p>
-                      {branch.status && <Badge variant="secondary">{branch.status}</Badge>}
-                      {branch.next_action && <Badge variant="outline">{branch.next_action}</Badge>}
-                    </div>
-                    {branch.action_reason && (
-                      <p className="mt-2 text-xs text-muted-foreground">{branch.action_reason}</p>
-                    )}
-                    <div className="mt-3 flex flex-wrap gap-3 text-xs text-muted-foreground">
-                      <span>sources: {branch.source_count ?? 0}</span>
-                      <span>strategy: {branch.source_strategy ?? "n/a"}</span>
-                      <span>confidence: {typeof branch.confidence === "number" ? branch.confidence.toFixed(2) : "n/a"}</span>
-                    </div>
-                    {Array.isArray(branch.gaps) && branch.gaps.length > 0 && (
-                      <div className="mt-3">
-                        <p className="text-xs font-medium">Gaps</p>
-                        <ul className="mt-1 list-disc pl-5 text-xs text-muted-foreground">
-                          {branch.gaps.map((gap, gapIndex) => (
-                            <li key={`${gap}-${gapIndex}`}>{gap}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    {Array.isArray(branch.contradiction_notes) && branch.contradiction_notes.length > 0 && (
-                      <div className="mt-3">
-                        <p className="text-xs font-medium">Contradictions</p>
-                        <ul className="mt-1 list-disc pl-5 text-xs text-muted-foreground">
-                          {branch.contradiction_notes.map((note, noteIndex) => (
-                            <li key={`${note}-${noteIndex}`}>{note}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {Array.isArray(trace.contradictions) && trace.contradictions.length > 0 && (
-              <div className="space-y-2">
-                <p className="text-sm font-semibold">Detected Contradictions</p>
-                {trace.contradictions.map((item, index) => (
-                  <div key={`${item.topic ?? "contradiction"}-${index}`} className="rounded-xl border p-3 text-sm">
-                    <p className="font-medium">{item.topic ?? "Unlabeled contradiction"}</p>
-                    <p className="text-xs text-muted-foreground">{item.reason ?? "Needs verification"}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Metadata</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <pre className="overflow-x-auto rounded-xl bg-muted p-4 text-xs leading-6 text-muted-foreground">
-            {JSON.stringify(metadata, null, 2)}
-          </pre>
-        </CardContent>
-      </Card>
-    </motion.div>
-  );
-}
-
-function SourcesTab({ report }: { report: ReportData }) {
-  const sources = useMemo(() => {
-    const items = report.sections.flatMap((section) =>
-      section.sources.map((url) => ({
-        url,
-        section: section.title,
-      }))
-    );
-    return Array.from(new Map(items.map((item) => [item.url, item])).values());
-  }, [report.sections]);
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 16 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="space-y-4"
-    >
-      {sources.length === 0 ? (
-        <Card>
-          <CardContent className="flex min-h-[260px] flex-col items-center justify-center gap-3 text-center">
-            <Globe className="h-12 w-12 text-muted-foreground/35" />
-            <p className="text-sm text-muted-foreground">Источники ещё не отображены.</p>
-          </CardContent>
-        </Card>
-      ) : (
-        sources.map((source) => (
-          <Card key={source.url}>
-            <CardContent className="flex items-start justify-between gap-4 p-5">
-              <div className="min-w-0 space-y-2">
-                <a
-                  href={source.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="block truncate text-sm font-medium text-primary hover:underline"
-                >
-                  {source.url}
-                </a>
-                <p className="text-xs text-muted-foreground">
-                  Использован в разделе: {source.section}
-                </p>
-              </div>
-              <Badge variant="secondary">Source</Badge>
-            </CardContent>
-          </Card>
-        ))
-      )}
-    </motion.div>
-  );
-}
-
-function CompletedReport({
-  report,
-  session,
-  sessionId,
-}: {
-  report: ReportData;
-  session: SessionMeta | null;
-  sessionId: string;
-}) {
-  return (
-    <Tabs defaultValue="document" className="space-y-6">
-      <TabsList className="h-auto w-full flex-wrap justify-start gap-2 rounded-2xl bg-muted/70 p-2">
-        <TabsTrigger value="document" className="gap-2 rounded-xl">
-          <FileText className="h-4 w-4" />
-          Document
-        </TabsTrigger>
-        <TabsTrigger value="slides" className="gap-2 rounded-xl">
-          <Presentation className="h-4 w-4" />
-          Slides
-        </TabsTrigger>
-        <TabsTrigger value="data" className="gap-2 rounded-xl">
-          <FileImage className="h-4 w-4" />
-          Data
-        </TabsTrigger>
-        <TabsTrigger value="sources" className="gap-2 rounded-xl">
-          <Globe className="h-4 w-4" />
-          Sources
-        </TabsTrigger>
-      </TabsList>
-
-      <TabsContent value="document">
-        <DocumentTab report={report} session={session} sessionId={sessionId} />
-      </TabsContent>
-      <TabsContent value="slides">
-        <SlidesTab report={report} session={session} sessionId={sessionId} />
-      </TabsContent>
-      <TabsContent value="data">
-        <DataTab report={report} sessionId={sessionId} />
-      </TabsContent>
-      <TabsContent value="sources">
-        <SourcesTab report={report} />
-      </TabsContent>
-    </Tabs>
-  );
-}
+import {
+  getReportArtifacts,
+  getReportEvidence,
+  getReportSources,
+  type ArtifactsResponse,
+  type EvidenceResponse,
+  type SourcesResponse,
+} from "@/lib/api";
 
 export default function ReportPage() {
   const params = useParams<{ id: string }>();
-  const { session, report, status, loading } = useReport(params.id);
-  const sse = useSSE(status !== "completed" && status !== "failed" ? params.id : null);
+  const runId = params.id;
+  const { session, report, status, loading, refetch } = useReport(runId);
+  const sse = useSSE(status !== "completed" && status !== "failed" ? runId : null);
+
+  const [evidence, setEvidence] = useState<EvidenceResponse | null>(null);
+  const [sources, setSources] = useState<SourcesResponse | null>(null);
+  const [artifacts, setArtifacts] = useState<ArtifactsResponse | null>(null);
+  const [artifactError, setArtifactError] = useState<string | null>(null);
 
   const isComplete = status === "completed" || sse.isComplete;
   const isFailed = status === "failed" || sse.isFailed;
   const isRunning = !isComplete && !isFailed;
 
-  if (loading) {
+  useEffect(() => {
+    if (!runId) return;
+    if (!session && !isComplete && !isFailed) return;
+
+    let active = true;
+    void Promise.all([
+      getReportEvidence(runId).catch(() => null),
+      getReportSources(runId).catch(() => null),
+      getReportArtifacts(runId).catch(() => null),
+    ])
+      .then(([nextEvidence, nextSources, nextArtifacts]) => {
+        if (!active) return;
+        setEvidence(nextEvidence);
+        setSources(nextSources);
+        setArtifacts(nextArtifacts);
+        setArtifactError(null);
+      })
+      .catch((error) => {
+        if (!active) return;
+        setArtifactError(error instanceof Error ? error.message : "Failed to load artifacts");
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [runId, session, isComplete, isFailed]);
+
+  useEffect(() => {
+    if (!runId) return;
+    if (!sse.isComplete && !sse.isFailed) return;
+    void refetch();
+  }, [refetch, runId, sse.isComplete, sse.isFailed]);
+
+  const title = useMemo(
+    () => session?.analysis_brief?.title ?? report?.title ?? session?.title ?? "Report",
+    [report?.title, session?.analysis_brief?.title, session?.title],
+  );
+  const failureMessage =
+    session?.audit_summary?.failures?.[0] ??
+    "This run failed before the report package was assembled. Refreshing will not fix a backend execution error.";
+
+  if (loading && !session) {
     return (
       <div className="flex items-center justify-center py-24">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -536,57 +101,68 @@ export default function ReportPage() {
             </Button>
           </Link>
           <div>
-            <h1 className="text-xl font-bold tracking-tight">
-              {report?.title || "Report"}
-            </h1>
-            {session && (
-              <p className="font-mono text-xs text-muted-foreground">
-                {session.session_id}
-              </p>
-            )}
+            <h1 className="text-xl font-bold tracking-tight">{title}</h1>
+            {session ? (
+              <p className="font-mono text-xs text-muted-foreground">{session.session_id}</p>
+            ) : null}
           </div>
         </div>
-        <CostTracker cost={session?.cost_usd ?? sse.costUsd} />
+        <CostTracker cost={session?.cost_usd ?? sse.costUsd} maxBudget={session?.task_spec?.max_budget_usd ?? 2} />
       </div>
 
-      {isRunning && (
+      {isRunning ? (
         <Card>
           <CardContent className="p-6">
-            <ReportProgress
-              steps={sse.steps}
-              currentStep={sse.currentStep}
-              sessionId={params.id}
-            />
+            <ReportProgress steps={sse.steps} currentStep={sse.currentStep} sessionId={runId} />
           </CardContent>
         </Card>
-      )}
+      ) : null}
 
-      {isFailed && (
+      {isFailed && session?.audit_summary?.failures?.length ? (
         <Card className="border-destructive/30 bg-destructive/5">
-          <CardContent className="p-6 text-center">
-            <p className="text-sm text-destructive">
-              {sse.error || "Report generation failed"}
-            </p>
+          <CardContent className="space-y-3 p-6 text-sm text-destructive">
+            <p>This run failed closed. Audit blockers:</p>
+            <ul className="list-disc pl-5">
+              {session.audit_summary.failures.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
           </CardContent>
         </Card>
-      )}
+      ) : null}
 
-      {isComplete && report && (
-        <CompletedReport report={report} session={session} sessionId={params.id} />
-      )}
+      {artifactError ? (
+        <Card className="border-dashed">
+          <CardContent className="p-6 text-sm text-muted-foreground">{artifactError}</CardContent>
+        </Card>
+      ) : null}
 
-      {isComplete && !report && (
+      {session && (session.report || session.analysis_brief) ? (
+        <ReportViewer
+          session={session}
+          sessionId={runId}
+          evidence={evidence}
+          sources={sources}
+          artifacts={artifacts}
+        />
+      ) : isFailed ? (
+        <Card className="border-destructive/30 bg-destructive/5">
+          <CardContent className="space-y-3 p-8 text-center">
+            <p className="font-medium text-destructive">This run failed before the report package was materialized.</p>
+            <p className="text-sm text-muted-foreground">{failureMessage}</p>
+            <Button variant="outline" className="mt-2" onClick={() => void refetch()}>
+              Refresh
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
         <Card>
           <CardContent className="p-8 text-center">
             <p className="text-muted-foreground">
-              Отчёт завершён, но данные ещё не подгрузились.
+              Run metadata is available, but the report package has not been materialized yet.
             </p>
-            <Button
-              variant="outline"
-              className="mt-4"
-              onClick={() => window.location.reload()}
-            >
-              Reload
+            <Button variant="outline" className="mt-4" onClick={() => void refetch()}>
+              Refresh
             </Button>
           </CardContent>
         </Card>

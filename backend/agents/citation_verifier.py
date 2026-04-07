@@ -5,6 +5,7 @@ import json
 import re
 from functools import lru_cache
 from typing import TYPE_CHECKING
+from urllib.parse import urlparse
 
 import aiohttp
 import httpx
@@ -39,6 +40,17 @@ REQUEST_HEADERS = {
         "Chrome/123.0.0.0 Safari/537.36"
     ),
     "Accept-Language": "en-US,en;q=0.9,ru;q=0.8",
+}
+
+LOW_AUTHORITY_DOMAINS = {
+    "youtube.com",
+    "www.youtube.com",
+    "reddit.com",
+    "www.reddit.com",
+    "medium.com",
+    "www.medium.com",
+    "t.me",
+    "telegram.me",
 }
 
 
@@ -173,6 +185,28 @@ def _token_overlap_ratio(claim: str, content: str) -> float:
     return len(claim_tokens & content_tokens) / len(claim_tokens)
 
 
+def _normalize_url(url: str) -> str:
+    normalized = (url or "").strip().rstrip(".,;:")
+    if not normalized.startswith("http://") and not normalized.startswith("https://"):
+        return ""
+    return normalized
+
+
+def _is_eligible_url(url: str) -> bool:
+    normalized = _normalize_url(url)
+    if not normalized:
+        return False
+    try:
+        domain = urlparse(normalized).netloc.lower().strip()
+    except Exception:
+        return False
+    if not domain:
+        return False
+    if domain in LOW_AUTHORITY_DOMAINS:
+        return False
+    return True
+
+
 # ---------------------------------------------------------------------------
 # Single citation check
 # ---------------------------------------------------------------------------
@@ -210,7 +244,7 @@ async def _check_citation(
         overlap_ratio = _token_overlap_ratio(claim, content[:2_500])
         claim_too_short = len((claim or "").strip()) < 80
 
-        if score >= SIMILARITY_THRESHOLDS["verified"]:
+        if score >= SIMILARITY_THRESHOLDS["verified"] or (score >= 0.35 and overlap_ratio >= 0.24):
             status = CitationStatus.VERIFIED
         elif score >= SIMILARITY_THRESHOLDS["partial"]:
             status = CitationStatus.PARTIAL
@@ -244,15 +278,31 @@ async def run_citation_verifier(state: AgentState) -> dict:
     results = state.get("research_results", [])
 
     pairs: list[tuple[str, str]] = []
+    seen_urls: set[str] = set()
     for result in results:
         for source in result.sources:
-            findings_context = " ".join(result.findings[:2])
-            claim = " ".join(
-                part.strip()
-                for part in [source.title or "", source.snippet or "", findings_context]
-                if part and part.strip()
-            )[:1_000]
-            pairs.append((source.url, claim))
+            normalized_url = _normalize_url(source.url)
+            if not normalized_url or normalized_url in seen_urls:
+                continue
+            if not _is_eligible_url(normalized_url):
+                continue
+
+            findings_context = " ".join((result.findings or [])[:2]).strip()
+            snippet = (source.snippet or "").strip()
+            title = (source.title or "").strip()
+            if len(snippet) >= 15:
+                claim = snippet
+            elif len(findings_context) >= 40:
+                claim = findings_context[:500]
+            else:
+                claim = f"{title}. {findings_context}".strip()
+
+            claim = " ".join(claim.split())[:700]
+            if len(claim) < 8:
+                continue
+
+            seen_urls.add(normalized_url)
+            pairs.append((normalized_url, claim))
 
     if len(pairs) > MAX_CITATION_CHECKS:
         logger.warning(

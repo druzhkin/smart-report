@@ -1,0 +1,173 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Count 2 /Kids [5 0 R 7 0 R] >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Length 2124 >>
+stream
+BT
+/F1 10 Tf
+72 770 Td
+14 TL
+(AI document workflow platforms: Decision Brief) Tj
+T*
+T*
+(# AI document workflow platforms: Decision Brief) Tj
+T*
+T*
+(## Executive Summary) Tj
+T*
+T*
+(AI document workflow platforms: coverage 1/3 primary questions, 5 recommendation-safe) Tj
+T*
+(claims, contradiction count 0.) Tj
+T*
+T*
+(## Decision Context) Tj
+T*
+T*
+(- Goal: Produce an evidence-backed analytical report for a real decision.) Tj
+T*
+(- Subject: AI document workflow platforms) Tj
+T*
+(- Decision context: Choose a primary platform for a production pilot in the next two) Tj
+T*
+(quarters.) Tj
+T*
+(- Geography: global) Tj
+T*
+(- Time horizon: current) Tj
+T*
+T*
+(## Evaluation Frame) Tj
+T*
+T*
+(- workflow depth) Tj
+T*
+(- knowledge access) Tj
+T*
+(- security) Tj
+T*
+(- adoption) Tj
+T*
+T*
+(## Key Findings) Tj
+T*
+T*
+(- Glean is strongest when the core problem is knowledge access across enterprise tools and) Tj
+T*
+(permissions. [Evidence: a5d07fc3-85a3-4091-88e3-4af93c5dcdb3,) Tj
+T*
+(1afbc477-e6f0-4343-a0ea-f328b05a6474]) Tj
+T*
+(- Its value is connector breadth and enterprise search positioning more than deep document) Tj
+T*
+(workflow automation inside one content system. [Evidence:) Tj
+T*
+(a0dd0eb5-16e6-4d60-9617-c1b2c78664d7, 386d393d-ed1b-4055-a22b-3ca5503e0fca]) Tj
+T*
+(- Box AI makes the strongest case where controlled document workflows and governance inside) Tj
+T*
+(an existing content platform are the priority. [Evidence:) Tj
+T*
+(ca80eb20-6788-4bd3-b437-b75d438a71f3, 1d54d0ef-a542-4fdc-a654-154bc076b9ad]) Tj
+T*
+(- Notion AI is compelling when user adoption and low-friction workspace assistance matter) Tj
+T*
+(more than heavyweight governance or cross-enterprise retrieval. [Evidence:) Tj
+T*
+(462c2fc1-de49-4cec-8ee6-8bf3f05b79f3, ae586ad4-6c35-436e-ab60-79ae08b61eac]) Tj
+T*
+(- It is strongest as a productivity layer, not as the single system of record for complex) Tj
+T*
+(document operations. [Evidence: 887a3468-3d79-4721-9dba-a1f744ed91a3,) Tj
+T*
+(4d95feab-ae16-41d4-8f26-cac452c72627]) Tj
+T*
+T*
+(## Comparative Analysis) Tj
+T*
+T*
+(- Which products act as knowledge assistants versus workflow operators?) Tj
+T*
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 4 0 R >>
+endobj
+6 0 obj
+<< /Length 884 >>
+stream
+BT
+/F1 10 Tf
+72 770 Td
+14 TL
+(- Where does integration breadth matter more than model sophistication?) Tj
+T*
+(- What are the main adoption and governance risks?) Tj
+T*
+T*
+(## Recommendation and Decision Posture) Tj
+T*
+T*
+(- Bounded recommendation: evidence is informative but not strong enough for an unqualified) Tj
+T*
+(winner call.) Tj
+T*
+T*
+(## Gaps & Risks) Tj
+T*
+T*
+(- Where does integration breadth matter more than model sophistication?) Tj
+T*
+(- What are the main adoption and governance risks?) Tj
+T*
+(- Prefer pragmatic operating cost and privacy-aware deployment.) Tj
+T*
+T*
+(## Evidence Coverage) Tj
+T*
+T*
+(- Covered questions: 1/3) Tj
+T*
+(- Contradiction count: 0) Tj
+T*
+T*
+(## Sources) Tj
+T*
+T*
+(- [Glean overview]\(https://www.glean.com/\)) Tj
+T*
+(- [Box AI overview]\(https://www.box.com/ai\)) Tj
+T*
+(- [Notion AI overview]\(https://www.notion.so/product/ai\)) Tj
+T*
+ET
+endstream
+endobj
+7 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 6 0 R >>
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000127 00000 n 
+0000000197 00000 n 
+0000002373 00000 n 
+0000002499 00000 n 
+0000003434 00000 n 
+trailer
+<< /Size 8 /Root 1 0 R >>
+startxref
+3560
+%%EOF

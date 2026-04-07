@@ -22,6 +22,7 @@ from backend.utils.json_parse import parse_llm_json, supports_json_mode
 from backend.utils.retry import llm_retry
 
 MAX_QUERIES_DEV = 3
+MAX_TASK_QUESTION_LEN = 240
 
 SYSTEM_PROMPT = """\
 You are the Research Orchestrator. You receive a structured task decomposition and must decide
@@ -152,12 +153,20 @@ def _fallback_batches(tasks: list[ResearchTask]) -> ParallelBatches:
 
 
 def _merge_follow_up_tasks(tasks: list[ResearchTask], extra_queries: list[str]) -> list[ResearchTask]:
+    def _clean_query(query: str) -> str:
+        compact = " ".join((query or "").split()).strip()
+        if len(compact) > MAX_TASK_QUESTION_LEN:
+            compact = compact[: MAX_TASK_QUESTION_LEN - 1].rstrip() + "…"
+        return compact
+
     existing_questions = {task.question for task in tasks}
     next_priority = max((task.priority for task in tasks), default=1) + 1
     merged = list(tasks)
     for index, query in enumerate(extra_queries, start=1):
-        normalized = query.strip()
+        normalized = _clean_query(query)
         if not normalized or normalized in existing_questions:
+            continue
+        if len(normalized) < 20:
             continue
         merged.append(
             ResearchTask(
@@ -360,7 +369,7 @@ async def run_supervisor(state: AgentState) -> dict:
         "parallel_batches": batches,
         "hypotheses": decomposition.hypotheses,
         "unresolved_questions": decomposition.ambiguities,
-        "revision_count": 0,
+        "revision_count": state.get("revision_count", 0),
         "current_agent": "supervisor",
         "status": "researching",
         "iteration": iteration,

@@ -1,0 +1,102 @@
+[
+  {
+    "evidence_id": "2f1f1f2c-f168-4631-85a8-3225ceb91c97",
+    "question_id": "q1",
+    "source_id": "5e296041-f90b-4b11-bddd-918cff82707c",
+    "claim": "Playwright is the control-stack benchmark: deterministic browser automation, strong debugging primitives, and broad engineering trust.",
+    "snippet": "Playwright is the control-stack benchmark: deterministic browser automation, strong debugging primitives, and broad engineering trust.",
+    "confidence": 0.95,
+    "extraction_method": "heuristic",
+    "supports": []
+  },
+  {
+    "evidence_id": "9e39d6ca-006a-4a5f-9125-e1ee4f028c83",
+    "question_id": "q1",
+    "source_id": "5e296041-f90b-4b11-bddd-918cff82707c",
+    "claim": "Teams still need to build orchestration and sandboxing around it for full AI-agent products.",
+    "snippet": "Teams still need to build orchestration and sandboxing around it for full AI-agent products.",
+    "confidence": 0.95,
+    "extraction_method": "heuristic",
+    "supports": []
+  },
+  {
+    "evidence_id": "790ca465-9ec8-4dac-8fbc-c30e1d8cfdeb",
+    "question_id": "q1",
+    "source_id": "dec4fc8f-4d41-48e0-b03c-dd00f0aed35d",
+    "claim": "Browserbase is strongest when the bottleneck is operating browsers at scale rather than controlling them locally.",
+    "snippet": "Browserbase is strongest when the bottleneck is operating browsers at scale rather than controlling them locally.",
+    "confidence": 0.8500000000000001,
+    "extraction_method": "heuristic",
+    "supports": []
+  },
+  {
+    "evidence_id": "ab84d376-b1c8-43cb-9052-a208879ef018",
+    "question_id": "q1",
+    "source_id": "614e86e6-af9f-4d06-8e41-4420b9aac190",
+    "claim": "Stagehand sits in the agent-ergonomics bucket: it tries to make browser actions more natural for LLM-driven systems while still grounding on deterministic execution.",
+    "snippet": "Stagehand sits in the agent-ergonomics bucket: it tries to make browser actions more natural for LLM-driven systems while still grounding on deterministic execution.",
+    "confidence": 0.8500000000000001,
+    "extraction_method": "heuristic",
+    "supports": []
+  },
+  {
+    "evidence_id": "df1e25d8-8027-4caa-a9a7-e9a548f8530d",
+    "question_id": "q1",
+    "source_id": "614e86e6-af9f-4d06-8e41-4420b9aac190",
+    "claim": "The key question is whether that productivity gain justifies another abstraction layer.",
+    "snippet": "The key question is whether that productivity gain justifies another abstraction layer.",
+    "confidence": 0.8500000000000001,
+    "extraction_method": "heuristic",
+    "supports": []
+  },
+  {
+    "evidence_id": "b796c5cc-3381-492d-ac2f-91c058d38259",
+    "question_id": "q2",
+    "source_id": "5e296041-f90b-4b11-bddd-918cff82707c",
+    "claim": "Playwright is the control-stack benchmark: deterministic browser automation, strong debugging primitives, and broad engineering trust.",
+    "snippet": "Playwright is the control-stack benchmark: deterministic browser automation, strong debugging primitives, and broad engineering trust.",
+    "confidence": 0.95,
+    "extraction_method": "heuristic",
+    "supports": []
+  },
+  {
+    "evidence_id": "c7a7bd7b-c3a4-44d2-a470-3eb6b2707fe8",
+    "question_id": "q2",
+    "source_id": "dec4fc8f-4d41-48e0-b03c-dd00f0aed35d",
+    "claim": "It reduces infrastructure burden, but it introduces dependency on a hosted browser layer.",
+    "snippet": "It reduces infrastructure burden, but it introduces dependency on a hosted browser layer.",
+    "confidence": 0.8500000000000001,
+    "extraction_method": "heuristic",
+    "supports": []
+  },
+  {
+    "evidence_id": "877207da-6d5a-4079-881e-bb91f6e56ab6",
+    "question_id": "q2",
+    "source_id": "dec4fc8f-4d41-48e0-b03c-dd00f0aed35d",
+    "claim": "Browserbase is strongest when the bottleneck is operating browsers at scale rather than controlling them locally.",
+    "snippet": "Browserbase is strongest when the bottleneck is operating browsers at scale rather than controlling them locally.",
+    "confidence": 0.8500000000000001,
+    "extraction_method": "heuristic",
+    "supports": []
+  },
+  {
+    "evidence_id": "5f9581ca-1ad5-45cc-919a-e7c9f7abebbc",
+    "question_id": "q3",
+    "source_id": "5e296041-f90b-4b11-bddd-918cff82707c",
+    "claim": "Playwright is the control-stack benchmark: deterministic browser automation, strong debugging primitives, and broad engineering trust.",
+    "snippet": "Playwright is the control-stack benchmark: deterministic browser automation, strong debugging primitives, and broad engineering trust.",
+    "confidence": 0.95,
+    "extraction_method": "heuristic",
+    "supports": []
+  },
+  {
+    "evidence_id": "06b27fc6-adc0-463c-a913-6d042032712a",
+    "question_id": "q3",
+    "source_id": "dec4fc8f-4d41-48e0-b03c-dd00f0aed35d",
+    "claim": "Browserbase is strongest when the bottleneck is operating browsers at scale rather than controlling them locally.",
+    "snippet": "Browserbase is strongest when the bottleneck is operating browsers at scale rather than controlling them locally.",
+    "confidence": 0.8500000000000001,
+    "extraction_method": "heuristic",
+    "supports": []
+  }
+]

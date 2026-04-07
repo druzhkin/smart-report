@@ -1,0 +1,17 @@
+{
+  "request_id": "cabd6d84-46aa-4c08-bbbc-697e79636f8b",
+  "original_query": "Run a structured competitive scan of browser automation stacks for AI agents.",
+  "language": "en",
+  "report_type": "competitive_scan",
+  "goal": "Produce an evidence-backed analytical report for a real decision.",
+  "subject": "Browser automation stacks for AI agents",
+  "decision_context": "Choose a primary platform for a production pilot in the next two quarters.",
+  "target_audience": "operator",
+  "time_horizon": "current",
+  "geography": "global",
+  "quality_target": "decision-grade",
+  "budget_tier": "standard",
+  "missing_critical_fields": [
+    "decision_context"
+  ]
+}

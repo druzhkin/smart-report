@@ -1,5 +1,5 @@
-import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -7,30 +7,26 @@ from loguru import logger
 
 from backend.api.routes import health, library, reports, settings as settings_routes
 from backend.config import settings
-from backend.prompt_library.optimizer import start_scheduler, stop_scheduler
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    os.makedirs(settings.outputs_dir, exist_ok=True)
-    if settings.enable_apo_scheduler:
-        start_scheduler()
-    logger.info("Smart Report API started")
+    for path in settings.runtime_dirs:
+        Path(path).mkdir(parents=True, exist_ok=True)
+    logger.info("Smart Report API started (v2 runtime enabled)")
     yield
-    if settings.enable_apo_scheduler:
-        stop_scheduler()
     logger.info("Smart Report API shutting down")
 
 
 app = FastAPI(
     title="Smart Report API",
-    version="0.1.0",
+    version="2.0.0",
     lifespan=lifespan,
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=settings.cors_allowed_origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

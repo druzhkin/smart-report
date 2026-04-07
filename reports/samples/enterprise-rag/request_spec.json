@@ -1,0 +1,17 @@
+{
+  "request_id": "fa97eb4f-8764-4840-8a5c-35caee5214dc",
+  "original_query": "Map the enterprise RAG platform landscape for internal knowledge assistants.",
+  "language": "en",
+  "report_type": "market_landscape",
+  "goal": "Produce an evidence-backed analytical report for a real decision.",
+  "subject": "Enterprise RAG and knowledge platforms",
+  "decision_context": "Choose a primary platform for a production pilot in the next two quarters.",
+  "target_audience": "operator",
+  "time_horizon": "current",
+  "geography": "global",
+  "quality_target": "decision-grade",
+  "budget_tier": "standard",
+  "missing_critical_fields": [
+    "decision_context"
+  ]
+}

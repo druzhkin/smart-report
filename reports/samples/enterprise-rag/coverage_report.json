@@ -1,0 +1,33 @@
+{
+  "total_questions": 3,
+  "covered_questions": 2,
+  "coverage_ratio": 0.6666666666666666,
+  "strong_source_ratio": 0.5,
+  "contradiction_count": 0,
+  "questions": [
+    {
+      "question_id": "q1",
+      "question": "Which offerings are managed platforms versus toolkits?",
+      "evidence_count": 9,
+      "source_count": 3,
+      "status": "covered"
+    },
+    {
+      "question_id": "q2",
+      "question": "Where do retrieval quality and workflow control diverge?",
+      "evidence_count": 4,
+      "source_count": 3,
+      "status": "covered"
+    },
+    {
+      "question_id": "q3",
+      "question": "What are the operational tradeoffs between turnkey and composable stacks?",
+      "evidence_count": 0,
+      "source_count": 0,
+      "status": "gap"
+    }
+  ],
+  "gaps": [
+    "What are the operational tradeoffs between turnkey and composable stacks?"
+  ]
+}

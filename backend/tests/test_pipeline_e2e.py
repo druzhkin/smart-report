@@ -1,4 +1,4 @@
-"""End-to-end integration tests for the full 16-node LangGraph pipeline.
+"""End-to-end integration tests for the full 17-node LangGraph pipeline.
 
 Requires OPENROUTER_API_KEY in .env (or already exported to the environment).
 Run explicitly:
@@ -262,7 +262,7 @@ def _patch_embedder():
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_full_pipeline_all_layers():
-    """Full 16-node pipeline with real OpenRouter; Perplexity + citation checks mocked."""
+    """Full 17-node pipeline with real OpenRouter; Perplexity + citation checks mocked."""
     cfg = _graph_config()
 
     # Patch Perplexity and citation functions directly so real OpenRouter calls
@@ -330,6 +330,7 @@ async def test_full_pipeline_all_layers():
         "reflect",
         "citation_verifier",
         "research_critique",
+        "synthesis_gate",
         "viz_agent",
         "render_and_present",
         "qa",

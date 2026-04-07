@@ -1,0 +1,17 @@
+{
+  "request_id": "0fd9fe28-8d37-4a15-ae1a-9e6a64aad37a",
+  "original_query": "Prepare a strategic brief on AI document workflow platforms for an operations team.",
+  "language": "en",
+  "report_type": "strategic_brief",
+  "goal": "Produce an evidence-backed analytical report for a real decision.",
+  "subject": "AI document workflow platforms",
+  "decision_context": "Choose a primary platform for a production pilot in the next two quarters.",
+  "target_audience": "operator",
+  "time_horizon": "current",
+  "geography": "global",
+  "quality_target": "decision-grade",
+  "budget_tier": "standard",
+  "missing_critical_fields": [
+    "decision_context"
+  ]
+}

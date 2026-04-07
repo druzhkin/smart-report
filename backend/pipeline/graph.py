@@ -23,6 +23,7 @@ from backend.agents.research_critique_agent import run_research_critique
 from backend.agents.reflect_agent import run_reflect
 from backend.agents.summarization_agent import run_summarization
 from backend.agents.supervisor_agent import run_supervisor
+from backend.agents.synthesis_agent import run_synthesis_gate
 from backend.agents.viz_agent import run_viz_agent
 from backend.config import normalize_database_url, settings
 from backend.pipeline.cost_guard import BudgetExceededError, InsufficientEvidenceError
@@ -383,37 +384,84 @@ async def save_to_knowledge_library(state: AgentState) -> dict:
 def critique_decision(state: AgentState) -> str:
     score = state.get("critic_score", 1.0)
     rev = state.get("revision_count", 0)
+    max_revisions = state.get("max_iterations", 3)
     budget = _get_budget(state)
     cost = state.get("cost_usd", 0.0)
     remaining_budget = max(0.0, budget - cost)
     total_sources = sum(len(result.sources) for result in list(state.get("research_results", []) or []))
     citation = state.get("citation_verification")
-    citation_total = citation.total if citation else 0
-    citation_fabricated = citation.fabricated_count if citation else 0
-    source_backed_run = total_sources >= 20
-    evidence_rich_but_budget_tight = (
-        source_backed_run
-        and remaining_budget <= max(0.25, budget * 0.12)
-    )
-    verification_noise_heavy = (
-        bool(citation)
-        and citation_total > 0
-        and citation_fabricated <= max(3, int(citation_total * 0.12))
-    )
+    citation_failed = bool(citation and not citation.passed)
+    critique = state.get("research_critique_result")
+    blocking_issues = len(critique.blocking_issues) if critique else 0
 
-    if score < 0.7 and rev < 3 and not evidence_rich_but_budget_tight:
-        logger.info(f"Critique REVISE (score={score:.2f}, revision={rev})")
+    min_budget_for_revision = max(0.35, budget * 0.18)
+    can_revise = rev < max_revisions and remaining_budget >= min_budget_for_revision
+    quality_is_low = score < 0.7
+    severe_quality_risk = citation_failed or blocking_issues >= 2 or score < 0.5
+
+    if severe_quality_risk and can_revise:
+        logger.info(
+            "Critique REVISE due to severe quality risk "
+            f"(score={score:.2f}, revision={rev}, blocking={blocking_issues}, "
+            f"citation_failed={citation_failed}, remaining=${remaining_budget:.4f})"
+        )
         return "revise"
 
-    if score < 0.7 and rev < 3 and evidence_rich_but_budget_tight:
-        logger.info(
-            "Critique PROCEED due to tight remaining budget "
-            f"(score={score:.2f}, revision={rev}, remaining=${remaining_budget:.4f}, "
-            f"sources={total_sources}, verification_noise_heavy={verification_noise_heavy})"
+    if severe_quality_risk and not can_revise:
+        logger.warning(
+            "Critique ABORT due to severe quality risk with no safe revision budget "
+            f"(score={score:.2f}, revision={rev}/{max_revisions}, blocking={blocking_issues}, "
+            f"citation_failed={citation_failed}, remaining=${remaining_budget:.4f}, sources={total_sources})"
         )
-        return "proceed"
+        return "abort"
+
+    if quality_is_low and can_revise:
+        logger.info(
+            "Critique REVISE "
+            f"(score={score:.2f}, revision={rev}, remaining=${remaining_budget:.4f})"
+        )
+        return "revise"
+
+    if quality_is_low and not can_revise:
+        logger.warning(
+            "Critique ABORT due to low score with no safe revision budget "
+            f"(score={score:.2f}, revision={rev}/{max_revisions}, remaining=${remaining_budget:.4f})"
+        )
+        return "abort"
+
     logger.info(f"Critique PROCEED (score={score:.2f}, revision={rev})")
     return "proceed"
+
+
+def synthesis_decision(state: AgentState) -> str:
+    ready = bool(state.get("synthesis_ready"))
+    if ready:
+        logger.info("Synthesis gate PROCEED")
+        return "proceed"
+
+    rev = state.get("revision_count", 0)
+    max_revisions = state.get("max_iterations", 3)
+    budget = _get_budget(state)
+    cost = state.get("cost_usd", 0.0)
+    remaining_budget = max(0.0, budget - cost)
+    min_budget_for_revision = max(0.35, budget * 0.18)
+    can_revise = rev < max_revisions and remaining_budget >= min_budget_for_revision
+    blocking = list((state.get("synthesis_payload") or {}).get("blocking_reasons") or [])
+
+    if can_revise:
+        logger.warning(
+            "Synthesis gate REVISE "
+            f"(revision={rev}/{max_revisions}, remaining=${remaining_budget:.4f}, "
+            f"blockers={blocking[:2]})"
+        )
+        return "revise"
+
+    logger.warning(
+        "Synthesis gate ABORT "
+        f"(revision={rev}/{max_revisions}, remaining=${remaining_budget:.4f}, "
+        f"blockers={blocking[:2]})"
+    )
+    return "abort"
 
 
 def qa_decision(state: AgentState) -> str:
@@ -460,6 +508,7 @@ def build_graph(checkpointer: Any = None) -> Any:
     wf.add_node("reflect", reflect_node)
     wf.add_node("citation_verifier", citation_verifier_node)
     wf.add_node("research_critique", research_critique_node)
+    wf.add_node("synthesis_gate", run_synthesis_gate)
     wf.add_node("viz_agent", viz_node)
     wf.add_node("render_and_present", render_and_present)
     wf.add_node("qa", qa_node)
@@ -481,7 +530,13 @@ def build_graph(checkpointer: Any = None) -> Any:
     wf.add_conditional_edges(
         "research_critique",
         critique_decision,
-        {"revise": "supervisor", "proceed": "viz_agent"},
+        {"revise": "supervisor", "proceed": "synthesis_gate", "abort": "save_to_knowledge_library"},
+    )
+
+    wf.add_conditional_edges(
+        "synthesis_gate",
+        synthesis_decision,
+        {"revise": "supervisor", "proceed": "viz_agent", "abort": "save_to_knowledge_library"},
     )
 
     wf.add_edge("viz_agent", "render_and_present")
@@ -500,7 +555,7 @@ def build_graph(checkpointer: Any = None) -> Any:
 
     wf.add_edge("save_to_knowledge_library", END)
 
-    logger.info("LangGraph pipeline built (16 nodes)")
+    logger.info("LangGraph pipeline built (17 nodes)")
     return wf.compile(checkpointer=checkpointer)
 
 

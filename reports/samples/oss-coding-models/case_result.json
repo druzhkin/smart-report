@@ -1,0 +1,68 @@
+{
+  "case_id": "oss-coding-models",
+  "prompt": "Compare open-source coding models for a self-hosted code review assistant.",
+  "expected_task_type": "vendor_evaluation",
+  "actual_task_type": "vendor_evaluation",
+  "status": "completed",
+  "passed": true,
+  "checks": [
+    {
+      "name": "report_type_matches",
+      "passed": true,
+      "details": "vendor_evaluation"
+    },
+    {
+      "name": "clarification_fields_present",
+      "passed": true,
+      "details": [
+        "decision_context",
+        "evaluation_dimensions",
+        "geography",
+        "budget"
+      ]
+    },
+    {
+      "name": "must_have_sections_present",
+      "passed": true,
+      "details": [
+        "Executive Summary",
+        "Decision Context",
+        "Key Findings",
+        "Recommendation and Decision Posture",
+        "Sources"
+      ]
+    },
+    {
+      "name": "must_cover_questions_present",
+      "passed": true,
+      "details": [
+        "Which options are truly self-hostable?",
+        "Which models show the strongest public coding signal?",
+        "What are the main quality versus operations tradeoffs?"
+      ]
+    },
+    {
+      "name": "minimum_evidence_met",
+      "passed": true,
+      "details": {
+        "evidence_items": 12,
+        "claims": 5,
+        "sources": 3
+      }
+    },
+    {
+      "name": "audit_released",
+      "passed": true,
+      "details": {
+        "release_status": "released",
+        "checks_passed": 6,
+        "checks_failed": 0,
+        "failures": [],
+        "warnings": []
+      }
+    }
+  ],
+  "report_dir": "C:\\Users\\rodina-adm\\Documents\\dev\\smart-report\\reports\\samples\\oss-coding-models",
+  "run_dir": "C:\\Users\\rodina-adm\\Documents\\dev\\smart-report\\tmp\\golden_runs\\oss-coding-models",
+  "event_count": 10
+}

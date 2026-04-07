@@ -1,0 +1,63 @@
+{
+  "task_id": "378db147-c4eb-4b6e-be87-147044acc14a",
+  "request_spec": {
+    "request_id": "0fd9fe28-8d37-4a15-ae1a-9e6a64aad37a",
+    "original_query": "Prepare a strategic brief on AI document workflow platforms for an operations team.",
+    "language": "en",
+    "report_type": "strategic_brief",
+    "goal": "Produce an evidence-backed analytical report for a real decision.",
+    "subject": "AI document workflow platforms",
+    "decision_context": "Choose a primary platform for a production pilot in the next two quarters.",
+    "target_audience": "operator",
+    "time_horizon": "current",
+    "geography": "global",
+    "quality_target": "decision-grade",
+    "budget_tier": "standard",
+    "missing_critical_fields": [
+      "decision_context"
+    ]
+  },
+  "success_criteria": [
+    "Every recommendation must be tied to evidence.",
+    "Weak-source discovery hints cannot dominate the recommendation.",
+    "Limitations and unresolved gaps must be explicit."
+  ],
+  "evaluation_dimensions": [
+    "workflow depth",
+    "knowledge access",
+    "security",
+    "adoption"
+  ],
+  "constraints": [
+    "Prefer pragmatic operating cost and privacy-aware deployment."
+  ],
+  "must_cover_questions": [
+    "Which products act as knowledge assistants versus workflow operators?",
+    "Where does integration breadth matter more than model sophistication?",
+    "What are the main adoption and governance risks?"
+  ],
+  "allowed_source_types": [
+    "official_documentation",
+    "vendor_page",
+    "benchmark",
+    "research_paper",
+    "high_quality_secondary"
+  ],
+  "blocked_source_types": [
+    "weak_secondary"
+  ],
+  "output_package": [
+    "md",
+    "html",
+    "pdf",
+    "docx",
+    "json"
+  ],
+  "max_budget_usd": 2.0,
+  "answers": {
+    "decision-context": "Choose a primary platform for a production pilot in the next two quarters.",
+    "dimensions": "workflow depth, knowledge access, security, adoption",
+    "geography": "global",
+    "budget": "Prefer pragmatic operating cost and privacy-aware deployment."
+  }
+}

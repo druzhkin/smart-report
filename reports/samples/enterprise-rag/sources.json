@@ -1,0 +1,44 @@
+[
+  {
+    "source_id": "b651abee-0317-41eb-a2d5-cf8ce2ca33bb",
+    "url": "https://azure.microsoft.com/products/ai-services/ai-search",
+    "title": "Azure AI Search",
+    "domain": "azure.microsoft.com",
+    "source_type": "vendor_page",
+    "publisher": "azure.microsoft.com",
+    "published_at": "",
+    "reliability_score": 0.8500000000000001,
+    "selection_reason": "Matched search query 'Enterprise RAG and knowledge platforms Which offerings are managed platforms versus toolkits? official docs benchmark' for question q1",
+    "question_links": [
+      "q1"
+    ]
+  },
+  {
+    "source_id": "4221c8d9-a05b-4a0f-b765-97ea4a41d8b6",
+    "url": "https://www.llamaindex.ai/",
+    "title": "LlamaIndex overview",
+    "domain": "llamaindex.ai",
+    "source_type": "vendor_page",
+    "publisher": "llamaindex.ai",
+    "published_at": "",
+    "reliability_score": 0.8500000000000001,
+    "selection_reason": "Matched search query 'Enterprise RAG and knowledge platforms Which offerings are managed platforms versus toolkits? official docs benchmark' for question q1",
+    "question_links": [
+      "q1"
+    ]
+  },
+  {
+    "source_id": "e57625d3-abe8-4968-97c5-f84233fc69c8",
+    "url": "https://ragflow.io/",
+    "title": "RAGFlow overview",
+    "domain": "ragflow.io",
+    "source_type": "vendor_page",
+    "publisher": "ragflow.io",
+    "published_at": "",
+    "reliability_score": 0.8500000000000001,
+    "selection_reason": "Matched search query 'Enterprise RAG and knowledge platforms Which offerings are managed platforms versus toolkits? official docs benchmark' for question q1",
+    "question_links": [
+      "q1"
+    ]
+  }
+]

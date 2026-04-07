@@ -15,4 +15,12 @@ frontend/out
 .env
 .env.local
 outputs
+data/runs
+reports/generated
+reports/audits
+tmp
+backend/.venv
+backend/.test-artifacts
+frontend/playwright-report
+frontend/test-results
 *.log

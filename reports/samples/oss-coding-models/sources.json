@@ -1,0 +1,44 @@
+[
+  {
+    "source_id": "8b2fa5a0-b4dc-4c3d-afb9-342df8170021",
+    "url": "https://livebench.ai/",
+    "title": "LiveBench leaderboard",
+    "domain": "livebench.ai",
+    "source_type": "benchmark",
+    "publisher": "livebench.ai",
+    "published_at": "",
+    "reliability_score": 0.9,
+    "selection_reason": "Matched search query 'Open-source coding models for self-hosted assistants Which options are truly self-hostable? official docs benchmark' for question q1",
+    "question_links": [
+      "q1"
+    ]
+  },
+  {
+    "source_id": "8b6b2b9a-e7a9-4f0d-a38f-e48e752d6a48",
+    "url": "https://mistral.ai/news/codestral/",
+    "title": "Codestral launch",
+    "domain": "mistral.ai",
+    "source_type": "vendor_page",
+    "publisher": "mistral.ai",
+    "published_at": "",
+    "reliability_score": 0.8500000000000001,
+    "selection_reason": "Matched search query 'Open-source coding models for self-hosted assistants Which options are truly self-hostable? official docs benchmark' for question q1",
+    "question_links": [
+      "q1"
+    ]
+  },
+  {
+    "source_id": "d380438c-e307-49b5-b8fb-79f1c4f6dad1",
+    "url": "https://qwenlm.github.io/blog/qwen2.5-coder-family/",
+    "title": "Qwen2.5-Coder family",
+    "domain": "qwenlm.github.io",
+    "source_type": "vendor_page",
+    "publisher": "qwenlm.github.io",
+    "published_at": "",
+    "reliability_score": 0.8500000000000001,
+    "selection_reason": "Matched search query 'Open-source coding models for self-hosted assistants Which options are truly self-hostable? official docs benchmark' for question q1",
+    "question_links": [
+      "q1"
+    ]
+  }
+]

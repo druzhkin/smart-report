@@ -1,0 +1,125 @@
+{
+  "generated_at": "2026-04-05T22:19:27.458698+00:00",
+  "steps": [
+    {
+      "name": "backend_tests",
+      "command": [
+        "C:\\Users\\rodina-adm\\Documents\\dev\\smart-report\\backend\\.venv\\Scripts\\python.exe",
+        "-m",
+        "pytest",
+        "backend/tests/test_v2_intake.py",
+        "backend/tests/test_v2_pipeline.py",
+        "-q"
+      ],
+      "cwd": "C:\\Users\\rodina-adm\\Documents\\dev\\smart-report",
+      "started_at": "2026-04-05T22:19:08.538764+00:00",
+      "completed_at": "2026-04-05T22:19:09.972667+00:00",
+      "returncode": 0,
+      "stdout": "......                                                                   [100%]\n============================== warnings summary ===============================\ntests/test_v2_pipeline.py::test_pipeline_generates_releaseable_report_package\n  C:\\Users\\rodina-adm\\Documents\\dev\\smart-report\\backend\\.venv\\Lib\\site-packages\\pydantic\\main.py:250: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).\n    validated_self = self.__pydantic_validator__.validate_python(data, self_instance=self)\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n6 passed, 1 warning in 0.19s\n",
+      "stderr": "",
+      "passed": true
+    },
+    {
+      "name": "frontend_build",
+      "command": [
+        "npm.cmd",
+        "run",
+        "build"
+      ],
+      "cwd": "C:\\Users\\rodina-adm\\Documents\\dev\\smart-report\\frontend",
+      "started_at": "2026-04-05T22:19:09.972684+00:00",
+      "completed_at": "2026-04-05T22:19:16.918317+00:00",
+      "returncode": 0,
+      "stdout": "\n> smart-report-frontend@0.1.0 build\n> next build\n\nв–І Next.js 16.2.0 (Turbopack)\n\n  Creating an optimized production build ...\nвњ“ Compiled successfully in 1666ms\n  Running TypeScript ...\n  Finished TypeScript in 1923ms ...\n  Collecting page data using 11 workers ...\n  Generating static pages using 11 workers (0/9) ...\n  Generating static pages using 11 workers (2/9) \n  Generating static pages using 11 workers (4/9) \n  Generating static pages using 11 workers (6/9) \nвњ“ Generating static pages using 11 workers (9/9) in 415ms\n  Finalizing page optimization ...\n\nRoute (app)\nв”Њ в—‹ /\nв”њ в—‹ /_not-found\nв”њ Ж’ /api/proxy\nв”њ в—‹ /app\nв”њ в—‹ /app/library\nв”њ в—‹ /app/new\nв”њ Ж’ /app/reports/[id]\nв”њ в—‹ /app/settings\nв”” в—‹ /icon.svg\n\n\nв—‹  (Static)   prerendered as static content\nЖ’  (Dynamic)  server-rendered on demand\n\n",
+      "stderr": "",
+      "passed": true
+    },
+    {
+      "name": "integration_tests",
+      "command": [
+        "C:\\Users\\rodina-adm\\Documents\\dev\\smart-report\\backend\\.venv\\Scripts\\python.exe",
+        "-m",
+        "pytest",
+        "backend/tests/test_v2_api.py",
+        "-q"
+      ],
+      "cwd": "C:\\Users\\rodina-adm\\Documents\\dev\\smart-report",
+      "started_at": "2026-04-05T22:19:16.918329+00:00",
+      "completed_at": "2026-04-05T22:19:18.665184+00:00",
+      "returncode": 0,
+      "stdout": ".                                                                        [100%]\n============================== warnings summary ===============================\ntests/test_v2_api.py::test_v2_report_flow_end_to_end\n  C:\\Users\\rodina-adm\\Documents\\dev\\smart-report\\backend\\.venv\\Lib\\site-packages\\pydantic\\main.py:250: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).\n    validated_self = self.__pydantic_validator__.validate_python(data, self_instance=self)\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n1 passed, 1 warning in 0.47s\n",
+      "stderr": "",
+      "passed": true
+    },
+    {
+      "name": "frontend_e2e",
+      "command": [
+        "npx.cmd",
+        "playwright",
+        "test",
+        "tests/e2e/report-flow.spec.ts"
+      ],
+      "cwd": "C:\\Users\\rodina-adm\\Documents\\dev\\smart-report\\frontend",
+      "started_at": "2026-04-05T22:19:18.665206+00:00",
+      "completed_at": "2026-04-05T22:19:25.982351+00:00",
+      "returncode": 0,
+      "stdout": "\nRunning 2 tests using 2 workers\n\n\u001b[1A\u001b[2K[1/2] [chromium] вЂє tests\\e2e\\report-flow.spec.ts:429:7 вЂє Smart Report v2 flow вЂє shows evidence-first tabs on the report page\n\u001b[1A\u001b[2K[2/2] [chromium] вЂє tests\\e2e\\report-flow.spec.ts:397:7 вЂє Smart Report v2 flow вЂє creates a report through task, scope, questions, evidence, and report\n\u001b[1A\u001b[2K  2 passed (5.7s)\n",
+      "stderr": "",
+      "passed": true
+    },
+    {
+      "name": "report_generation_smoke",
+      "command": [
+        "C:\\Users\\rodina-adm\\Documents\\dev\\smart-report\\backend\\.venv\\Scripts\\python.exe",
+        "scripts/run_golden_evals.py",
+        "--case-id",
+        "llm-observability"
+      ],
+      "cwd": "C:\\Users\\rodina-adm\\Documents\\dev\\smart-report",
+      "started_at": "2026-04-05T22:19:25.982365+00:00",
+      "completed_at": "2026-04-05T22:19:27.290464+00:00",
+      "returncode": 0,
+      "stdout": "\n-----\n\nWeasyPrint could not import some external libraries. Please carefully follow the installation steps before reporting an issue:\nhttps://doc.courtbouillon.org/weasyprint/stable/first_steps.html#installation\nhttps://doc.courtbouillon.org/weasyprint/stable/first_steps.html#troubleshooting \n\n-----\n\n{\n  \"generated_at\": \"2026-04-05T22:19:27.206591+00:00\",\n  \"total_cases\": 1,\n  \"passed_cases\": 1,\n  \"failed_cases\": 0,\n  \"results\": [\n    {\n      \"case_id\": \"llm-observability\",\n      \"prompt\": \"Evaluate LLM observability platforms for an enterprise document workflow product.\",\n      \"expected_task_type\": \"vendor_evaluation\",\n      \"actual_task_type\": \"vendor_evaluation\",\n      \"status\": \"completed\",\n      \"passed\": true,\n      \"checks\": [\n        {\n          \"name\": \"report_type_matches\",\n          \"passed\": true,\n          \"details\": \"vendor_evaluation\"\n        },\n        {\n          \"name\": \"clarification_fields_present\",\n          \"passed\": true,\n          \"details\": [\n            \"decision_context\",\n            \"evaluation_dimensions\",\n            \"geography\",\n            \"budget\"\n          ]\n        },\n        {\n          \"name\": \"must_have_sections_present\",\n          \"passed\": true,\n          \"details\": [\n            \"Executive Summary\",\n            \"Evaluation Frame\",\n            \"Key Findings\",\n            \"Evidence Coverage\",\n            \"Sources\"\n          ]\n        },\n        {\n          \"name\": \"must_cover_questions_present\",\n          \"passed\": true,\n          \"details\": [\n            \"Which platform is strongest for traceability and evals?\",\n            \"Which options fit privacy-sensitive deployments?\",\n            \"Which tools are best for fast operator debugging?\"\n          ]\n        },\n        {\n          \"name\": \"minimum_evidence_met\",\n          \"passed\": true,\n          \"details\": {\n            \"evidence_items\": 11,\n            \"claims\": 5,\n            \"sources\": 3\n          }\n        },\n        {\n          \"name\": \"audit_released\",\n          \"passed\": true,\n          \"details\": {\n            \"release_status\": \"released\",\n            \"checks_passed\": 6,\n            \"checks_failed\": 0,\n            \"failures\": [],\n            \"warnings\": []\n          }\n        }\n      ],\n      \"report_dir\": \"C:\\\\Users\\\\rodina-adm\\\\Documents\\\\dev\\\\smart-report\\\\reports\\\\samples\\\\llm-observability\",\n      \"run_dir\": \"C:\\\\Users\\\\rodina-adm\\\\Documents\\\\dev\\\\smart-report\\\\tmp\\\\golden_runs\\\\llm-observability\",\n      \"event_count\": 10\n    }\n  ]\n}\n",
+      "stderr": "",
+      "passed": true
+    },
+    {
+      "name": "artifact_checks",
+      "passed": true,
+      "sample_count": 5,
+      "audits": [
+        {
+          "sample_dir": "C:\\Users\\rodina-adm\\Documents\\dev\\smart-report\\reports\\samples\\browser-agents",
+          "release_status": "released",
+          "failures": [],
+          "warnings": []
+        },
+        {
+          "sample_dir": "C:\\Users\\rodina-adm\\Documents\\dev\\smart-report\\reports\\samples\\document-ai-workflows",
+          "release_status": "released",
+          "failures": [],
+          "warnings": []
+        },
+        {
+          "sample_dir": "C:\\Users\\rodina-adm\\Documents\\dev\\smart-report\\reports\\samples\\enterprise-rag",
+          "release_status": "released",
+          "failures": [],
+          "warnings": []
+        },
+        {
+          "sample_dir": "C:\\Users\\rodina-adm\\Documents\\dev\\smart-report\\reports\\samples\\llm-observability",
+          "release_status": "released",
+          "failures": [],
+          "warnings": []
+        },
+        {
+          "sample_dir": "C:\\Users\\rodina-adm\\Documents\\dev\\smart-report\\reports\\samples\\oss-coding-models",
+          "release_status": "released",
+          "failures": [],
+          "warnings": []
+        }
+      ]
+    }
+  ],
+  "passed": true
+}

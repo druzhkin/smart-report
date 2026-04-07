@@ -1,0 +1,32 @@
+[
+  {
+    "source_id": "b651abee-0317-41eb-a2d5-cf8ce2ca33bb",
+    "url": "https://azure.microsoft.com/products/ai-services/ai-search",
+    "title": "Azure AI Search",
+    "fetched_at": "2026-04-05T22:18:11.935775Z",
+    "content": "Azure AI Search is strong when enterprise control, managed infrastructure, and Microsoft ecosystem fit matter. It offers operational maturity but is infrastructure-first rather than a full research-workflow product by itself.",
+    "excerpt": "Azure positions AI Search as a managed retrieval foundation.",
+    "provider": "seeded",
+    "fetch_status": "ok"
+  },
+  {
+    "source_id": "4221c8d9-a05b-4a0f-b765-97ea4a41d8b6",
+    "url": "https://www.llamaindex.ai/",
+    "title": "LlamaIndex overview",
+    "fetched_at": "2026-04-05T22:18:11.935780Z",
+    "content": "LlamaIndex is strongest as a composable toolkit for teams that want control over ingestion, indexing, routing, and retrieval behavior. The cost is higher engineering ownership and a greater need for internal evaluation discipline.",
+    "excerpt": "LlamaIndex focuses on composable connectors, indexing, and retrieval.",
+    "provider": "seeded",
+    "fetch_status": "ok"
+  },
+  {
+    "source_id": "e57625d3-abe8-4968-97c5-f84233fc69c8",
+    "url": "https://ragflow.io/",
+    "title": "RAGFlow overview",
+    "fetched_at": "2026-04-05T22:18:11.935786Z",
+    "content": "RAGFlow is positioned around document ingestion and retrieval workflow management rather than only low-level retrieval APIs. That makes it attractive for knowledge-heavy use cases where business users need more than a raw vector stack.",
+    "excerpt": "RAGFlow emphasizes document-centric retrieval workflows.",
+    "provider": "seeded",
+    "fetch_status": "ok"
+  }
+]

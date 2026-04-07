@@ -1,0 +1,68 @@
+{
+  "case_id": "browser-agents",
+  "prompt": "Run a structured competitive scan of browser automation stacks for AI agents.",
+  "expected_task_type": "competitive_scan",
+  "actual_task_type": "competitive_scan",
+  "status": "completed",
+  "passed": true,
+  "checks": [
+    {
+      "name": "report_type_matches",
+      "passed": true,
+      "details": "competitive_scan"
+    },
+    {
+      "name": "clarification_fields_present",
+      "passed": true,
+      "details": [
+        "decision_context",
+        "evaluation_dimensions",
+        "geography",
+        "budget"
+      ]
+    },
+    {
+      "name": "must_have_sections_present",
+      "passed": true,
+      "details": [
+        "Executive Summary",
+        "Comparative Analysis",
+        "Recommendation and Decision Posture",
+        "Evidence Coverage",
+        "Sources"
+      ]
+    },
+    {
+      "name": "must_cover_questions_present",
+      "passed": true,
+      "details": [
+        "Which stacks are best for deterministic control versus agent abstraction?",
+        "Where does hosted infrastructure reduce engineering load?",
+        "What are the core security and observability tradeoffs?"
+      ]
+    },
+    {
+      "name": "minimum_evidence_met",
+      "passed": true,
+      "details": {
+        "evidence_items": 10,
+        "claims": 6,
+        "sources": 3
+      }
+    },
+    {
+      "name": "audit_released",
+      "passed": true,
+      "details": {
+        "release_status": "released",
+        "checks_passed": 6,
+        "checks_failed": 0,
+        "failures": [],
+        "warnings": []
+      }
+    }
+  ],
+  "report_dir": "C:\\Users\\rodina-adm\\Documents\\dev\\smart-report\\reports\\samples\\browser-agents",
+  "run_dir": "C:\\Users\\rodina-adm\\Documents\\dev\\smart-report\\tmp\\golden_runs\\browser-agents",
+  "event_count": 10
+}

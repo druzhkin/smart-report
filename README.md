@@ -90,4 +90,4 @@ Optional CI secrets:
 
 ## Railway
 
-For Railway deployment, use the guide in [RAILWAY.md](RAILWAY.md).
+For Railway deployment, use the guide in [RAILWAY.md](RAILWAY.md). The repo now includes [railway.toml](C:\Users\rodina-adm\Documents\dev\smart-report\railway.toml) and a root Docker topology that runs frontend + backend in one Railway service.

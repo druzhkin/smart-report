@@ -1,0 +1,87 @@
+{
+  "primary_questions": [
+    {
+      "question_id": "q1",
+      "question": "Which platform is strongest for traceability and evals?",
+      "priority": 1,
+      "required_evidence_count": 2
+    },
+    {
+      "question_id": "q2",
+      "question": "Which options fit privacy-sensitive deployments?",
+      "priority": 2,
+      "required_evidence_count": 2
+    },
+    {
+      "question_id": "q3",
+      "question": "Which tools are best for fast operator debugging?",
+      "priority": 3,
+      "required_evidence_count": 2
+    }
+  ],
+  "secondary_questions": [
+    {
+      "question_id": "s1",
+      "question": "Assess trace depth implications for LLM observability platforms",
+      "priority": 1,
+      "required_evidence_count": 1
+    },
+    {
+      "question_id": "s2",
+      "question": "Assess evaluation tooling implications for LLM observability platforms",
+      "priority": 2,
+      "required_evidence_count": 1
+    },
+    {
+      "question_id": "s3",
+      "question": "Assess self-hosting implications for LLM observability platforms",
+      "priority": 3,
+      "required_evidence_count": 1
+    },
+    {
+      "question_id": "s4",
+      "question": "Assess governance implications for LLM observability platforms",
+      "priority": 4,
+      "required_evidence_count": 1
+    }
+  ],
+  "claims_to_validate": [
+    "LLM observability platforms: trace depth",
+    "LLM observability platforms: evaluation tooling",
+    "LLM observability platforms: self-hosting",
+    "LLM observability platforms: governance"
+  ],
+  "claims_to_disprove": [
+    "Unqualified winner claim for LLM observability platforms"
+  ],
+  "required_evidence_per_question": {
+    "q1": 2,
+    "q2": 2,
+    "q3": 2
+  },
+  "suggested_search_queries": [
+    "LLM observability platforms Which platform is strongest for traceability and evals? official docs benchmark",
+    "LLM observability platforms Which options fit privacy-sensitive deployments? official docs benchmark",
+    "LLM observability platforms Which tools are best for fast operator debugging? official docs benchmark"
+  ],
+  "preferred_domains": [
+    "helicone.ai",
+    "langchain.com",
+    "langfuse.com"
+  ],
+  "required_source_mix": [
+    "official_documentation",
+    "vendor_page",
+    "benchmark",
+    "research_paper",
+    "high_quality_secondary"
+  ],
+  "chart_candidates": [
+    "evidence_coverage",
+    "source_mix"
+  ],
+  "stop_conditions": [
+    "At least 2 sources per primary question",
+    "No unresolved critical contradiction cluster"
+  ]
+}

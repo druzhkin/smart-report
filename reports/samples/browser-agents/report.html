@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Browser automation stacks for AI agents: Decision Brief</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 900px; margin: 0 auto; padding: 40px 24px; color: #18212f; }
+    h1, h2 { color: #0f3d68; }
+    pre { white-space: pre-wrap; }
+    a { color: #0f5ea8; }
+  </style>
+</head>
+<body><h1>Browser automation stacks for AI agents: Decision Brief</h1>
+<h2>Executive Summary</h2>
+<p>Browser automation stacks for AI agents: coverage 1/3 primary questions, 5 recommendation-safe claims, contradiction count 0.</p>
+<h2>Decision Context</h2>
+<ul>
+<li>Goal: Produce an evidence-backed analytical report for a real decision.</li>
+<li>Subject: Browser automation stacks for AI agents</li>
+<li>Decision context: Choose a primary platform for a production pilot in the next two quarters.</li>
+<li>Geography: global</li>
+<li>Time horizon: current</li>
+</ul>
+<h2>Evaluation Frame</h2>
+<ul>
+<li>browser reliability</li>
+<li>agent ergonomics</li>
+<li>security</li>
+<li>debuggability</li>
+</ul>
+<h2>Key Findings</h2>
+<ul>
+<li>Playwright is the control-stack benchmark: deterministic browser automation, strong debugging primitives, and broad engineering trust. [Evidence: 2f1f1f2c-f168-4631-85a8-3225ceb91c97, b796c5cc-3381-492d-ac2f-91c058d38259]</li>
+<li>Teams still need to build orchestration and sandboxing around it for full AI-agent products. [Evidence: 9e39d6ca-006a-4a5f-9125-e1ee4f028c83]</li>
+<li>Browserbase is strongest when the bottleneck is operating browsers at scale rather than controlling them locally. [Evidence: 790ca465-9ec8-4dac-8fbc-c30e1d8cfdeb, 877207da-6d5a-4079-881e-bb91f6e56ab6]</li>
+<li>Stagehand sits in the agent-ergonomics bucket: it tries to make browser actions more natural for LLM-driven systems while still grounding on deterministic execution. [Evidence: ab84d376-b1c8-43cb-9052-a208879ef018]</li>
+<li>The key question is whether that productivity gain justifies another abstraction layer. [Evidence: df1e25d8-8027-4caa-a9a7-e9a548f8530d]</li>
+<li>It reduces infrastructure burden, but it introduces dependency on a hosted browser layer. [Evidence: c7a7bd7b-c3a4-44d2-a470-3eb6b2707fe8]</li>
+</ul>
+<h2>Comparative Analysis</h2>
+<ul>
+<li>Which stacks are best for deterministic control versus agent abstraction?</li>
+<li>Where does hosted infrastructure reduce engineering load?</li>
+<li>What are the core security and observability tradeoffs?</li>
+</ul>
+<h2>Recommendation and Decision Posture</h2>
+<ul>
+<li>Bounded recommendation: evidence is informative but not strong enough for an unqualified winner call.</li>
+</ul>
+<h2>Gaps &amp; Risks</h2>
+<ul>
+<li>Where does hosted infrastructure reduce engineering load?</li>
+<li>What are the core security and observability tradeoffs?</li>
+<li>Prefer pragmatic operating cost and privacy-aware deployment.</li>
+</ul>
+<h2>Evidence Coverage</h2>
+<ul>
+<li>Covered questions: 1/3</li>
+<li>Contradiction count: 0</li>
+</ul>
+<h2>Sources</h2>
+<ul>
+<li><a href="https://playwright.dev/">Playwright documentation</a></li>
+<li><a href="https://www.browserbase.com/">Browserbase overview</a></li>
+<li><a href="https://stagehand.dev/">Stagehand overview</a></li>
+</ul></body>
+</html>

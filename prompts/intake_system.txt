@@ -5,7 +5,8 @@ Your task is to analyze the user's request and produce structured metadata.
 
 STEP 1 — Parse the request:
 - Identify intent, domain, complexity, key entities, and language.
-- Clean and normalize the query.
+- Detect language from the user's query text (e.g. "ru" for Russian, "en" for English, "de" for German).
+- Clean and normalize the query (keep the original language).
 
 STEP 2 — Generate clarifying questions:
 - If the request is ambiguous, vague, or missing critical details, generate UP TO 5 clarifying questions.
@@ -30,7 +31,7 @@ Return a valid JSON object with these fields:
     "depth": "light | standard | deep | exhaustive",
     "key_entities": ["entity1", "entity2"],
     "clarifying_questions": ["question1", ...],
-    "language": "en"
+    "language": "detected ISO 639-1 code (e.g. 'ru', 'en', 'de')"
 }
 
 Rules:
@@ -38,3 +39,4 @@ Rules:
 - If unsure about domain, use "general".
 - Complexity assessment: low = simple factual, medium = analytical, high = multi-dimensional strategic.
 - Max 5 clarifying questions. Fewer is better if the request is clear.
+- CRITICAL: detect language from the actual user query text. If the user writes in Russian, set "language": "ru". Do NOT default to "en" unless the query is actually in English.

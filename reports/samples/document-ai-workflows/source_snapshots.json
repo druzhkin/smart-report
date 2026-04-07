@@ -1,0 +1,32 @@
+[
+  {
+    "source_id": "8fdb455e-3f9a-4227-bbba-17b4ae82eded",
+    "url": "https://www.glean.com/",
+    "title": "Glean overview",
+    "fetched_at": "2026-04-05T22:18:12.042409Z",
+    "content": "Glean is strongest when the core problem is knowledge access across enterprise tools and permissions. Its value is connector breadth and enterprise search positioning more than deep document workflow automation inside one content system.",
+    "excerpt": "Glean focuses on enterprise knowledge access and connectors.",
+    "provider": "seeded",
+    "fetch_status": "ok"
+  },
+  {
+    "source_id": "96162806-58bc-41fe-b1b5-b94d16a16610",
+    "url": "https://www.box.com/ai",
+    "title": "Box AI overview",
+    "fetched_at": "2026-04-05T22:18:12.042415Z",
+    "content": "Box AI makes the strongest case where controlled document workflows and governance inside an existing content platform are the priority. It is structurally advantaged in document-centric operations.",
+    "excerpt": "Box AI frames value around content workflows and governance.",
+    "provider": "seeded",
+    "fetch_status": "ok"
+  },
+  {
+    "source_id": "17169e73-d8dd-4c21-8304-539192e45e80",
+    "url": "https://www.notion.so/product/ai",
+    "title": "Notion AI overview",
+    "fetched_at": "2026-04-05T22:18:12.042419Z",
+    "content": "Notion AI is compelling when user adoption and low-friction workspace assistance matter more than heavyweight governance or cross-enterprise retrieval. It is strongest as a productivity layer, not as the single system of record for complex document operations.",
+    "excerpt": "Notion AI focuses on end-user productivity inside a workspace.",
+    "provider": "seeded",
+    "fetch_status": "ok"
+  }
+]

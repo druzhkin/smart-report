@@ -1,0 +1,171 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Count 2 /Kids [5 0 R 7 0 R] >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Length 2170 >>
+stream
+BT
+/F1 10 Tf
+72 770 Td
+14 TL
+(Open-source coding models for self-hosted assistants: Decision Brief) Tj
+T*
+T*
+(# Open-source coding models for self-hosted assistants: Decision Brief) Tj
+T*
+T*
+(## Executive Summary) Tj
+T*
+T*
+(Open-source coding models for self-hosted assistants: coverage 1/3 primary questions, 5) Tj
+T*
+(recommendation-safe claims, contradiction count 0.) Tj
+T*
+T*
+(## Decision Context) Tj
+T*
+T*
+(- Goal: Produce an evidence-backed analytical report for a real decision.) Tj
+T*
+(- Subject: Open-source coding models for self-hosted assistants) Tj
+T*
+(- Decision context: Choose a primary platform for a production pilot in the next two) Tj
+T*
+(quarters.) Tj
+T*
+(- Geography: global) Tj
+T*
+(- Time horizon: current) Tj
+T*
+T*
+(## Evaluation Frame) Tj
+T*
+T*
+(- code quality) Tj
+T*
+(- deployment flexibility) Tj
+T*
+(- licensing) Tj
+T*
+(- cost) Tj
+T*
+T*
+(## Key Findings) Tj
+T*
+T*
+(- Qwen2.5-Coder is described as an open-weight coding family with multilingual support and) Tj
+T*
+(agent-style workflow fit. [Evidence: b05d7a58-2800-465c-88b4-c5c6efdd1cec,) Tj
+T*
+(2584376c-3e8c-44da-bb44-b1067a3ca636]) Tj
+T*
+(- In a coding-model evaluation it should not replace task-specific testing, but it is) Tj
+T*
+(valuable for checking whether vendor claims are directionally supported by repeated public) Tj
+T*
+(eval performance. [Evidence: 18bc366f-bc9e-4065-8bbe-93caaafae93a]) Tj
+T*
+(- It is attractive when coding capability matters, but deployment flexibility and licensing) Tj
+T*
+(need careful review in a self-hosted decision. [Evidence:) Tj
+T*
+(3649fcd9-350d-4bbc-a603-4d71e5f9043e, 4a7fc688-2df9-445a-8192-000bea9fb15b]) Tj
+T*
+(- Its main upside is flexible self-hosting with community adoption. [Evidence:) Tj
+T*
+(607d8be8-1475-4847-a506-fa5773f8e990, de32dc01-5b62-487d-824a-e9314a2f67bb]) Tj
+T*
+(- The main tradeoff is the need to validate quality and efficiency on the buyer's own) Tj
+T*
+(workloads. [Evidence: 25c5c1a2-87c9-45ad-8d99-9257e393d88d,) Tj
+T*
+(4381924f-8990-43da-9ce9-2d37c163657f]) Tj
+T*
+T*
+(## Comparative Analysis) Tj
+T*
+T*
+(- Which options are truly self-hostable?) Tj
+T*
+(- Which models show the strongest public coding signal?) Tj
+T*
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 4 0 R >>
+endobj
+6 0 obj
+<< /Length 840 >>
+stream
+BT
+/F1 10 Tf
+72 770 Td
+14 TL
+(- What are the main quality versus operations tradeoffs?) Tj
+T*
+T*
+(## Recommendation and Decision Posture) Tj
+T*
+T*
+(- Bounded recommendation: evidence is informative but not strong enough for an unqualified) Tj
+T*
+(winner call.) Tj
+T*
+T*
+(## Gaps & Risks) Tj
+T*
+T*
+(- Which models show the strongest public coding signal?) Tj
+T*
+(- What are the main quality versus operations tradeoffs?) Tj
+T*
+(- Prefer pragmatic operating cost and privacy-aware deployment.) Tj
+T*
+T*
+(## Evidence Coverage) Tj
+T*
+T*
+(- Covered questions: 1/3) Tj
+T*
+(- Contradiction count: 0) Tj
+T*
+T*
+(## Sources) Tj
+T*
+T*
+(- [LiveBench leaderboard]\(https://livebench.ai/\)) Tj
+T*
+(- [Codestral launch]\(https://mistral.ai/news/codestral/\)) Tj
+T*
+(- [Qwen2.5-Coder family]\(https://qwenlm.github.io/blog/qwen2.5-coder-family/\)) Tj
+T*
+ET
+endstream
+endobj
+7 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 6 0 R >>
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000127 00000 n 
+0000000197 00000 n 
+0000002419 00000 n 
+0000002545 00000 n 
+0000003436 00000 n 
+trailer
+<< /Size 8 /Root 1 0 R >>
+startxref
+3562
+%%EOF

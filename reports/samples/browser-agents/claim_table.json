@@ -1,0 +1,90 @@
+[
+  {
+    "claim_id": "C-01",
+    "statement": "Playwright is the control-stack benchmark: deterministic browser automation, strong debugging primitives, and broad engineering trust.",
+    "question_id": "q1",
+    "supporting_evidence_ids": [
+      "2f1f1f2c-f168-4631-85a8-3225ceb91c97",
+      "b796c5cc-3381-492d-ac2f-91c058d38259",
+      "5f9581ca-1ad5-45cc-919a-e7c9f7abebbc"
+    ],
+    "source_ids": [
+      "5e296041-f90b-4b11-bddd-918cff82707c"
+    ],
+    "confidence": 0.95,
+    "contradiction_notes": [],
+    "recommendation_safe": true
+  },
+  {
+    "claim_id": "C-02",
+    "statement": "Teams still need to build orchestration and sandboxing around it for full AI-agent products.",
+    "question_id": "q1",
+    "supporting_evidence_ids": [
+      "9e39d6ca-006a-4a5f-9125-e1ee4f028c83"
+    ],
+    "source_ids": [
+      "5e296041-f90b-4b11-bddd-918cff82707c"
+    ],
+    "confidence": 0.95,
+    "contradiction_notes": [],
+    "recommendation_safe": true
+  },
+  {
+    "claim_id": "C-03",
+    "statement": "Browserbase is strongest when the bottleneck is operating browsers at scale rather than controlling them locally.",
+    "question_id": "q1",
+    "supporting_evidence_ids": [
+      "790ca465-9ec8-4dac-8fbc-c30e1d8cfdeb",
+      "877207da-6d5a-4079-881e-bb91f6e56ab6",
+      "06b27fc6-adc0-463c-a913-6d042032712a"
+    ],
+    "source_ids": [
+      "dec4fc8f-4d41-48e0-b03c-dd00f0aed35d"
+    ],
+    "confidence": 0.8500000000000001,
+    "contradiction_notes": [],
+    "recommendation_safe": true
+  },
+  {
+    "claim_id": "C-04",
+    "statement": "Stagehand sits in the agent-ergonomics bucket: it tries to make browser actions more natural for LLM-driven systems while still grounding on deterministic execution.",
+    "question_id": "q1",
+    "supporting_evidence_ids": [
+      "ab84d376-b1c8-43cb-9052-a208879ef018"
+    ],
+    "source_ids": [
+      "614e86e6-af9f-4d06-8e41-4420b9aac190"
+    ],
+    "confidence": 0.8500000000000001,
+    "contradiction_notes": [],
+    "recommendation_safe": true
+  },
+  {
+    "claim_id": "C-05",
+    "statement": "The key question is whether that productivity gain justifies another abstraction layer.",
+    "question_id": "q1",
+    "supporting_evidence_ids": [
+      "df1e25d8-8027-4caa-a9a7-e9a548f8530d"
+    ],
+    "source_ids": [
+      "614e86e6-af9f-4d06-8e41-4420b9aac190"
+    ],
+    "confidence": 0.8500000000000001,
+    "contradiction_notes": [],
+    "recommendation_safe": true
+  },
+  {
+    "claim_id": "C-07",
+    "statement": "It reduces infrastructure burden, but it introduces dependency on a hosted browser layer.",
+    "question_id": "q2",
+    "supporting_evidence_ids": [
+      "c7a7bd7b-c3a4-44d2-a470-3eb6b2707fe8"
+    ],
+    "source_ids": [
+      "dec4fc8f-4d41-48e0-b03c-dd00f0aed35d"
+    ],
+    "confidence": 0.8500000000000001,
+    "contradiction_notes": [],
+    "recommendation_safe": true
+  }
+]

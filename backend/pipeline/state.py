@@ -41,6 +41,10 @@ class AgentState(TypedDict, total=False):
     research_tasks: list[ResearchTask]
     branch_states: list[ResearchBranchState]
     evidence_items: list[EvidenceItem]
+    claim_table: list[dict[str, Any]]
+    synthesis_payload: dict[str, Any]
+    synthesis_ready: bool
+    allow_recommendations: bool
     contradiction_log: list[dict[str, Any]]
     hypotheses: list[ResearchHypothesis]
     unresolved_questions: list[str]

@@ -3,11 +3,11 @@
 import { motion } from "framer-motion";
 import { Check, Loader2 } from "lucide-react";
 import { useState } from "react";
-import { usePushNotifications } from "@/hooks/usePushNotifications";
+
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
-import { formatDuration } from "@/lib/utils";
+import { usePushNotifications } from "@/hooks/usePushNotifications";
 import type { PipelineStep } from "@/hooks/useSSE";
+import { cn, formatDuration } from "@/lib/utils";
 
 interface ReportProgressProps {
   steps: PipelineStep[];
@@ -16,8 +16,8 @@ interface ReportProgressProps {
 }
 
 export function ReportProgress({ steps, currentStep, sessionId }: ReportProgressProps) {
-  const completedCount = steps.filter((s) => s.status === "done").length;
-  const progress = (completedCount / steps.length) * 100;
+  const completedCount = steps.filter((step) => step.status === "done").length;
+  const progress = steps.length > 0 ? (completedCount / steps.length) * 100 : 0;
   const [subscribeError, setSubscribeError] = useState<string | null>(null);
   const { isSupported, isSubscribed, subscribe } = usePushNotifications(sessionId);
 
@@ -26,9 +26,7 @@ export function ReportProgress({ steps, currentStep, sessionId }: ReportProgress
       setSubscribeError(null);
       await subscribe();
     } catch (error) {
-      setSubscribeError(
-        error instanceof Error ? error.message : "Не удалось включить уведомления"
-      );
+      setSubscribeError(error instanceof Error ? error.message : "Failed to enable notifications");
     }
   };
 
@@ -52,23 +50,23 @@ export function ReportProgress({ steps, currentStep, sessionId }: ReportProgress
       </div>
 
       <div className="space-y-1">
-        {steps.map((step, i) => {
+        {steps.map((step, index) => {
           const elapsed =
             step.startedAt && step.status === "active"
               ? Date.now() - step.startedAt
               : step.startedAt && step.completedAt
-              ? step.completedAt - step.startedAt
-              : null;
+                ? step.completedAt - step.startedAt
+                : null;
 
           return (
             <motion.div
               key={step.key}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.05 }}
+              transition={{ delay: index * 0.05 }}
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors",
-                step.status === "active" && "bg-primary/5"
+                step.status === "active" && "bg-primary/5",
               )}
             >
               <div className="flex h-7 w-7 shrink-0 items-center justify-center">
@@ -92,7 +90,7 @@ export function ReportProgress({ steps, currentStep, sessionId }: ReportProgress
                 )}
               </div>
 
-              <div className="flex flex-1 items-center justify-between min-w-0">
+              <div className="flex min-w-0 flex-1 items-center justify-between">
                 <div className="min-w-0">
                   <p
                     className={cn(
@@ -100,46 +98,42 @@ export function ReportProgress({ steps, currentStep, sessionId }: ReportProgress
                       step.status === "active"
                         ? "font-medium text-foreground"
                         : step.status === "done"
-                        ? "text-foreground"
-                        : "text-muted-foreground"
+                          ? "text-foreground"
+                          : "text-muted-foreground",
                     )}
                   >
                     {step.label}
                   </p>
-                  {step.message && step.status === "active" && (
-                    <p className="text-xs text-muted-foreground truncate">
-                      {step.message}
-                    </p>
-                  )}
+                  {step.message && step.status === "active" ? (
+                    <p className="truncate text-xs text-muted-foreground">{step.message}</p>
+                  ) : null}
                 </div>
 
-                {elapsed !== null && (
+                {elapsed !== null ? (
                   <span className="ml-2 shrink-0 font-mono text-xs text-muted-foreground">
                     {formatDuration(elapsed)}
                   </span>
-                )}
+                ) : null}
               </div>
             </motion.div>
           );
         })}
       </div>
 
-      {sessionId && currentStep && !isSubscribed && isSupported && (
+      {sessionId && currentStep && !isSubscribed && isSupported ? (
         <div className="rounded-lg border border-dashed bg-muted/20 p-4">
           <Button type="button" variant="outline" onClick={handleSubscribe}>
-            {"\uD83D\uDD14"} Уведомить когда готово
+            Notify me when ready
           </Button>
-          {subscribeError && (
-            <p className="mt-2 text-sm text-destructive">{subscribeError}</p>
-          )}
+          {subscribeError ? <p className="mt-2 text-sm text-destructive">{subscribeError}</p> : null}
         </div>
-      )}
+      ) : null}
 
-      {isSubscribed && (
+      {isSubscribed ? (
         <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-          ✓ Уведомим вас
+          Notifications enabled for this run.
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
