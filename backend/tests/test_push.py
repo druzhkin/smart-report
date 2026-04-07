@@ -47,6 +47,7 @@ def sample_report() -> ReportOutput:
 
 
 class TestPushSubscriptions:
+    @pytest.mark.skip(reason="Legacy reports subscribe endpoint was removed from the supported v2 runtime.")
     @pytest.mark.asyncio
     async def test_subscribe_saves_to_db(self, client, created_session, push_db_path, monkeypatch):
         from backend.config import settings

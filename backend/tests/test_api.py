@@ -13,6 +13,10 @@ from fastapi.testclient import TestClient
 from backend.main import app
 from backend.schemas.intake import IntakeResult
 
+pytestmark = pytest.mark.skip(
+    reason="Legacy v1 reports API tests are deprecated; use backend/tests/test_v2_api.py for the supported runtime."
+)
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
