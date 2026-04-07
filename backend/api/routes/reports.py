@@ -8,6 +8,7 @@ from typing import Any, AsyncGenerator
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
+from loguru import logger
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
@@ -66,6 +67,13 @@ def _load_report_output(run_id: str) -> ReportOutput | None:
 
 async def _publish(run_id: str, event: RunEvent) -> None:
     repo.append_event(run_id, event)
+    logger.info(
+        "run_id={} step={} status={} message={}",
+        run_id,
+        event.step,
+        event.status,
+        event.message,
+    )
     queue = _live_queues.get(run_id)
     payload = {
         "event_id": event.event_id,
@@ -84,7 +92,9 @@ async def _publish(run_id: str, event: RunEvent) -> None:
 async def _run_background(run_id: str) -> None:
     summary = repo.get_run(run_id)
     if summary is None or summary.task_spec is None:
+        logger.warning("run_id={} background task started without a task spec", run_id)
         return
+    logger.info("run_id={} background pipeline starting", run_id)
     summary.status = RunStatus.RUNNING
     repo.save_run(summary)
     await _publish(run_id, RunEvent(step="pipeline", status="started", message="Pipeline started"))
@@ -102,7 +112,14 @@ async def _run_background(run_id: str) -> None:
                 payload={"report_urls": summary.report_url_map},
             ),
         )
+        logger.info(
+            "run_id={} background pipeline finished status={} release_status={}",
+            run_id,
+            summary.status.value,
+            summary.audit_summary.release_status if summary.audit_summary else None,
+        )
     except Exception as exc:
+        logger.exception("run_id={} background pipeline crashed: {}", run_id, exc)
         summary = repo.get_run(run_id)
         if summary is not None:
             summary.status = RunStatus.FAILED
@@ -128,6 +145,12 @@ async def create_report(body: CreateReportRequest) -> dict[str, Any]:
     summary = build_draft_run(run_id, body.request, depth=body.depth)
     summary.status = RunStatus.AWAITING_SCOPE
     repo.create_run(summary)
+    logger.info(
+        "run_id={} draft report created depth={} formats={}",
+        run_id,
+        body.depth,
+        ",".join(body.output_formats),
+    )
     return {
         "session_id": run_id,
         "estimated_time_minutes": int(DEPTH_META.get(body.depth, DEPTH_META["standard"])["estimated_time_minutes"]),
@@ -163,6 +186,12 @@ async def scope_report(run_id: str, body: ScopeReportRequest) -> dict[str, Any]:
     repo.save_run(summary)
     _live_queues[run_id] = asyncio.Queue()
     _live_tasks[run_id] = asyncio.create_task(_run_background(run_id))
+    logger.info(
+        "run_id={} scope accepted answers={} must_cover_questions={}",
+        run_id,
+        len(body.answers),
+        len(task_spec.must_cover_questions),
+    )
     return {
         "session_id": run_id,
         "status": summary.status.value,
