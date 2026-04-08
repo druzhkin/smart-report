@@ -11,7 +11,9 @@ from backend.v2.grounding import extract_numeric_facts
 from backend.v2.intake import build_request_spec, build_task_spec
 from backend.v2.models import (
     ClaimRecord,
+    CritiqueFinding,
     CoverageReport,
+    DecisionTrigger,
     EvidenceRecord,
     QualityAssessment,
     QualityDimensionScore,
@@ -31,6 +33,7 @@ from backend.v2.pipeline import (
     _build_live_evidence,
     _language_name,
     _sanitize_llm_markdown,
+    _traceability_appendix_sections,
     build_claim_table,
     build_evidence_ledger,
     build_research_plan,
@@ -653,6 +656,80 @@ def test_sanitize_llm_markdown_removes_broken_footnotes_and_mojibake() -> None:
     assert "Word count" not in cleaned
     assert "traceability-but only at scale" in cleaned
     assert "Budget dominance -> simpler stack" in cleaned
+
+
+def test_sanitize_llm_markdown_collapses_blank_lines_inside_tables() -> None:
+    cleaned = _sanitize_llm_markdown(
+        "\n".join(
+            [
+                "Exhibit 9",
+                "",
+                "| Validation issue | Severity | Why it still matters |",
+                "",
+                "|---|---|---|",
+                "",
+                "| weak_evidence | high | Current draft still relies on thinly supported claims. |",
+                "",
+                "| omitted_question | high | At least one core question remains under-covered. |",
+            ]
+        )
+    )
+
+    assert "|\n\n|---|---|---|\n\n|" not in cleaned
+    assert "| Validation issue | Severity | Why it still matters |\n|---|---|---|\n| weak_evidence | high | Current draft still relies on thinly supported claims. |" in cleaned
+
+
+def test_traceability_appendix_tables_are_emitted_as_contiguous_markdown() -> None:
+    coverage = CoverageReport(
+        covered_questions=4,
+        total_questions=4,
+        coverage_ratio=1.0,
+        strong_source_ratio=0.9,
+        contradiction_count=0,
+        questions=[],
+    )
+    source_ledger = [
+        SourceLedgerEntry(
+            source_id="S-1",
+            url="https://docs.example.com/source-1",
+            title="Example Source",
+            domain="docs.example.com",
+            source_type=SourceType.OFFICIAL_DOCUMENTATION,
+            reliability_score=0.94,
+            question_links=["q1", "q2"],
+            selected_for_report=True,
+            selection_reason="Relevant and authoritative.",
+        )
+    ]
+    critique_findings = [
+        CritiqueFinding(
+            kind="weak_evidence",
+            severity="high",
+            summary="Thin evidence",
+            rationale="Current draft still relies on thinly supported claims.",
+        )
+    ]
+    decision_triggers = [
+        DecisionTrigger(
+            label="Budget dominance",
+            condition="Budget becomes the main constraint.",
+            implication="Shift toward the cheaper stack.",
+            confidence=0.72,
+        )
+    ]
+
+    sections = _traceability_appendix_sections(
+        coverage=coverage,
+        source_ledger=source_ledger,
+        critique_findings=critique_findings,
+        decision_triggers=decision_triggers,
+        language="en",
+    )
+
+    coverage_section = dict(sections)["Evidence Coverage and Source Quality"]
+    validation_section = dict(sections)["Validation Priorities and Decision Triggers"]
+    assert "|\n\n|---|---|---|---:|---:|" not in coverage_section
+    assert "|\n\n| Validation issue | Severity | Why it still matters |" not in validation_section
 
 
 def test_audit_ignores_action_substring_inside_abstraction(tmp_path: Path) -> None:

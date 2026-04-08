@@ -117,8 +117,42 @@ def _clean_section_content(content: str) -> str:
             continue
         filtered.append(line)
     normalized = "\n".join(filtered)
+    normalized = _normalize_markdown_tables(normalized)
     normalized = re.sub(r"\n{3,}", "\n\n", normalized).strip()
     return normalized
+
+
+def _normalize_markdown_tables(text: str) -> str:
+    if "|" not in text:
+        return text
+
+    def is_table_line(value: str) -> bool:
+        stripped = value.strip()
+        return bool(stripped) and stripped.startswith("|") and stripped.endswith("|")
+
+    lines = text.split("\n")
+    normalized: list[str] = []
+    total = len(lines)
+    for index, line in enumerate(lines):
+        if line.strip():
+            normalized.append(line)
+            continue
+
+        previous_index = index - 1
+        while previous_index >= 0 and not lines[previous_index].strip():
+            previous_index -= 1
+
+        next_index = index + 1
+        while next_index < total and not lines[next_index].strip():
+            next_index += 1
+
+        previous_line = lines[previous_index] if previous_index >= 0 else ""
+        next_line = lines[next_index] if next_index < total else ""
+        if is_table_line(previous_line) and is_table_line(next_line):
+            continue
+        normalized.append(line)
+
+    return "\n".join(normalized)
 
 
 def _is_source_only_content(content: str) -> bool:
@@ -697,6 +731,7 @@ async def _call_llm(system: str, user: str, model: str) -> str:
 def _ensure_table_spacing(text: str) -> str:
     """Ensure blank lines before/after markdown tables so python-markdown renders them."""
     import re
+    text = _normalize_markdown_tables(text)
     # Add blank line before table rows if missing
     text = re.sub(r'([^\n])\n(\|)', r'\1\n\n\2', text)
     # Add blank line after table block if missing

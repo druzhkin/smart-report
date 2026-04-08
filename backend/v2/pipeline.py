@@ -1526,8 +1526,42 @@ def _sanitize_llm_markdown(text: str) -> str:
     cleaned = re.sub(r"\[(?:\d+(?:\s+from\s+[^\]]+)?)\](?!\()", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"(?im)^\(word count:[^)]+\)\s*$", "", cleaned)
     cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
+    cleaned = _normalize_markdown_tables(cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     return cleaned.strip()
+
+
+def _normalize_markdown_tables(text: str) -> str:
+    if "|" not in text:
+        return text
+
+    def is_table_line(value: str) -> bool:
+        stripped = value.strip()
+        return bool(stripped) and stripped.startswith("|") and stripped.endswith("|")
+
+    lines = text.split("\n")
+    normalized: list[str] = []
+    total = len(lines)
+    for index, line in enumerate(lines):
+        if line.strip():
+            normalized.append(line)
+            continue
+
+        previous_index = index - 1
+        while previous_index >= 0 and not lines[previous_index].strip():
+            previous_index -= 1
+
+        next_index = index + 1
+        while next_index < total and not lines[next_index].strip():
+            next_index += 1
+
+        previous_line = lines[previous_index] if previous_index >= 0 else ""
+        next_line = lines[next_index] if next_index < total else ""
+        if is_table_line(previous_line) and is_table_line(next_line):
+            continue
+        normalized.append(line)
+
+    return "\n".join(normalized)
 
 
 _LIVE_FINDING_NOISE_PATTERNS = (
@@ -2601,9 +2635,9 @@ def _build_markdown_from_report(
         lines.extend([subtitle, ""])
     if facts_line:
         lines.extend([facts_line, ""])
-    lines.extend(["## Executive Summary", "", report.executive_summary, ""])
+    lines.extend(["## Executive Summary", "", _normalize_markdown_tables(report.executive_summary), ""])
     for section in sorted(report.sections, key=lambda item: item.order):
-        lines.extend([f"## {section.title}", "", section.content.strip(), ""])
+        lines.extend([f"## {section.title}", "", _normalize_markdown_tables(section.content.strip()), ""])
     lines.extend(["## Sources", ""])
     for source in source_ledger:
         lines.append(f"- [{source.title}]({source.url})")
@@ -2638,6 +2672,14 @@ def _claims_table(exhibit_no: int, claims: list[ClaimRecord], source_by_id: dict
             *rows,
         ]
     )
+
+
+def _markdown_table_block(headers: list[str], rows: list[str], right_aligned_columns: set[int] | None = None) -> str:
+    header_row = "| " + " | ".join(headers) + " |"
+    right_aligned_columns = right_aligned_columns or set()
+    separator_row = "|" + "|".join("---:" if index in right_aligned_columns else "---" for index, _ in enumerate(headers)) + "|"
+    normalized_rows = [row for row in rows if row.strip()]
+    return "\n".join([header_row, separator_row, *normalized_rows])
 
 
 def _heuristic_longform_report(
@@ -3307,32 +3349,33 @@ def _traceability_appendix_sections(
             coverage_intro,
             coverage_summary,
             "Exhibit 7",
-            "",
-            "| Core question | Focus | Status | Evidence records | Source links |",
-            "|---|---|---|---:|---:|",
-            *coverage_rows,
-            "",
+            _markdown_table_block(
+                ["Core question", "Focus", "Status", "Evidence records", "Source links"],
+                coverage_rows,
+                right_aligned_columns={3, 4},
+            ),
             "Exhibit 8",
-            "",
-            "| Source | Type | Reliability | Linked questions |",
-            "|---|---|---:|---|",
-            *source_rows,
+            _markdown_table_block(
+                ["Source", "Type", "Reliability", "Linked questions"],
+                source_rows,
+                right_aligned_columns={2},
+            ),
         ]
     )
     validation_content = "\n\n".join(
         [
             validation_intro,
             "Exhibit 9",
-            "",
-            "| Validation issue | Severity | Why it still matters |",
-            "|---|---|---|",
-            *critique_rows,
-            "",
+            _markdown_table_block(
+                ["Validation issue", "Severity", "Why it still matters"],
+                critique_rows,
+            ),
             "Exhibit 10",
-            "",
-            "| Trigger | Condition | Recommendation shift | Confidence |",
-            "|---|---|---|---:|",
-            *trigger_rows,
+            _markdown_table_block(
+                ["Trigger", "Condition", "Recommendation shift", "Confidence"],
+                trigger_rows,
+                right_aligned_columns={3},
+            ),
         ]
     )
     return [
