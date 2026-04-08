@@ -37,14 +37,18 @@ export interface TaskSpec {
   evaluation_dimensions: string[];
   constraints: string[];
   must_cover_questions: string[];
+  output_package: string[];
   max_budget_usd: number;
   answers: Record<string, string>;
+  allow_perplexity_handoff: boolean;
+  material_ids: string[];
 }
 
 export interface CreateReportRequest {
   request: string;
   depth?: "light" | "standard" | "deep" | "exhaustive";
   output_formats?: string[];
+  perplexity_handoff_enabled?: boolean;
 }
 
 export interface CreateReportResponse {
@@ -62,6 +66,7 @@ export interface ScopeReportResponse {
   session_id: string;
   status: string;
   task_spec: TaskSpec;
+  handoff_prompts: PerplexityHandoffPrompt[];
 }
 
 export interface PricingTier {
@@ -72,6 +77,62 @@ export interface PricingTier {
   estimated_time_minutes: number;
   public_price_usd: number;
   internal_budget_usd: number;
+  initial_research_branches: number;
+  adjacent_research_branches: number;
+  validation_research_branches: number;
+  quality_max_rounds: number;
+}
+
+export interface DepthProfile {
+  name: string;
+  label: string;
+  description: string;
+  research_depth: string;
+  initial_research_branches: number;
+  source_limit: number;
+  adjacent_question_limit: number;
+  adjacent_research_branches: number;
+  validation_research_branches: number;
+  stack_backfill_limit: number;
+  quality_revision_target: number;
+  quality_max_rounds: number;
+  prefer_perplexity_writer: boolean;
+}
+
+export interface SpendEntry {
+  entry_id: string;
+  timestamp: string;
+  category: string;
+  stage: string;
+  provider: string;
+  model: string;
+  input_tokens: number;
+  output_tokens: number;
+  cost_usd: number;
+  pricing_basis: string;
+  notes: string;
+}
+
+export interface MaterialRecord {
+  material_id: string;
+  kind: string;
+  title: string;
+  filename: string;
+  stored_filename: string;
+  text_filename: string;
+  media_type: string;
+  size_bytes: number;
+  text_length: number;
+  excerpt: string;
+  uploaded_at: string;
+}
+
+export interface PerplexityHandoffPrompt {
+  prompt_id: string;
+  stage: string;
+  title: string;
+  rationale: string;
+  prompt: string;
 }
 
 export interface AnalysisBrief {
@@ -174,6 +235,10 @@ export interface SessionMeta {
   report: ReportData | null;
   created_at: string;
   title?: string;
+  depth_profile?: DepthProfile | null;
+  spend_breakdown?: SpendEntry[];
+  materials?: MaterialRecord[];
+  handoff_prompts?: PerplexityHandoffPrompt[];
   request_spec?: RequestSpec | null;
   task_spec?: TaskSpec | null;
   analysis_brief?: AnalysisBrief | null;
@@ -197,6 +262,7 @@ export interface ArtifactsResponse {
   run_id: string;
   artifacts: string[];
   package_files: string[];
+  material_files?: string[];
 }
 
 export interface SSEEvent {
@@ -248,6 +314,14 @@ export async function scopeReport(sessionId: string, payload: ScopeReportRequest
   return res.json();
 }
 
+export async function resumeReport(sessionId: string): Promise<{ session_id: string; status: string }> {
+  const res = await fetch(`${API_BASE}/reports/${sessionId}/resume`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error(`Failed to resume report: ${res.status}`);
+  return res.json();
+}
+
 export async function getReportPricing(): Promise<PricingTier[]> {
   const res = await fetch(`${API_BASE}/reports/pricing`, { cache: "no-store" });
   if (!res.ok) throw new Error(`Failed to get pricing: ${res.status}`);
@@ -276,6 +350,36 @@ export async function getReportSources(id: string): Promise<SourcesResponse> {
 export async function getReportArtifacts(id: string): Promise<ArtifactsResponse> {
   const res = await fetch(`${API_BASE}/reports/${id}/artifacts`, { cache: "no-store" });
   if (!res.ok) throw new Error(`Failed to get artifacts: ${res.status}`);
+  return res.json();
+}
+
+export async function addTextMaterial(
+  sessionId: string,
+  payload: { title: string; content: string; kind?: "note" | "external_research" },
+): Promise<{ run_id: string; material: MaterialRecord; materials: MaterialRecord[] }> {
+  const res = await fetch(`${API_BASE}/reports/${sessionId}/materials/text`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(`Failed to add text material: ${res.status}`);
+  return res.json();
+}
+
+export async function uploadMaterial(
+  sessionId: string,
+  file: File,
+  options?: { title?: string; kind?: "user_upload" | "external_research" },
+): Promise<{ run_id: string; material: MaterialRecord; materials: MaterialRecord[] }> {
+  const formData = new FormData();
+  formData.append("file", file);
+  if (options?.title) formData.append("title", options.title);
+  if (options?.kind) formData.append("kind", options.kind);
+  const res = await fetch(`${API_BASE}/reports/${sessionId}/materials/upload`, {
+    method: "POST",
+    body: formData,
+  });
+  if (!res.ok) throw new Error(`Failed to upload material: ${res.status}`);
   return res.json();
 }
 

@@ -87,3 +87,72 @@ def test_v2_report_flow_end_to_end(tmp_path: Path, monkeypatch) -> None:
         assert evidence_response.json()["claim_table"]
         assert sources_response.json()["sources"]
         assert "report.md" in artifacts_response.json()["package_files"]
+
+
+def test_handoff_mode_supports_materials_and_manual_resume(tmp_path: Path, monkeypatch) -> None:
+    from backend.api.routes import reports as reports_route
+
+    test_repo = FileRunRepository(root=str(tmp_path / "runs"), reports_root=str(tmp_path / "reports"))
+    monkeypatch.setattr(reports_route, "repo", test_repo)
+    reports_route._live_queues.clear()
+    reports_route._live_tasks.clear()
+
+    async def fake_run_background(run_id: str) -> None:
+        summary = test_repo.get_run(run_id)
+        assert summary is not None
+        summary.status = reports_route.RunStatus.COMPLETED
+        test_repo.save_run(summary)
+
+    monkeypatch.setattr(reports_route, "_run_background", fake_run_background)
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/reports",
+            json={
+                "request": "Evaluate AI research systems for a strategy team.",
+                "depth": "deep",
+                "output_formats": ["html", "pptx"],
+                "perplexity_handoff_enabled": True,
+            },
+        )
+        assert create_response.status_code == 200
+        run_id = create_response.json()["session_id"]
+
+        scope_response = client.post(
+            f"/api/reports/{run_id}/scope",
+            json={"answers": {"decision-context": "Choose the default workflow for client reports."}},
+        )
+        assert scope_response.status_code == 200
+        scoped = scope_response.json()
+        assert scoped["status"] == "awaiting_handoff"
+        assert len(scoped["handoff_prompts"]) == 3
+
+        text_material_response = client.post(
+            f"/api/reports/{run_id}/materials/text",
+            json={
+                "title": "Perplexity findings",
+                "content": "External findings about alternatives and risks.",
+                "kind": "external_research",
+            },
+        )
+        assert text_material_response.status_code == 200
+        assert len(text_material_response.json()["materials"]) == 1
+
+        file_material_response = client.post(
+            f"/api/reports/{run_id}/materials/upload",
+            files={"file": ("notes.txt", b"Important client context", "text/plain")},
+            data={"kind": "external_research"},
+        )
+        assert file_material_response.status_code == 200
+        assert len(file_material_response.json()["materials"]) == 2
+
+        report_response = client.get(f"/api/reports/{run_id}")
+        assert report_response.status_code == 200
+        report_payload = report_response.json()
+        assert report_payload["status"] == "awaiting_handoff"
+        assert len(report_payload["materials"]) == 2
+        assert len(report_payload["handoff_prompts"]) == 3
+
+        resume_response = client.post(f"/api/reports/{run_id}/resume")
+        assert resume_response.status_code == 200
+        assert resume_response.json()["status"] == "running"

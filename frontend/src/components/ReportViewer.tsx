@@ -119,6 +119,7 @@ function BriefTab({ session }: { session: SessionMeta }) {
             <p>Budget cap: ${taskSpec?.max_budget_usd?.toFixed(2) ?? "0.00"}</p>
             <p>Evaluation dimensions: {(taskSpec?.evaluation_dimensions ?? []).join(", ") || "n/a"}</p>
             <p>Success criteria: {(taskSpec?.success_criteria ?? []).length}</p>
+            <p>Actual spend: ${session.cost_usd.toFixed(2)}</p>
           </CardContent>
         </Card>
       </div>
@@ -431,6 +432,48 @@ function DataTab({
             </ul>
           </CardContent>
         </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <ShieldCheck className="h-4 w-4" />
+              Spend Ledger
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">
+            {(session.spend_breakdown ?? []).length > 0 ? (
+              <ul className="list-disc pl-5">
+                {(session.spend_breakdown ?? []).map((item) => (
+                  <li key={item.entry_id}>
+                    {item.stage}: ${item.cost_usd.toFixed(3)} via {item.provider}/{item.model}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p>No spend ledger recorded yet.</p>
+            )}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <FileSearch className="h-4 w-4" />
+              Materials
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">
+            {(session.materials ?? []).length > 0 ? (
+              <ul className="list-disc pl-5">
+                {(session.materials ?? []).map((item) => (
+                  <li key={item.material_id}>
+                    {item.title} ({item.kind}, {item.text_length} chars)
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p>No user materials were attached.</p>
+            )}
+          </CardContent>
+        </Card>
       </div>
 
       <Card>
@@ -446,6 +489,10 @@ function DataTab({
               {
                 request_spec: session.request_spec,
                 task_spec: session.task_spec,
+                depth_profile: session.depth_profile,
+                spend_breakdown: session.spend_breakdown,
+                materials: session.materials,
+                handoff_prompts: session.handoff_prompts,
                 analysis_brief: session.analysis_brief,
                 coverage_report: session.coverage_report,
                 audit_summary: session.audit_summary,

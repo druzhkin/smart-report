@@ -47,6 +47,7 @@ const FORMATS = [
   { value: "pdf", label: "PDF" },
   { value: "html", label: "HTML" },
   { value: "docx", label: "DOCX" },
+  { value: "pptx", label: "PPTX" },
 ];
 
 const FLOW_STEPS = [
@@ -98,6 +99,7 @@ export default function NewReportPage() {
   const [query, setQuery] = useState("");
   const [depth, setDepth] = useState<Depth>("standard");
   const [formats, setFormats] = useState<string[]>(["pdf", "html"]);
+  const [perplexityHandoffEnabled, setPerplexityHandoffEnabled] = useState(false);
   const [pricing, setPricing] = useState<PricingTier[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [requestSpec, setRequestSpec] = useState<RequestSpec | null>(null);
@@ -153,12 +155,13 @@ export default function NewReportPage() {
   const handleCreateRun = async () => {
     if (!query.trim()) return;
     setLoadingCreate(true);
-    setError(null);
+      setError(null);
     try {
       const response = await createReport({
         request: query,
         depth,
         output_formats: formats,
+        perplexity_handoff_enabled: perplexityHandoffEnabled,
       });
       setSessionId(response.session_id);
       setRequestSpec(response.request_spec);
@@ -192,8 +195,12 @@ export default function NewReportPage() {
     setLoadingScope(true);
     setError(null);
     try {
-      await scopeReport(sessionId, { answers });
+      const response = await scopeReport(sessionId, { answers });
       void reportSession.refetch();
+      if (response.status === "awaiting_handoff") {
+        router.push(`/app/reports/${sessionId}`);
+        return;
+      }
       setStep(3);
     } catch (scopeError) {
       console.error(scopeError);
@@ -281,6 +288,10 @@ export default function NewReportPage() {
                     {formatCost(selectedTier.public_price_usd)}
                   </p>
                   <p className="mt-1 text-sm text-muted-foreground">{selectedTier.description}</p>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {selectedTier.initial_research_branches} primary branches, {selectedTier.adjacent_research_branches} side branches,{" "}
+                    {selectedTier.validation_research_branches} validation branches, up to {selectedTier.quality_max_rounds} revision rounds
+                  </p>
                 </div>
                 <div className="text-sm text-muted-foreground">
                   Runtime estimate: ~{selectedTier.estimated_time_minutes} min
@@ -299,6 +310,22 @@ export default function NewReportPage() {
                 </label>
               ))}
             </div>
+          </div>
+
+          <div className="space-y-3 rounded-2xl border border-dashed p-4">
+            <label className="flex items-start gap-3 text-sm">
+              <Checkbox
+                checked={perplexityHandoffEnabled}
+                onCheckedChange={(checked) => setPerplexityHandoffEnabled(Boolean(checked))}
+              />
+              <span className="space-y-1">
+                <span className="block font-medium">Prepare Perplexity Deep Research handoff prompts</span>
+                <span className="block text-muted-foreground">
+                  The run will pause after scope lock, generate 3 ready-to-copy prompts, let you add your own materials, and only
+                  then continue. This is the only version of the feature that actually helps save API money.
+                </span>
+              </span>
+            </label>
           </div>
 
           <div className="flex justify-end">

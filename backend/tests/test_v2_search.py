@@ -51,6 +51,7 @@ def test_github_html_extraction_prefers_readme_like_content() -> None:
 def test_classify_source_type_downgrades_github_topics_and_awesome_lists() -> None:
     assert classify_source_type("https://github.com/topics/llm-benchmarking") == SourceType.WEAK_SECONDARY
     assert classify_source_type("https://github.com/machinelearningzuu/awesome-llm-projects") == SourceType.WEAK_SECONDARY
+    assert classify_source_type("https://github.com/underdogg-forks/Enso/blob/master/public/33.js.map") == SourceType.WEAK_SECONDARY
     assert classify_source_type("https://github.com/assafelovic/gpt-researcher") == SourceType.OFFICIAL_DOCUMENTATION
 
 

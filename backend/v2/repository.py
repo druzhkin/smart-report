@@ -19,10 +19,16 @@ class FileRunRepository:
         path = self.root / run_id
         path.mkdir(parents=True, exist_ok=True)
         (path / "artifacts").mkdir(parents=True, exist_ok=True)
+        (path / "materials").mkdir(parents=True, exist_ok=True)
         return path
 
     def report_dir(self, run_id: str) -> Path:
         path = self.reports_root / run_id
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def materials_dir(self, run_id: str) -> Path:
+        path = self.run_dir(run_id) / "materials"
         path.mkdir(parents=True, exist_ok=True)
         return path
 
@@ -106,6 +112,20 @@ class FileRunRepository:
         else:
             path.write_text(content, encoding="utf-8")
         return path
+
+    def write_material_file(self, run_id: str, filename: str, content: str | bytes) -> Path:
+        path = self.materials_dir(run_id) / filename
+        if isinstance(content, bytes):
+            path.write_bytes(content)
+        else:
+            path.write_text(content, encoding="utf-8")
+        return path
+
+    def list_material_files(self, run_id: str) -> list[Path]:
+        path = self.materials_dir(run_id)
+        if not path.exists():
+            return []
+        return [item for item in path.iterdir() if item.is_file()]
 
     def list_report_files(self, run_id: str) -> list[Path]:
         path = self.report_dir(run_id)

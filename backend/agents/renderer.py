@@ -730,13 +730,29 @@ async def _call_llm(system: str, user: str, model: str) -> str:
 
 def _ensure_table_spacing(text: str) -> str:
     """Ensure blank lines before/after markdown tables so python-markdown renders them."""
-    import re
     text = _normalize_markdown_tables(text)
-    # Add blank line before table rows if missing
-    text = re.sub(r'([^\n])\n(\|)', r'\1\n\n\2', text)
-    # Add blank line after table block if missing
-    text = re.sub(r'(\|[^\n]*\n)([^\|\n])', r'\1\n\2', text)
-    return text
+    lines = text.splitlines()
+    normalized: list[str] = []
+
+    def is_table_line(value: str) -> bool:
+        stripped = value.strip()
+        return bool(stripped) and stripped.startswith("|") and stripped.endswith("|")
+
+    in_table = False
+    for line in lines:
+        stripped = line.strip()
+        table_line = is_table_line(line)
+
+        if table_line and not in_table and normalized and normalized[-1].strip():
+            normalized.append("")
+
+        if not table_line and in_table and stripped and normalized and normalized[-1].strip():
+            normalized.append("")
+
+        normalized.append(line)
+        in_table = table_line
+
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(normalized)).strip()
 
 
 def _build_html(report: ReportOutput, chart_paths: list[str], lang: str = "en") -> str:

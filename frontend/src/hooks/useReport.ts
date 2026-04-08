@@ -36,7 +36,7 @@ export function useReport(id: string) {
 
   useEffect(() => {
     if (loading) return;
-    if (status === "completed" || status === "failed") return;
+    if (status === "completed" || status === "failed" || status === "awaiting_handoff") return;
 
     const intervalId = setInterval(() => {
       void fetchReport();

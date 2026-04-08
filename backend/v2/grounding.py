@@ -12,6 +12,11 @@ _NUMERIC_FACT_RE = re.compile(
     flags=re.IGNORECASE,
 )
 
+_NUMERIC_FACT_RE = re.compile(
+    r"(?P<prefix>[$€£])?\s*(?P<number>(?:\d{1,3}(?:[ ,]\d{3})+(?:[.,]\d+)?|\d+(?:[.,]\d+)?))\s*(?P<unit>%|percent|usd|eur|rub|руб|ms|millisecond(?:s)?|sec(?:ond)?s?|minute(?:s)?|hour(?:s)?|day(?:s)?|week(?:s)?|month(?:s)?|year(?:s)?|k|m|b|million|billion|tokens?|requests?|queries?|rpm|rps|qps|ctx|stars?|forks?|contributors?|maintainers?|issues?|commits?|pull requests?)?",
+    flags=re.IGNORECASE,
+)
+
 _GENERIC_STOPWORDS = {
     "this",
     "that",
@@ -308,8 +313,15 @@ def _qualifier_tokens(snippet: str) -> frozenset[str]:
 
 
 def _parse_numeric_value(number_text: str, unit: str) -> float | None:
+    normalized = number_text.replace(" ", "")
+    if re.fullmatch(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?", normalized):
+        normalized = normalized.replace(",", "")
+    elif re.fullmatch(r"\d{1,3}(?:\.\d{3})+(?:,\d+)?", normalized):
+        normalized = normalized.replace(".", "").replace(",", ".")
+    else:
+        normalized = normalized.replace(",", ".")
     try:
-        value = float(number_text.replace(",", "."))
+        value = float(normalized)
     except ValueError:
         return None
     multiplier = {
@@ -474,8 +486,21 @@ def _close_value(left: float, right: float) -> bool:
     return abs(left - right) / baseline <= 0.05
 
 
+def _is_low_signal_precise_fact(fact: NumericFact) -> bool:
+    raw = fact.raw.strip().lower()
+    if re.fullmatch(r"\d+(?:[.,]\d+)?", raw):
+        return fact.value <= 12
+    if fact.family == "ratio" and fact.value <= 12 and "%" not in raw and "percent" not in raw:
+        return True
+    return False
+
+
 def find_unsupported_precise_numbers(report_text: str, claim_texts: list[str]) -> list[str]:
-    report_facts = [fact for fact in extract_numeric_facts(report_text, strip_markup=True) if fact.family in _GROUNDING_FAMILIES]
+    report_facts = [
+        fact
+        for fact in extract_numeric_facts(report_text, strip_markup=True)
+        if fact.family in _GROUNDING_FAMILIES and not _is_low_signal_precise_fact(fact)
+    ]
     supported_facts = [
         fact
         for claim_text in claim_texts
@@ -507,3 +532,66 @@ def find_unsupported_precise_numbers(report_text: str, claim_texts: list[str]) -
             seen.add(marker)
             unsupported.append(marker)
     return unsupported
+
+
+def _unsupported_placeholder(family: str, raw: str = "") -> str:
+    lowered = raw.strip().lower()
+    if family == "money":
+        if "$" in raw or "€" in raw or "£" in raw:
+            return "a paid tier"
+        if lowered.endswith(" b") or lowered.endswith(" m") or "billion" in lowered or "million" in lowered:
+            return "a large market category"
+        return "a commercially meaningful level"
+    placeholders = {
+        "ratio": "a meaningful threshold",
+        "benchmark": "a stronger benchmark result",
+        "latency": "lower latency",
+        "context_window": "a larger context window",
+        "throughput": "higher throughput",
+        "time": "a limited time period",
+    }
+    return placeholders.get(family, "a material metric")
+
+
+def _unsupported_patterns(raw: str) -> list[str]:
+    candidate = raw.strip()
+    lowered = candidate.lower()
+    patterns: list[str] = []
+    if lowered.endswith(" b"):
+        base = re.escape(candidate[:-2].strip())
+        patterns.append(rf"(?:usd\s+)?{base}\s*(?:b|billion)\b")
+    elif lowered.endswith(" m"):
+        base = re.escape(candidate[:-2].strip())
+        patterns.append(rf"(?:usd\s+)?{base}\s*(?:m|million)\b")
+    elif lowered.endswith(" k"):
+        base = re.escape(candidate[:-2].strip())
+        patterns.append(rf"{base}\s*(?:k|thousand)\b")
+    elif lowered.endswith(" month"):
+        base = re.escape(re.sub(r"(?i)\s*month$", "", candidate).strip().lstrip("$"))
+        patterns.append(rf"\$?\s*{base}(?:\s*/\s*|\s+per\s+)?(?:month|mo)\b")
+    elif lowered.endswith(" year"):
+        base = re.escape(re.sub(r"(?i)\s*year$", "", candidate).strip().lstrip("$"))
+        patterns.append(rf"\$?\s*{base}(?:\s*/\s*|\s+per\s+)?(?:year|yr)\b")
+    elif "%" in candidate:
+        patterns.append(re.escape(candidate))
+    elif "$" in candidate:
+        patterns.append(rf"{re.escape(candidate)}(?:\s*(?:/|\bper\b\s+)?(?:month|mo|year|yr))?")
+    else:
+        patterns.append(re.escape(candidate))
+    return patterns
+
+
+def sanitize_unsupported_precise_numbers(report_text: str, claim_texts: list[str]) -> str:
+    cleaned = report_text
+    for marker in find_unsupported_precise_numbers(report_text, claim_texts):
+        raw, _, family_suffix = marker.partition(" (")
+        family = family_suffix.removesuffix(")").strip().lower()
+        candidate = raw.strip()
+        if not candidate:
+            continue
+        if re.fullmatch(r"\d{1,2}", candidate):
+            continue
+        replacement = _unsupported_placeholder(family, candidate)
+        for pattern in _unsupported_patterns(candidate):
+            cleaned = re.sub(pattern, replacement, cleaned, flags=re.IGNORECASE)
+    return cleaned

@@ -8,6 +8,7 @@ from backend.v2.models import (
     ClarificationField,
     ClarificationPack,
     ClarificationQuestion,
+    DepthProfile,
     ReportType,
     RequestSpec,
     SourceType,
@@ -46,6 +47,72 @@ def normalize_budget_tier(depth: str | None) -> BudgetTier:
     if depth == "exhaustive":
         return BudgetTier.EXHAUSTIVE
     return BudgetTier.STANDARD
+
+
+def build_depth_profile(budget_tier: BudgetTier) -> DepthProfile:
+    profiles = {
+        BudgetTier.LIGHT: DepthProfile(
+            name="light",
+            label="Light",
+            description="Fast orientation with a narrow research bundle and minimal revision work.",
+            research_depth="light",
+            initial_research_branches=2,
+            source_limit=8,
+            adjacent_question_limit=2,
+            adjacent_research_branches=1,
+            validation_research_branches=0,
+            stack_backfill_limit=1,
+            quality_revision_target=0,
+            quality_max_rounds=1,
+            prefer_perplexity_writer=False,
+        ),
+        BudgetTier.STANDARD: DepthProfile(
+            name="standard",
+            label="Standard",
+            description="Balanced research bundle with one targeted critique loop.",
+            research_depth="standard",
+            initial_research_branches=4,
+            source_limit=12,
+            adjacent_question_limit=4,
+            adjacent_research_branches=3,
+            validation_research_branches=0,
+            stack_backfill_limit=2,
+            quality_revision_target=1,
+            quality_max_rounds=2,
+            prefer_perplexity_writer=False,
+        ),
+        BudgetTier.DEEP: DepthProfile(
+            name="deep",
+            label="Deep",
+            description="Broader evidence collection, more side-question coverage, and stronger revision pressure.",
+            research_depth="deep",
+            initial_research_branches=6,
+            source_limit=18,
+            adjacent_question_limit=6,
+            adjacent_research_branches=6,
+            validation_research_branches=2,
+            stack_backfill_limit=5,
+            quality_revision_target=3,
+            quality_max_rounds=4,
+            prefer_perplexity_writer=True,
+        ),
+        BudgetTier.EXHAUSTIVE: DepthProfile(
+            name="exhaustive",
+            label="Exhaustive",
+            description="Maximum effort with broad discovery, explicit validation branches, and more revision rounds.",
+            research_depth="exhaustive",
+            initial_research_branches=8,
+            source_limit=24,
+            adjacent_question_limit=8,
+            adjacent_research_branches=8,
+            validation_research_branches=4,
+            stack_backfill_limit=8,
+            quality_revision_target=4,
+            quality_max_rounds=6,
+            prefer_perplexity_writer=True,
+        ),
+    }
+    return profiles[budget_tier]
 
 
 def classify_report_type(query: str) -> ReportType:
@@ -122,10 +189,40 @@ def _query_has_any(query: str, tokens: tuple[str, ...]) -> bool:
 def infer_must_cover_questions(request_spec: RequestSpec, evaluation_dimensions: list[str]) -> list[str]:
     query = request_spec.original_query
     subject = request_spec.subject
+    decision_context = request_spec.decision_context
+    decision_frame = f"{query} {subject} {decision_context}"
     dimensions = ", ".join(evaluation_dimensions[:3]) if evaluation_dimensions else "quality, cost, risk"
     llm_tokens = ("llm", "model", "models", "gpt", "claude", "qwen", "deepseek", "gemini", "сонар", "модел")
     github_tokens = ("github", "open-source", "opensource", "repo", "repository", "git")
     search_tokens = ("search", "web search", "deep research", "research", "retrieval", "rag", "поиск", "исслед")
+
+    business_tokens = (
+        "market",
+        "pricing",
+        "price",
+        "revenue",
+        "monetization",
+        "paid product",
+        "subscription",
+        "gtm",
+        "go-to-market",
+        "buyer",
+        "customer",
+        "consulting",
+        "investment",
+        "strategy team",
+        "willingness to pay",
+        "рын",
+        "монетиз",
+        "цен",
+        "выруч",
+        "подпис",
+        "платн",
+        "клиент",
+        "покуп",
+        "спрос",
+    )
+    has_business_frame = _query_has_any(decision_frame, business_tokens)
 
     if request_spec.language == "ru":
         if _query_has_any(query, llm_tokens) and _query_has_any(query, github_tokens) and _query_has_any(query, search_tokens):
@@ -137,7 +234,11 @@ def infer_must_cover_questions(request_spec: RequestSpec, evaluation_dimensions:
             ]
         return [
             f"Какое конкретное решение должен поддержать отчёт по теме '{subject}'?",
-            f"Какие реальные альтернативы нужно сравнить по осям {dimensions}?",
+            (
+                f"С какими реальными альтернативными продуктами, текущими workflow и бесплатными заменами нужно сравнить '{subject}' для consulting и investment teams, и чем они отличаются по осям {dimensions}?"
+                if has_business_frame
+                else f"Какие реальные альтернативы нужно сравнить по осям {dimensions}?"
+            ),
             f"Какой вариант или стек лучше всего решает задачу '{request_spec.decision_context}'?",
             f"Какие trade-offs, риски и условия переключения рекомендации подтверждаются фактами?",
         ]
@@ -151,8 +252,16 @@ def infer_must_cover_questions(request_spec: RequestSpec, evaluation_dimensions:
         ]
     return [
         f"What concrete decision should this report support for '{subject}'?",
-        f"What credible alternatives should be compared across {dimensions}?",
-        f"Which option or stack best supports '{request_spec.decision_context}'?",
+        (
+            f"Which real competing products, incumbent workflows, and free substitutes should '{subject}' be compared against for consulting and investment teams, and how do they differ across {dimensions}?"
+            if has_business_frame
+            else f"What credible alternatives should be compared across {dimensions}?"
+        ),
+        (
+            f"Which monetization model, packaging, and go-to-market path best support '{decision_context}'?"
+            if has_business_frame
+            else f"Which option, operating model, or strategy best supports '{decision_context}'?"
+        ),
         "What are the strongest evidence-backed tradeoffs, risks, and decision triggers?",
     ]
 
@@ -252,7 +361,49 @@ def build_clarification_pack(run_id: str, request_spec: RequestSpec) -> Clarific
     return ClarificationPack(run_id=run_id, request_spec=request_spec, questions=questions[:5])
 
 
-def build_task_spec(request_spec: RequestSpec, *, answers: dict[str, str] | None = None) -> TaskSpec:
+def _normalize_output_formats(output_formats: list[str] | None) -> list[ArtifactFormat]:
+    if not output_formats:
+        return [
+            ArtifactFormat.MARKDOWN,
+            ArtifactFormat.HTML,
+            ArtifactFormat.PDF,
+            ArtifactFormat.DOCX,
+            ArtifactFormat.JSON,
+        ]
+    selected: list[ArtifactFormat] = []
+    for value in output_formats:
+        normalized = str(value or "").strip().lower()
+        if normalized in {"md", "markdown"}:
+            candidate = ArtifactFormat.MARKDOWN
+        elif normalized == "html":
+            candidate = ArtifactFormat.HTML
+        elif normalized == "pdf":
+            candidate = ArtifactFormat.PDF
+        elif normalized == "docx":
+            candidate = ArtifactFormat.DOCX
+        elif normalized == "json":
+            candidate = ArtifactFormat.JSON
+        elif normalized == "pptx":
+            candidate = ArtifactFormat.PPTX
+        else:
+            continue
+        if candidate not in selected:
+            selected.append(candidate)
+    if ArtifactFormat.MARKDOWN not in selected:
+        selected.insert(0, ArtifactFormat.MARKDOWN)
+    if ArtifactFormat.JSON not in selected:
+        selected.append(ArtifactFormat.JSON)
+    return selected
+
+
+def build_task_spec(
+    request_spec: RequestSpec,
+    *,
+    answers: dict[str, str] | None = None,
+    output_formats: list[str] | None = None,
+    allow_perplexity_handoff: bool = False,
+    material_ids: list[str] | None = None,
+) -> TaskSpec:
     answers = answers or {}
     pack = match_reference_pack(request_spec.original_query)
 
@@ -302,13 +453,9 @@ def build_task_spec(request_spec: RequestSpec, *, answers: dict[str, str] | None
             SourceType.HIGH_QUALITY_SECONDARY,
         ],
         blocked_source_types=[SourceType.WEAK_SECONDARY],
-        output_package=[
-            ArtifactFormat.MARKDOWN,
-            ArtifactFormat.HTML,
-            ArtifactFormat.PDF,
-            ArtifactFormat.DOCX,
-            ArtifactFormat.JSON,
-        ],
+        output_package=_normalize_output_formats(output_formats),
         max_budget_usd=budget_limits[request_spec.budget_tier],
         answers=answers,
+        allow_perplexity_handoff=allow_perplexity_handoff,
+        material_ids=material_ids or [],
     )

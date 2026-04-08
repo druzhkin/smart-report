@@ -27,6 +27,7 @@ _STRONG_SOURCE_TYPES = {
     SourceType.GOVERNMENT,
     SourceType.RESEARCH_PAPER,
     SourceType.BENCHMARK,
+    SourceType.USER_MATERIAL,
 }
 
 _NONTRIVIAL_MARKERS = (

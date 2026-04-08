@@ -125,7 +125,11 @@ async def _call_perplexity(query: str, depth: str | None = None) -> dict:
                     },
                 )
                 resp.raise_for_status()
-                return resp.json()
+                payload = resp.json()
+                payload["_research_provider"] = "perplexity"
+                payload["_research_model"] = model_config.direct_model
+                payload["_research_pricing_basis"] = "provider_usage"
+                return payload
         except httpx.HTTPStatusError as e:
             if e.response.status_code in (401, 403):
                 logger.warning(f"Perplexity direct API auth failed ({e.response.status_code}), falling back to OpenRouter")
@@ -148,7 +152,11 @@ async def _call_perplexity(query: str, depth: str | None = None) -> dict:
             },
         )
         resp.raise_for_status()
-        return resp.json()
+        payload = resp.json()
+        payload["_research_provider"] = "openrouter"
+        payload["_research_model"] = payload.get("model", model_config.routed_model)
+        payload["_research_pricing_basis"] = "estimated_chars"
+        return payload
 
 
 def _parse_citations(raw_response: dict) -> list[Source]:
@@ -184,15 +192,19 @@ def _parse_citations(raw_response: dict) -> list[Source]:
                 domain=domain,
             ))
         elif isinstance(cite, dict):
+            citation_payload = cite
+            nested_citation = cite.get("url_citation")
+            if isinstance(nested_citation, dict):
+                citation_payload = nested_citation
             url_raw = (
-                cite.get("url")
-                or cite.get("uri")
-                or cite.get("source")
-                or cite.get("link")
+                citation_payload.get("url")
+                or citation_payload.get("uri")
+                or citation_payload.get("source")
+                or citation_payload.get("link")
                 or ""
             )
             url = _normalize_url(url_raw)
-            domain = cite.get("domain", "")
+            domain = citation_payload.get("domain", "") or cite.get("domain", "")
             if not domain and url:
                 domain = urlparse(url).netloc
             if not url or url in seen_urls:
@@ -202,8 +214,8 @@ def _parse_citations(raw_response: dict) -> list[Source]:
             seen_urls.add(url)
             sources.append(Source(
                 url=url,
-                title=cite.get("title", cite.get("name", domain)),
-                snippet=cite.get("snippet", cite.get("text", cite.get("quote", ""))),
+                title=citation_payload.get("title", citation_payload.get("name", cite.get("title", domain))),
+                snippet=citation_payload.get("snippet", citation_payload.get("text", citation_payload.get("quote", ""))),
                 domain=domain,
             ))
 
@@ -339,7 +351,7 @@ async def _research_single(
     depth: str | None,
     retrieved_context: list[dict] | None = None,
     branch_state: ResearchBranchState | None = None,
-) -> tuple[ResearchResult, float, list[EvidenceItem]]:
+ ) -> tuple[ResearchResult, float, list[EvidenceItem], dict]:
     """Run a single research query against Perplexity."""
     model_config = _get_research_model_config(depth)
     query_safe = _compact_text(query, max_len=MAX_QUERY_CHARS)
@@ -353,7 +365,11 @@ async def _research_single(
     usage = raw.get("usage", {})
     in_tokens = usage.get("prompt_tokens", len(query) // 4)
     out_tokens = usage.get("completion_tokens", len(content) // 4)
-    cost = estimate_cost_for_model(model_config.routed_model, in_tokens, out_tokens)
+    direct_cost = (((usage.get("cost") or {}) if isinstance(usage, dict) else {}) or {}).get("total_cost")
+    resolved_model = str(raw.get("_research_model") or model_config.routed_model)
+    provider = str(raw.get("_research_provider") or "perplexity")
+    pricing_basis = str(raw.get("_research_pricing_basis") or "estimated_chars")
+    cost = float(direct_cost) if direct_cost is not None else estimate_cost_for_model(resolved_model, in_tokens, out_tokens)
 
     result = ResearchResult(
         query=query_safe,
@@ -363,7 +379,13 @@ async def _research_single(
         gaps=[] if sources else ["No citations were returned by the research provider"],
         iteration=iteration,
     )
-    return result, cost, _build_evidence_items(query, findings, sources)
+    return result, cost, _build_evidence_items(query, findings, sources), {
+        "provider": provider,
+        "model": resolved_model,
+        "pricing_basis": pricing_basis,
+        "input_tokens": int(in_tokens or 0),
+        "output_tokens": int(out_tokens or 0),
+    }
 
 
 @traceable(name="research_agent")
@@ -418,12 +440,12 @@ async def run_research(state: AgentState) -> dict:
         ]
         sequential_qs = [q for q, m in batch_queries if m != "parallel"]
         if parallel_tasks:
-            for result, cost, evidence in await asyncio.gather(*parallel_tasks):
+            for result, cost, evidence, _meta in await asyncio.gather(*parallel_tasks):
                 all_results.append(result)
                 total_cost += cost
                 evidence_items.extend(evidence)
         for q in sequential_qs:
-            result, cost, evidence = await _research_single(
+            result, cost, evidence, _meta = await _research_single(
                 q, iteration, depth, retrieval_cache.get(q, []), branch_states.get(q)
             )
             all_results.append(result)
@@ -440,7 +462,7 @@ async def run_research(state: AgentState) -> dict:
             _research_single(q, iteration, depth, retrieval_cache.get(q, []), branch_states.get(q))
             for q in queries
         ]
-        for result, cost, evidence in await asyncio.gather(*tasks):
+        for result, cost, evidence, _meta in await asyncio.gather(*tasks):
             all_results.append(result)
             total_cost += cost
             evidence_items.extend(evidence)

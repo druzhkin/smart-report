@@ -48,6 +48,8 @@ dependencies = [
     # Report rendering
     "weasyprint>=63.0",
     "python-docx>=1.1",
+    "python-multipart>=0.0.20",
+    "pypdf>=5.0",
     "markdown>=3.7",
     "Jinja2>=3.1",
     "pywebpush>=2.0",

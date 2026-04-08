@@ -55,6 +55,13 @@ function getStatusMeta(report: ReportSummary) {
     };
   }
 
+  if (report.status === "awaiting_handoff") {
+    return {
+      label: "Нужно действие",
+      className: "bg-amber-100 text-amber-700 border border-amber-200",
+    };
+  }
+
   if (report.verdict === "PASS" || report.status === "completed") {
     return {
       label: "Готов",

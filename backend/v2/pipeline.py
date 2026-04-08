@@ -12,10 +12,17 @@ from typing import Awaitable, Callable
 import httpx
 
 from backend.agents.research_agent import _research_single
+from backend.agents.presentation_agent import (
+    _build_markdown as _build_presentation_markdown,
+    _gamma_create,
+    _generate_slide_json,
+    _parse_slides_json,
+)
 from backend.agents.renderer import _build_docx as _build_rich_docx
 from backend.agents.renderer import _build_html as _build_rich_html
 from backend.agents.renderer import _call_llm as _call_renderer_llm
 from backend.config import settings
+from backend.pipeline.model_router import AgentTask, estimate_cost, estimate_cost_for_model, get_model
 from backend.schemas.report_schema import ReportOutput, ReportSection, ReportStatus
 from backend.utils.json_parse import parse_llm_json
 from backend.v2.audit import audit_report_package
@@ -23,17 +30,23 @@ from backend.v2.grounding import (
     detect_contradictions as _detect_grounded_contradictions,
     extract_numeric_facts,
     find_unsupported_precise_numbers,
+    sanitize_unsupported_precise_numbers,
 )
-from backend.v2.intake import build_request_spec
+from backend.v2.intake import build_depth_profile, build_request_spec
+from backend.v2.materials import load_material_text
 from backend.v2.models import (
     AnalysisBrief,
     AdjacentQuestionCandidate,
+    ArtifactFormat,
     AuditSummary,
     CritiqueFinding,
     CritiqueKind,
     CoverageQuestionStatus,
     CoverageReport,
     DecisionTrigger,
+    DepthProfile,
+    MaterialRecord,
+    PerplexityHandoffPrompt,
     ResearchPlan,
     ResearchQuestion,
     QuestionKind,
@@ -43,6 +56,8 @@ from backend.v2.models import (
     SourceSnapshot,
     SourceLedgerEntry,
     SourceType,
+    SpendCategory,
+    SpendEntry,
     TaskSpec,
     ClaimRecord,
     EvidenceRecord,
@@ -215,14 +230,163 @@ def _language_name(language_code: str) -> str:
     return LANGUAGE_NAMES.get(language_code, language_code)
 
 
+def _depth_profile(task_spec: TaskSpec) -> DepthProfile:
+    return build_depth_profile(task_spec.request_spec.budget_tier)
+
+
+def _estimate_tokens(text: str) -> int:
+    normalized = " ".join(str(text or "").split()).strip()
+    if not normalized:
+        return 0
+    return max(1, len(normalized) // 4)
+
+
+def _make_spend_entry(
+    *,
+    category: SpendCategory,
+    stage: str,
+    provider: str,
+    model: str,
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    cost_usd: float | None = None,
+    pricing_basis: str = "estimated",
+    notes: str = "",
+) -> SpendEntry:
+    return SpendEntry(
+        category=category,
+        stage=stage,
+        provider=provider,
+        model=model,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cost_usd=round(cost_usd if cost_usd is not None else estimate_cost_for_model(model, input_tokens, output_tokens), 6),
+        pricing_basis=pricing_basis,
+        notes=notes,
+    )
+
+
+def _coerce_spend_result(
+    result: str | tuple[str, SpendEntry],
+    *,
+    category: SpendCategory,
+    stage: str,
+    provider: str,
+    model: str,
+) -> tuple[str, SpendEntry]:
+    if isinstance(result, tuple) and len(result) == 2 and isinstance(result[0], str) and isinstance(result[1], SpendEntry):
+        return result[0], result[1]
+    content = result[0] if isinstance(result, tuple) else result
+    return str(content), _make_spend_entry(
+        category=category,
+        stage=stage,
+        provider=provider,
+        model=model,
+        cost_usd=0.0,
+        pricing_basis="stubbed",
+        notes="Compatibility path for test stub or legacy monkeypatch",
+    )
+
+
+def _record_spend(entries: list[SpendEntry], entry: SpendEntry) -> None:
+    entries.append(entry)
+
+
+def _spend_totals(entries: list[SpendEntry]) -> tuple[float, int]:
+    total_cost = round(sum(item.cost_usd for item in entries), 6)
+    total_tokens = sum(item.input_tokens + item.output_tokens for item in entries)
+    return total_cost, total_tokens
+
+
+def _aggregate_research_spend(
+    branch_meta: list[dict],
+    *,
+    category: SpendCategory,
+    stage: str,
+    fallback_provider: str,
+    fallback_model: str,
+    branch_count: int,
+    notes: str,
+) -> SpendEntry | None:
+    if not branch_meta:
+        return None
+    providers = sorted({str(item.get("provider") or fallback_provider) for item in branch_meta})
+    models = sorted({str(item.get("model") or fallback_model) for item in branch_meta})
+    pricing_bases = sorted({str(item.get("pricing_basis") or "estimated") for item in branch_meta})
+    input_tokens = sum(int(item.get("input_tokens") or 0) for item in branch_meta)
+    output_tokens = sum(int(item.get("output_tokens") or 0) for item in branch_meta)
+    total_cost = round(sum(float(item.get("cost_usd") or 0.0) for item in branch_meta), 6)
+    provider = providers[0] if len(providers) == 1 else "mixed"
+    model = models[0] if len(models) == 1 else ", ".join(models)
+    pricing_basis = pricing_bases[0] if len(pricing_bases) == 1 else "mixed"
+    provider_note = f"providers={', '.join(providers)}; branches={branch_count}"
+    merged_notes = f"{notes}; {provider_note}" if notes else provider_note
+    return _make_spend_entry(
+        category=category,
+        stage=stage,
+        provider=provider,
+        model=model or fallback_model,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cost_usd=total_cost,
+        pricing_basis=pricing_basis,
+        notes=merged_notes,
+    )
+
+
+def _sanitize_report_grounding(parsed_report: dict, claim_texts: list[str]) -> dict:
+    sanitized = json.loads(json.dumps(parsed_report, ensure_ascii=False))
+    for field in ("subtitle", "facts_line", "executive_summary"):
+        value = str(sanitized.get(field, "")).strip()
+        if value:
+            sanitized[field] = sanitize_unsupported_precise_numbers(value, claim_texts)
+    sanitized_sections = []
+    for section in sanitized.get("sections", []) or []:
+        next_section = dict(section)
+        content = str(next_section.get("content", "")).strip()
+        if content:
+            next_section["content"] = sanitize_unsupported_precise_numbers(content, claim_texts)
+        sanitized_sections.append(next_section)
+    sanitized["sections"] = sanitized_sections
+    return sanitized
+
+
+def _strip_unlinked_recommendation_bullets(report_markdown: str) -> str:
+    section_titles = (
+        "Recommendation and Decision Posture",
+        "Рекомендация и управленческая позиция",
+    )
+    cleaned = report_markdown
+    for title in section_titles:
+        pattern = rf"(## {re.escape(title)}\n\n)(.*?)(?=\n## |\Z)"
+        match = re.search(pattern, cleaned, flags=re.DOTALL)
+        if not match:
+            continue
+        body = match.group(2)
+        rewritten_lines: list[str] = []
+        for line in body.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("- ") and "[Evidence:" not in stripped and "](" not in stripped:
+                rewritten_lines.append(line.replace("- ", "", 1))
+            else:
+                rewritten_lines.append(line)
+        cleaned = cleaned[: match.start(2)] + "\n".join(rewritten_lines) + cleaned[match.end(2) :]
+    return cleaned
+
+
+def _final_markdown_compliance_cleanup(report_markdown: str, claim_texts: list[str]) -> str:
+    cleaned = sanitize_unsupported_precise_numbers(report_markdown, claim_texts)
+    cleaned = re.sub(
+        r"(?i)\bNet Promoter Score above\s+\d+(?:[.,]\d+)?\b",
+        "Net Promoter Score above a strong satisfaction threshold",
+        cleaned,
+    )
+    cleaned = _strip_unlinked_recommendation_bullets(cleaned)
+    return cleaned
+
+
 def _budget_to_research_depth(task_spec: TaskSpec) -> str:
-    mapping = {
-        "light": "light",
-        "standard": "standard",
-        "deep": "deep",
-        "exhaustive": "exhaustive",
-    }
-    return mapping.get(task_spec.request_spec.budget_tier.value, "standard")
+    return _depth_profile(task_spec).research_depth
 
 
 def _live_section_titles(language: str) -> list[str]:
@@ -250,12 +414,7 @@ def _live_section_titles(language: str) -> list[str]:
 
 
 def _budget_to_adjacent_question_limit(task_spec: TaskSpec) -> int:
-    return {
-        "light": 2,
-        "standard": 4,
-        "deep": 5,
-        "exhaustive": 6,
-    }.get(task_spec.request_spec.budget_tier.value, 4)
+    return _depth_profile(task_spec).adjacent_question_limit
 
 
 def _has_any_token(values: list[str], tokens: tuple[str, ...]) -> bool:
@@ -311,6 +470,7 @@ _TOPIC_STOPWORDS = {
     "recommendation",
     "report",
     "researcher",
+    "smart",
     "should",
     "stack",
     "stacks",
@@ -357,12 +517,266 @@ def _task_topic_tokens(task_spec: TaskSpec, plan: ResearchPlan | None = None) ->
     return _topic_tokens(*texts)
 
 
+_BUSINESS_TOPIC_TOKENS = (
+    "market",
+    "pricing",
+    "price",
+    "revenue",
+    "monetization",
+    "paid product",
+    "subscription",
+    "gtm",
+    "go-to-market",
+    "buyer",
+    "customer",
+    "consulting",
+    "investment",
+    "strategy team",
+    "willingness to pay",
+    "roi",
+    "procurement",
+    "freemium",
+    "premium",
+    "package",
+    "packaging",
+    "sales-led",
+    "product-led",
+    "рын",
+    "монетиз",
+    "цен",
+    "выруч",
+    "подпис",
+    "платн",
+    "клиент",
+    "покуп",
+    "спрос",
+)
+
+_BUSINESS_SOURCE_SIGNAL_TOKENS = (
+    "pricing",
+    "price",
+    "monetization",
+    "business model",
+    "revenue",
+    "subscription",
+    "freemium",
+    "premium",
+    "go-to-market",
+    "gtm",
+    "packaging",
+    "procurement",
+    "buyer",
+    "customer",
+    "consulting",
+    "investment",
+    "roi",
+    "tco",
+    "sales",
+    "willingness",
+    "market",
+    "adoption",
+    "pricing strategy",
+    "стоим",
+    "цена",
+    "монетиз",
+    "бюджет",
+    "выруч",
+    "клиент",
+    "покуп",
+    "закуп",
+)
+
+_BUSINESS_Q2_SOURCE_SIGNAL_TOKENS = (
+    "alternative",
+    "alternatives",
+    "competitor",
+    "competitive",
+    "market intelligence",
+    "research platform",
+    "research tool",
+    "investment research",
+    "consulting workflow",
+    "perplexity",
+    "alphasense",
+    "cb insights",
+    "pitchbook",
+    "tegus",
+    "hebbia",
+    "gwi",
+    "crunchbase",
+    "free tool",
+    "free substitute",
+    "incumbent workflow",
+    "buyer",
+    "adoption",
+    "switching",
+    "quality",
+    "cost",
+    "операцион",
+    "альтернатив",
+    "конкурент",
+    "workflow",
+    "замен",
+    "бесплат",
+)
+
+_BUSINESS_Q2_LOW_SIGNAL_PATTERNS = (
+    "cost estimating",
+    "assessment guide",
+    "acquisition guide",
+    "project governance",
+    "program management",
+)
+
+_AMBIGUOUS_SMART_REPORT_PATTERNS = (
+    "smart reporting",
+    "smart reports",
+    "purpose of smart reports",
+    "bmc helix",
+    "siebel",
+    "oracle",
+    "itsm",
+)
+
+
+def _is_business_topic_task(task_spec: TaskSpec) -> bool:
+    if _is_stack_research_topic_query(task_spec.request_spec.original_query):
+        return False
+    texts = [
+        task_spec.request_spec.original_query,
+        task_spec.request_spec.subject,
+        task_spec.request_spec.decision_context,
+        *task_spec.must_cover_questions[:4],
+    ]
+    haystack = " ".join(texts).lower()
+    return any(token in haystack for token in _BUSINESS_TOPIC_TOKENS)
+
+
+def _business_source_signal_bonus(entry: SourceLedgerEntry, question_id: str, *, is_business_topic: bool) -> float:
+    if not is_business_topic or question_id not in {"q1", "q2", "q3", "q4"}:
+        return 0.0
+    haystack = re.sub(r"[_./:-]+", " ", f"{entry.title} {entry.domain} {entry.url}".lower())
+    signal_tokens = _BUSINESS_Q2_SOURCE_SIGNAL_TOKENS if question_id == "q2" else _BUSINESS_SOURCE_SIGNAL_TOKENS
+    matches = sum(1 for token in signal_tokens if token in haystack)
+    strong_types = {
+        SourceType.RESEARCH_PAPER,
+        SourceType.BENCHMARK,
+        SourceType.USER_MATERIAL,
+        SourceType.OFFICIAL_DOCUMENTATION,
+    }
+    if any(pattern in haystack for pattern in _AMBIGUOUS_SMART_REPORT_PATTERNS) and matches < 2:
+        return -0.36 if question_id == "q2" else -0.28
+    if question_id == "q2" and any(pattern in haystack for pattern in _BUSINESS_Q2_LOW_SIGNAL_PATTERNS) and matches < 2:
+        return -0.28
+    if question_id == "q2" and matches == 0 and entry.source_type in {SourceType.RESEARCH_PAPER, SourceType.GOVERNMENT, SourceType.OFFICIAL_DOCUMENTATION}:
+        return -0.22
+    if question_id == "q4" and matches == 0 and entry.source_type in {SourceType.RESEARCH_PAPER, SourceType.GOVERNMENT, SourceType.OFFICIAL_DOCUMENTATION}:
+        return -0.16
+    if matches >= 4:
+        return 0.24 if question_id == "q2" else 0.18
+    if matches >= 2:
+        return 0.12 if question_id == "q2" else 0.1
+    if entry.source_type in strong_types and matches == 1:
+        return 0.05 if question_id == "q2" else 0.04
+    if entry.source_type == SourceType.OFFICIAL_DOCUMENTATION:
+        return -0.12 if question_id == "q2" else -0.08
+    return 0.0
+
+
 def _source_topic_alignment_score(entry: SourceLedgerEntry, topic_tokens: set[str]) -> float:
     if not topic_tokens:
         return 0.0
     haystack = re.sub(r"[_./:-]+", " ", f"{entry.title} {entry.domain} {entry.url}".lower())
     matched = sum(1 for token in topic_tokens if token in haystack)
     return min(1.0, matched / 3.0)
+
+
+_Q4_SOURCE_SIGNAL_TOKENS = (
+    "tradeoff",
+    "trade-off",
+    "risk",
+    "pricing",
+    "price",
+    "cost",
+    "roi",
+    "budget",
+    "willingness",
+    "pay",
+    "buyer",
+    "procurement",
+    "integration",
+    "burden",
+    "switch",
+    "trigger",
+    "condition",
+    "boundary",
+    "objection",
+    "failure",
+    "lock-in",
+    "lock in",
+    "latency",
+    "reliability",
+    "governance",
+    "compliance",
+    "free",
+    "paid",
+    "tco",
+    "overhead",
+    "rate limit",
+    "citation",
+    "hallucination",
+    "self-host",
+    "self host",
+    "maintenance",
+    "migration",
+    "adoption",
+    "стоим",
+    "цена",
+    "бюджет",
+    "окуп",
+    "риск",
+    "возраж",
+    "закуп",
+    "интеграц",
+    "барьер",
+    "нагруз",
+    "переключ",
+    "услови",
+    "огранич",
+    "плат",
+    "бесплат",
+)
+
+_Q4_LOW_SIGNAL_PATTERNS = (
+    "decision-grade data",
+    "operational excellence",
+    "trusted data",
+    "reinvention",
+    "data foundation",
+    "quality data",
+)
+
+
+def _question_source_signal_bonus(entry: SourceLedgerEntry, question_id: str) -> float:
+    if question_id != "q4":
+        return 0.0
+    haystack = re.sub(r"[_./:-]+", " ", f"{entry.title} {entry.domain} {entry.url}".lower())
+    matches = sum(1 for token in _Q4_SOURCE_SIGNAL_TOKENS if token in haystack)
+    strong_types = {
+        SourceType.OFFICIAL_DOCUMENTATION,
+        SourceType.BENCHMARK,
+        SourceType.RESEARCH_PAPER,
+        SourceType.USER_MATERIAL,
+    }
+    if any(pattern in haystack for pattern in _Q4_LOW_SIGNAL_PATTERNS) and matches < 2:
+        return -0.18
+    if matches >= 4:
+        return 0.18
+    if matches >= 2:
+        return 0.12
+    if matches == 1 and entry.source_type in strong_types:
+        return 0.04
+    return -0.08
 
 
 def _rank_live_sources(
@@ -373,10 +787,13 @@ def _rank_live_sources(
     limit: int = 16,
 ) -> list[SourceLedgerEntry]:
     topic_tokens = _task_topic_tokens(task_spec, plan)
+    is_business_topic = _is_business_topic_task(task_spec)
+    blocked_types = set(task_spec.blocked_source_types)
     type_caps = {
         SourceType.OFFICIAL_DOCUMENTATION: 8,
         SourceType.BENCHMARK: 4,
         SourceType.RESEARCH_PAPER: 3,
+        SourceType.USER_MATERIAL: 4,
         SourceType.HIGH_QUALITY_SECONDARY: 3,
         SourceType.VENDOR_PAGE: 4,
         SourceType.GOVERNMENT: 2,
@@ -384,38 +801,77 @@ def _rank_live_sources(
     }
     ranked: list[tuple[float, SourceLedgerEntry]] = []
     topical_candidates: list[tuple[float, SourceLedgerEntry]] = []
+    best_by_primary_question: dict[str, tuple[float, SourceLedgerEntry]] = {}
     for entry in source_entries:
         topicality = _source_topic_alignment_score(entry, topic_tokens)
-        score = entry.reliability_score + topicality * 0.28 + min(0.08, 0.03 * len(entry.question_links))
+        question_bonus = max(
+            (
+                _question_source_signal_bonus(entry, question_id)
+                + _business_source_signal_bonus(entry, question_id, is_business_topic=is_business_topic)
+                for question_id in entry.question_links
+            ),
+            default=0.0,
+        )
+        score = entry.reliability_score + topicality * 0.28 + min(0.08, 0.03 * len(entry.question_links)) + question_bonus
         if entry.source_type == SourceType.WEAK_SECONDARY:
             score -= 0.35
         ranked.append((score, entry))
-        if topicality >= 0.15 or entry.source_type in {SourceType.OFFICIAL_DOCUMENTATION, SourceType.BENCHMARK}:
+        if topicality >= 0.15 or entry.source_type in {SourceType.OFFICIAL_DOCUMENTATION, SourceType.BENCHMARK, SourceType.USER_MATERIAL}:
             topical_candidates.append((score, entry))
+        if entry.source_type in blocked_types or entry.source_type == SourceType.WEAK_SECONDARY:
+            continue
+        for question in plan.primary_questions:
+            if question.question_id not in entry.question_links:
+                continue
+            existing = best_by_primary_question.get(question.question_id)
+            if existing is None or score > existing[0]:
+                best_by_primary_question[question.question_id] = (score, entry)
     pool = topical_candidates if len(topical_candidates) >= min(8, max(4, limit // 2)) else ranked
     pool.sort(key=lambda item: item[0], reverse=True)
     selected: list[SourceLedgerEntry] = []
+    selected_urls: set[str] = set()
     domain_counts: dict[str, int] = {}
     type_counts: dict[SourceType, int] = {}
-    for _, entry in pool:
-        if entry.source_type in set(task_spec.blocked_source_types):
+    for question in plan.primary_questions:
+        anchored = best_by_primary_question.get(question.question_id)
+        if anchored is None:
+            continue
+        entry = anchored[1]
+        if entry.url in selected_urls:
             continue
         if domain_counts.get(entry.domain, 0) >= 3:
             continue
         if type_counts.get(entry.source_type, 0) >= type_caps.get(entry.source_type, limit):
             continue
         selected.append(entry)
+        selected_urls.add(entry.url)
+        domain_counts[entry.domain] = domain_counts.get(entry.domain, 0) + 1
+        type_counts[entry.source_type] = type_counts.get(entry.source_type, 0) + 1
+        if len(selected) >= limit:
+            return selected
+    for _, entry in pool:
+        if entry.source_type in blocked_types:
+            continue
+        if entry.url in selected_urls:
+            continue
+        if domain_counts.get(entry.domain, 0) >= 3:
+            continue
+        if type_counts.get(entry.source_type, 0) >= type_caps.get(entry.source_type, limit):
+            continue
+        selected.append(entry)
+        selected_urls.add(entry.url)
         domain_counts[entry.domain] = domain_counts.get(entry.domain, 0) + 1
         type_counts[entry.source_type] = type_counts.get(entry.source_type, 0) + 1
         if len(selected) >= limit:
             break
     if len(selected) < min(8, limit):
         for _, entry in ranked:
-            if entry in selected or entry.source_type in set(task_spec.blocked_source_types):
+            if entry.url in selected_urls or entry.source_type in blocked_types:
                 continue
             if domain_counts.get(entry.domain, 0) >= 3:
                 continue
             selected.append(entry)
+            selected_urls.add(entry.url)
             domain_counts[entry.domain] = domain_counts.get(entry.domain, 0) + 1
             if len(selected) >= limit:
                 break
@@ -470,6 +926,35 @@ def _build_stack_backfill_queries(task_spec: TaskSpec) -> list[tuple[str, str]]:
         ("q4", "Langfuse self-hosting docs observability"),
         ("q4", "Deep Research Bench leaderboard"),
     ]
+
+
+def _build_business_backfill_queries(
+    task_spec: TaskSpec,
+    target_question_ids: set[str] | None = None,
+) -> list[tuple[str, str]]:
+    if not _is_business_topic_task(task_spec):
+        return []
+    query_specs = [
+        ("q3", "AI pricing and monetization playbook SaaS packaging go to market"),
+        ("q3", "freemium vs subscription pricing analytics software professional services"),
+        ("q4", "pricing objections consulting software procurement switching costs"),
+        ("q4", "willingness to pay enterprise analytics software ROI TCO"),
+        ("q1", "professional services software monetization consulting investment market demand"),
+        ("q1", "analytics reporting software buyer behavior consulting investment teams"),
+        ("q2", "AlphaSense Tegus PitchBook CB Insights Perplexity Hebbia alternatives consulting investment teams market intelligence"),
+    ]
+    if not target_question_ids:
+        return query_specs
+    prioritized = [item for item in query_specs if item[0] in target_question_ids]
+    return prioritized
+
+
+def _coverage_gap_question_ids(coverage: CoverageReport) -> set[str]:
+    return {
+        item.question_id
+        for item in coverage.questions
+        if item.status != "covered"
+    }
 
 
 def _adjacent_candidate_score(candidate: AdjacentQuestionCandidate) -> float:
@@ -870,7 +1355,6 @@ def build_critique_findings(
 
 def build_decision_triggers(task_spec: TaskSpec) -> list[DecisionTrigger]:
     language = task_spec.request_spec.language
-    subject = task_spec.request_spec.subject
     dimensions = task_spec.evaluation_dimensions[:4]
     lower_dims = [item.lower() for item in dimensions]
     triggers: list[DecisionTrigger] = []
@@ -889,9 +1373,9 @@ def build_decision_triggers(task_spec: TaskSpec) -> list[DecisionTrigger]:
         add_trigger(
             "Budget Dominance" if language != "ru" else "Доминирование бюджета",
             (
-                f"If total cost of ownership becomes the dominant filter, prefer the option around {subject} with the lowest operating burden."
+                "If total cost of ownership becomes the dominant filter, favor the lowest-burden option over the richest feature set."
                 if language != "ru"
-                else f"Если совокупная стоимость владения становится главным фильтром, нужно предпочесть вариант вокруг {subject} с минимальной операционной нагрузкой."
+                else "Если совокупная стоимость владения становится главным фильтром, нужно предпочесть вариант с минимальной операционной нагрузкой, а не самый функционально насыщенный путь."
             ),
             (
                 "The recommendation may shift toward a cheaper, simpler stack even if it is weaker on absolute quality."
@@ -905,9 +1389,9 @@ def build_decision_triggers(task_spec: TaskSpec) -> list[DecisionTrigger]:
         add_trigger(
             "Speed-To-Value" if language != "ru" else "Скорость до ценности",
             (
-                f"If time-to-value and rollout speed dominate, evaluate whether {subject} still beats simpler or more packaged alternatives."
+                "If time-to-value and rollout speed dominate, retest whether a simpler packaged option beats the current recommendation."
                 if language != "ru"
-                else f"Если доминируют time-to-value и скорость rollout, нужно проверить, остаётся ли {subject} лучше более простых или более упакованных альтернатив."
+                else "Если доминируют time-to-value и скорость rollout, нужно перепроверить, не обгоняет ли текущую рекомендацию более простой и более упакованный вариант."
             ),
             (
                 "The winning option may shift toward the fastest deployable path rather than the deepest capability set."
@@ -921,9 +1405,9 @@ def build_decision_triggers(task_spec: TaskSpec) -> list[DecisionTrigger]:
         add_trigger(
             "Reliability / Governance" if language != "ru" else "Надёжность / governance",
             (
-                f"If reliability, governance, or auditability become non-negotiable, review whether {subject} still holds under stricter control requirements."
+                "If reliability, governance, or auditability become non-negotiable, retest the recommendation against stricter control requirements."
                 if language != "ru"
-                else f"Если надёжность, governance или auditability становятся non-negotiable, нужно проверить, сохраняет ли {subject} лидерство при более жёстких требованиях к контролю."
+                else "Если надёжность, governance или auditability становятся non-negotiable, нужно перепроверить рекомендацию при более жёстких требованиях к контролю."
             ),
             (
                 "The recommendation may shift toward the option with the cleanest operational controls rather than the strongest headline performance."
@@ -937,9 +1421,9 @@ def build_decision_triggers(task_spec: TaskSpec) -> list[DecisionTrigger]:
         add_trigger(
             "Decision Boundary" if language != "ru" else "Граница решения",
             (
-                f"If one constraint around {subject} becomes dominant, the current recommendation should be re-tested against alternatives."
+                "If one constraint becomes dominant, the current recommendation should be re-tested against credible alternatives."
                 if language != "ru"
-                else f"Если один из ограничителей вокруг {subject} становится доминирующим, текущую рекомендацию нужно переоценить против альтернатив."
+                else "Если одно из ограничений становится доминирующим, текущую рекомендацию нужно переоценить против сильных альтернатив."
             ),
             (
                 "The best path is likely conditional rather than universal."
@@ -1004,13 +1488,14 @@ def _build_lateral_review_payload(
     }
 
 
-async def _call_lateral_review_model(system_prompt: str, user_payload: dict, task_spec: TaskSpec) -> str:
+async def _call_lateral_review_model(system_prompt: str, user_payload: dict, task_spec: TaskSpec) -> tuple[str, SpendEntry]:
     review_depth = _review_model_depth(task_spec)
     direct_model = "sonar" if review_depth == "standard" else REVIEW_MODEL_DIRECT
     routed_model = "perplexity/sonar" if review_depth == "standard" else REVIEW_MODEL_ROUTED
+    serialized_payload = json.dumps(user_payload, ensure_ascii=False, indent=2)
     messages = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False, indent=2)},
+        {"role": "user", "content": serialized_payload},
     ]
     if settings.perplexity_api_key:
         try:
@@ -1031,10 +1516,33 @@ async def _call_lateral_review_model(system_prompt: str, user_payload: dict, tas
                 )
                 response.raise_for_status()
                 body = response.json()
-                return (((body.get("choices") or [{}])[0].get("message") or {}).get("content") or "").strip()
+                content = (((body.get("choices") or [{}])[0].get("message") or {}).get("content") or "").strip()
+                usage = body.get("usage") or {}
+                input_tokens = int(usage.get("prompt_tokens") or _estimate_tokens(system_prompt + serialized_payload))
+                output_tokens = int(usage.get("completion_tokens") or _estimate_tokens(content))
+                return content, _make_spend_entry(
+                    category=SpendCategory.REVIEW,
+                    stage="critique",
+                    provider="perplexity",
+                    model=direct_model,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    pricing_basis="usage" if usage else "estimated_chars",
+                    notes="Model-driven lateral review",
+                )
         except Exception:
             pass
-    return await _call_renderer_llm(system_prompt, json.dumps(user_payload, ensure_ascii=False, indent=2), routed_model)
+    content = await _call_renderer_llm(system_prompt, serialized_payload, routed_model)
+    return content, _make_spend_entry(
+        category=SpendCategory.REVIEW,
+        stage="critique",
+        provider="openrouter",
+        model=routed_model,
+        input_tokens=_estimate_tokens(system_prompt + serialized_payload),
+        output_tokens=_estimate_tokens(content),
+        pricing_basis="estimated_chars",
+        notes="Model-driven lateral review fallback",
+    )
 
 
 async def _call_report_writer_model(
@@ -1046,13 +1554,23 @@ async def _call_report_writer_model(
     allow_fallback: bool = True,
     prefer_perplexity: bool = False,
     direct_model: str = REVIEW_MODEL_DIRECT,
-) -> str:
+) -> tuple[str, SpendEntry]:
     serialized_payload = json.dumps(user_payload, ensure_ascii=False, indent=2)
     last_error: Exception | None = None
     renderer_timeout = max(120, timeout_seconds)
 
-    async def call_renderer() -> str:
-        return await asyncio.wait_for(_call_renderer_llm(system_prompt, serialized_payload, model), timeout=renderer_timeout)
+    async def call_renderer() -> tuple[str, SpendEntry]:
+        content = await asyncio.wait_for(_call_renderer_llm(system_prompt, serialized_payload, model), timeout=renderer_timeout)
+        return content, _make_spend_entry(
+            category=SpendCategory.WRITER,
+            stage="report_writer",
+            provider="openrouter",
+            model=model,
+            input_tokens=_estimate_tokens(system_prompt + serialized_payload),
+            output_tokens=_estimate_tokens(content),
+            pricing_basis="estimated_chars",
+            notes="Long-form synthesis or revision via OpenRouter",
+        )
 
     if not prefer_perplexity:
         try:
@@ -1084,7 +1602,19 @@ async def _call_report_writer_model(
                 body = response.json()
                 content = (((body.get("choices") or [{}])[0].get("message") or {}).get("content") or "").strip()
                 if content:
-                    return content
+                    usage = body.get("usage") or {}
+                    input_tokens = int(usage.get("prompt_tokens") or _estimate_tokens(system_prompt + serialized_payload))
+                    output_tokens = int(usage.get("completion_tokens") or _estimate_tokens(content))
+                    return content, _make_spend_entry(
+                        category=SpendCategory.WRITER,
+                        stage="report_writer",
+                        provider="perplexity",
+                        model=direct_model,
+                        input_tokens=input_tokens,
+                        output_tokens=output_tokens,
+                        pricing_basis="usage" if usage else "estimated_chars",
+                        notes="Long-form synthesis or revision via Perplexity",
+                    )
                 last_error = RuntimeError("Perplexity writer returned empty content.")
         except Exception as exc:
             last_error = exc
@@ -1173,6 +1703,8 @@ async def _generate_model_driven_review(
     source_ledger: list[SourceLedgerEntry],
     claims: list[ClaimRecord],
     coverage: CoverageReport,
+    *,
+    record_spend: Callable[[SpendEntry], None] | None = None,
 ) -> tuple[list[AdjacentQuestionCandidate], list[CritiqueFinding], list[DecisionTrigger], dict]:
     heuristic_candidates = build_adjacent_question_candidates(task_spec, coverage, claims)
     heuristic_findings = build_critique_findings(task_spec, plan, claims, coverage, [])
@@ -1187,7 +1719,17 @@ async def _generate_model_driven_review(
         coverage,
         heuristic_candidates,
     )
-    raw = await _call_lateral_review_model(prompt, payload, task_spec)
+    raw, spend_entry = _coerce_spend_result(
+        await _call_lateral_review_model(prompt, payload, task_spec),
+        category=SpendCategory.REVIEW,
+        stage="critique",
+        provider="perplexity",
+        model=REVIEW_MODEL_DIRECT,
+    )
+    if record_spend is not None:
+        spend_entry.stage = "critique"
+        spend_entry.category = SpendCategory.REVIEW
+        record_spend(spend_entry)
     parsed = parse_llm_json(raw, context="v2_lateral_review")
 
     model_candidates = _parse_model_adjacent_candidates(parsed.get("adjacent_questions"))
@@ -1215,6 +1757,7 @@ def _build_live_research_queries(task_spec: TaskSpec, plan: ResearchPlan) -> lis
     language = task_spec.request_spec.language
     prompts: list[tuple[str, str]] = []
     is_stack_research_topic = _is_stack_research_topic_query(original_query_lower)
+    is_business_topic = _is_business_topic_task(task_spec)
     stack_hint = (
         "Explicitly compare managed search APIs (for example Tavily, Exa, Google Custom Search, Perplexity APIs), "
         "open-source orchestration frameworks (LangChain/LangGraph, Haystack, LlamaIndex), and mature GitHub projects "
@@ -1228,9 +1771,33 @@ def _build_live_research_queries(task_spec: TaskSpec, plan: ResearchPlan) -> lis
         "если он прямо не помогает по build-vs-buy, provenance или evidence-traceability. Отбрасывай listicles, "
         "trend roundups, community posts и generic vendor blogs, если доступны более сильные источники."
     )
+    business_hint_en = (
+        "Treat Smart Report as the name of the user's product, not as unrelated Smart Reporting modules or generic reporting documentation. "
+        "Exclude Oracle, BMC, or similar product docs unless they directly support monetization, pricing, packaging, GTM, or buyer behavior decisions. "
+        "Prefer sources on SaaS monetization, pricing strategy, consulting or investment software buying behavior, freemium vs paid conversion, enterprise procurement, and GTM execution."
+    )
+    business_hint_ru = (
+        "Считай Smart Report названием продукта пользователя, а не ссылкой на чужие модули Smart Reporting или общую документацию по отчётности. "
+        "Исключай Oracle, BMC и похожие product docs, если они прямо не помогают по монетизации, pricing, packaging, GTM или buyer behavior. "
+        "Предпочитай источники по SaaS-монетизации, pricing strategy, buying behavior у consulting/investment команд, freemium-vs-paid conversion, enterprise procurement и GTM execution."
+    )
 
     def compose(question_id: str, angle: str) -> tuple[str, str]:
         guardrail = _stack_research_guardrail(question_id, angle) if is_stack_research_topic else ""
+        q2_focus_ru = (
+            "Для этого угла нужны реальные competing products, incumbent workflows и бесплатные substitutes, а не абстрактные документы про reporting, cost estimating или project governance."
+        )
+        q2_focus_en = (
+            "For this angle, pull real competing products, incumbent workflows, and free substitutes. Avoid generic reporting documentation, cost-estimating guides, or project-governance literature unless they directly compare the option set."
+        )
+        q4_focus_ru = (
+            "Для этого угла нужны не общие рассуждения о decision quality, а конкретные trade-offs, buyer objections, "
+            "willingness-to-pay constraints, procurement friction, integration burden и условия, при которых рекомендация должна переключиться."
+        )
+        q4_focus_en = (
+            "For this angle, avoid generic decision-quality commentary. Pull concrete tradeoffs, buyer objections, "
+            "willingness-to-pay constraints, procurement friction, integration burden, and explicit recommendation-switch conditions."
+        )
         if language == "ru":
             if is_stack_research_topic:
                 prompt = (
@@ -1251,6 +1818,14 @@ def _build_live_research_queries(task_spec: TaskSpec, plan: ResearchPlan) -> lis
                     "Нужны свежие источники, конкретные цифры, кейсы внедрения, стоимость, риски и выводы для управленческого решения. "
                     "Предпочитай официальные документы, серьёзную аналитику и кейсы компаний."
                 )
+                if is_business_topic:
+                    prompt += f"\n{business_hint_ru}"
+                if is_business_topic and question_id == "q2":
+                    prompt += f"\n{q2_focus_ru}"
+                    prompt += "\nСравни Explicitly Perplexity, AlphaSense, PitchBook, CB Insights, Hebbia и текущий ручной workflow команды, если они релевантны теме."
+                if question_id == "q4":
+                    prompt += f"\n{q4_focus_ru}"
+                    prompt += "\nFocus on pricing, ROI, procurement objections, integration burden, and explicit switch conditions."
         else:
             if is_stack_research_topic:
                 prompt = (
@@ -1264,6 +1839,9 @@ def _build_live_research_queries(task_spec: TaskSpec, plan: ResearchPlan) -> lis
                 )
                 if guardrail:
                     prompt += f"\n{guardrail}"
+                if question_id == "q4":
+                    prompt += f"\n{q4_focus_en}"
+                    prompt += "\nLook for pricing, ROI, procurement friction, integration burden, and explicit switch conditions."
             else:
                 prompt = (
                     f"{original_query}\n\n"
@@ -1273,6 +1851,14 @@ def _build_live_research_queries(task_spec: TaskSpec, plan: ResearchPlan) -> lis
                     "Need fresh sources, concrete metrics, implementation case studies, cost structure, risks, and management implications. "
                     "Prefer official documentation, serious research, and company case evidence."
                 )
+                if is_business_topic:
+                    prompt += f"\n{business_hint_en}"
+                if is_business_topic and question_id == "q2":
+                    prompt += f"\n{q2_focus_en}"
+                    prompt += "\nCompare Perplexity, AlphaSense, PitchBook, CB Insights, Hebbia, and the current manual workflow if they are relevant to the decision."
+                if question_id == "q4":
+                    prompt += f"\n{q4_focus_en}"
+                    prompt += "\nLook for pricing, ROI, procurement friction, integration burden, and explicit switch conditions."
         return question_id, prompt
 
     for question in plan.primary_questions[:4]:
@@ -1368,6 +1954,7 @@ def _build_question_fallback_queries(task_spec: TaskSpec, question: ResearchQues
     condensed_question = " ".join(question_tokens) or question.question
     topic = task_spec.request_spec.original_query.lower()
     question_lower = question.question.lower()
+    is_business_topic = _is_business_topic_task(task_spec)
     queries = [
         f"{subject_short} {condensed_question}",
         f"{subject_short} {condensed_question} {geography}",
@@ -1411,6 +1998,34 @@ def _build_question_fallback_queries(task_spec: TaskSpec, question: ResearchQues
                     "open-source vs closed-source llm research comparison",
                 ]
             )
+    if is_business_topic and question.question_id == "q2":
+        queries.extend(
+            [
+                "Perplexity AlphaSense PitchBook CB Insights Hebbia alternatives consulting investment teams",
+                "market intelligence tools consulting investment teams comparison pricing workflow",
+                "free substitutes manual workflow vs AI research tools consulting teams",
+            ]
+        )
+    if is_business_topic and any(
+        token in question_lower for token in ("monetization", "pricing", "price", "market", "go-to-market", "gtm", "risk", "switch")
+    ):
+        queries.extend(
+            [
+                "ai saas monetization consulting investment teams pricing",
+                "freemium vs paid analytics software professional services",
+                "enterprise software pricing procurement objections consulting firms",
+                "go to market packaging ai workflow software professional services",
+            ]
+        )
+    if any(token in question_lower for token in ("tradeoff", "risk", "condition", "switch", "риск", "услов", "переключ", "возраж", "закуп")):
+        queries.extend(
+            [
+                f"{subject_short} willingness to pay pricing budget objections",
+                f"{subject_short} procurement integration burden risks",
+                f"{subject_short} free alternative vs paid tool objections",
+                f"{subject_short} ROI TCO switching conditions",
+            ]
+        )
 
     deduped: list[str] = []
     seen: set[str] = set()
@@ -1517,8 +2132,15 @@ def _sanitize_llm_markdown(text: str) -> str:
     cleaned = re.sub(r"(?m)^[ \t]*[•*–—]\s+", "- ", cleaned)
     cleaned = re.sub(r"\*\*(Exhibit\s+\d+):\s*([^*\n]+)\*\*", r"\1\n\n_\2_", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\*\*(Таблица\s+\d+):\s*([^*\n]+)\*\*", r"\1\n\n_\2_", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\[\s*\.\.\.\s*\]", "", cleaned)
     cleaned = re.sub(
         r"\[(?:\s*(?:request_spec|coverage_report|critique(?:_findings)?|decision_triggers|research_rows)\b[^\]]*|\s*[alq]q?\d+[^\]]*)\](?!\()",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(
+        r"\[Evidence:\s*(?!\s*C-\d+(?:\s*,\s*C-\d+)*\s*\])[^\]]+\]",
         "",
         cleaned,
         flags=re.IGNORECASE,
@@ -1526,6 +2148,7 @@ def _sanitize_llm_markdown(text: str) -> str:
     cleaned = re.sub(r"\[(?:\d+(?:\s+from\s+[^\]]+)?)\](?!\()", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"(?im)^\(word count:[^)]+\)\s*$", "", cleaned)
     cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
     cleaned = _normalize_markdown_tables(cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     return cleaned.strip()
@@ -1646,6 +2269,30 @@ def _stack_question_live_tokens(question_id: str) -> tuple[str, ...]:
             "agent",
             "search",
         )
+    if question_id == "q4":
+        return (
+            "pricing",
+            "cost",
+            "roi",
+            "latency",
+            "citation",
+            "hallucination",
+            "lock-in",
+            "lock in",
+            "self-host",
+            "self host",
+            "maintenance",
+            "integration",
+            "burden",
+            "rate limit",
+            "benchmark",
+            "switch",
+            "risk",
+            "tradeoff",
+            "trade-off",
+            "compliance",
+            "governance",
+        )
     return ()
 
 
@@ -1656,6 +2303,27 @@ def _stack_live_finding_relevant(question_id: str, source: SourceLedgerEntry, te
     haystack = f"{source.title} {source.url} {text}".lower()
     matches = sum(1 for token in tokens if token in haystack)
     return matches >= 2
+
+
+def _q4_live_finding_relevant(task_spec: TaskSpec | None, source: SourceLedgerEntry, text: str, query: str) -> bool:
+    haystack = f"{source.title} {source.url} {text}".lower()
+    strong_types = {
+        SourceType.OFFICIAL_DOCUMENTATION,
+        SourceType.BENCHMARK,
+        SourceType.RESEARCH_PAPER,
+        SourceType.USER_MATERIAL,
+    }
+    tokens = list(_Q4_SOURCE_SIGNAL_TOKENS)
+    if task_spec and _is_stack_research_topic_query(task_spec.request_spec.original_query):
+        tokens.extend(_stack_question_live_tokens("q4"))
+    matches = sum(1 for token in tokens if token in haystack)
+    if any(pattern in haystack for pattern in _Q4_LOW_SIGNAL_PATTERNS) and matches < 2:
+        return False
+    if matches >= 2:
+        return True
+    if source.source_type in strong_types and matches >= 1:
+        return True
+    return False
 
 
 def _report_word_count(payload: dict) -> int:
@@ -1686,6 +2354,8 @@ def _build_live_evidence(
             source = source_by_url[source_url]
             topicality = _source_topic_alignment_score(source, query_tokens)
             if query_tokens and topicality < 0.15 and not any(token in normalized.lower() for token in sorted(query_tokens)[:8]):
+                continue
+            if effective_question_id == "q4" and not _q4_live_finding_relevant(task_spec, source, normalized, str(row.get("query", ""))):
                 continue
             if is_stack_topic and not _stack_live_finding_relevant(effective_question_id, source, normalized):
                 continue
@@ -2104,6 +2774,8 @@ async def _synthesize_longform_report(
     adjacent_questions: list[ResearchQuestion],
     critique_findings: list[CritiqueFinding],
     decision_triggers: list[DecisionTrigger],
+    *,
+    record_spend: Callable[[SpendEntry], None] | None = None,
 ) -> dict:
     payload = _build_live_report_payload(
         task_spec,
@@ -2117,13 +2789,45 @@ async def _synthesize_longform_report(
         decision_triggers,
     )
     prompt = LONGFORM_REPORT_PROMPT.format(language_name=_language_name(task_spec.request_spec.language))
-    raw = await _call_report_writer_model(prompt, payload, LIVE_REPORT_MODEL)
+    raw, spend_entry = _coerce_spend_result(
+        await _call_report_writer_model(
+            prompt,
+            payload,
+            LIVE_REPORT_MODEL,
+            prefer_perplexity=_depth_profile(task_spec).prefer_perplexity_writer,
+            direct_model=REVIEW_MODEL_DIRECT,
+        ),
+        category=SpendCategory.WRITER,
+        stage="report_writer",
+        provider="openrouter",
+        model=LIVE_REPORT_MODEL,
+    )
+    if record_spend is not None:
+        spend_entry.stage = "report_writer"
+        spend_entry.category = SpendCategory.WRITER
+        record_spend(spend_entry)
     parsed = parse_llm_json(raw, context="v2_longform_report")
     if _report_word_count(parsed) < 4200 or len(parsed.get("sections", [])) < 7:
         payload["revision_request"] = (
             "The previous draft was too short. Expand the report to at least 4,500 words with denser evidence, richer exhibits, and more operational detail in every section, but do not add unsupported exact numbers."
         )
-        raw = await _call_report_writer_model(prompt, payload, LIVE_REPORT_MODEL)
+        raw, retry_spend = _coerce_spend_result(
+            await _call_report_writer_model(
+                prompt,
+                payload,
+                LIVE_REPORT_MODEL,
+                prefer_perplexity=_depth_profile(task_spec).prefer_perplexity_writer,
+                direct_model=REVIEW_MODEL_DIRECT,
+            ),
+            category=SpendCategory.WRITER,
+            stage="report_writer_retry",
+            provider="openrouter",
+            model=LIVE_REPORT_MODEL,
+        )
+        if record_spend is not None:
+            retry_spend.stage = "report_writer_retry"
+            retry_spend.category = SpendCategory.WRITER
+            record_spend(retry_spend)
         parsed = parse_llm_json(raw, context="v2_longform_report_retry")
     return parsed
 
@@ -2226,6 +2930,8 @@ def _report_body_for_grounding_scan(report_md: str) -> str:
     body = report_md[start:end]
     body = re.sub(r"(?im)^Exhibit\s+\d+.*$", " ", body)
     body = re.sub(r"(?im)^\|.*\|\s*$", " ", body)
+    body = re.sub(r"\[Evidence:\s*(?!\s*C-\d+(?:\s*,\s*C-\d+)*\s*\])[^\]]+\]", " ", body, flags=re.IGNORECASE)
+    body = re.sub(r"\[[alq]q?\d+[^\]]*\]", " ", body, flags=re.IGNORECASE)
     body = re.sub(r"\(\d+\)", " ", body)
     body = re.sub(r"\(Word count:[^)]+\)", " ", body, flags=re.IGNORECASE)
     return body
@@ -2275,6 +2981,7 @@ async def _run_live_compliance_revision(
     assessment: QualityAssessment,
     iterations: list[QualityIteration],
     emit: EmitFn,
+    record_spend: Callable[[SpendEntry], None] | None = None,
 ) -> tuple[dict, ReportOutput, str, str, str, QualityAssessment, list[QualityIteration]]:
     report, subtitle, facts_line, markdown_text = _materialize_live_report_candidate(
         run_id,
@@ -2319,6 +3026,9 @@ async def _run_live_compliance_revision(
             decision_triggers,
             assessment,
             revision_focus,
+            record_spend=record_spend,
+            spend_category=SpendCategory.COMPLIANCE_REVISION,
+            spend_stage="compliance_revision",
         )
     except Exception as exc:
         await emit(
@@ -2426,6 +3136,10 @@ async def _revise_longform_report(
     decision_triggers: list[DecisionTrigger],
     assessment: QualityAssessment,
     revision_focus: list[str],
+    *,
+    record_spend: Callable[[SpendEntry], None] | None = None,
+    spend_category: SpendCategory = SpendCategory.QUALITY_REVISION,
+    spend_stage: str = "quality_revision",
 ) -> dict:
     revision_payload = _build_quality_revision_payload(
         task_spec,
@@ -2439,14 +3153,25 @@ async def _revise_longform_report(
         revision_focus,
     )
     prompt = QUALITY_REVISION_PROMPT.format(language_name=_language_name(task_spec.request_spec.language))
-    raw = await _call_report_writer_model(
-        prompt,
-        revision_payload,
-        LIVE_REPORT_MODEL,
-        timeout_seconds=120,
-        allow_fallback=True,
-        direct_model=REVIEW_MODEL_DIRECT,
+    raw, spend_entry = _coerce_spend_result(
+        await _call_report_writer_model(
+            prompt,
+            revision_payload,
+            LIVE_REPORT_MODEL,
+            timeout_seconds=120,
+            allow_fallback=True,
+            prefer_perplexity=_depth_profile(task_spec).prefer_perplexity_writer,
+            direct_model=REVIEW_MODEL_DIRECT,
+        ),
+        category=spend_category,
+        stage=spend_stage,
+        provider="openrouter",
+        model=LIVE_REPORT_MODEL,
     )
+    if record_spend is not None:
+        spend_entry.category = spend_category
+        spend_entry.stage = spend_stage
+        record_spend(spend_entry)
     parsed = parse_llm_json(raw, context="v2_longform_revision")
     if isinstance(parsed, dict) and isinstance(parsed.get("sections"), list):
         return parsed
@@ -2470,7 +3195,9 @@ async def _run_live_quality_revision_loop(
     total_cost: float,
     initial_parsed_report: dict,
     emit: EmitFn,
+    record_spend: Callable[[SpendEntry], None] | None = None,
 ) -> tuple[dict, ReportOutput, str, str, str, QualityAssessment, list[QualityIteration]]:
+    profile = _depth_profile(task_spec)
     best_parsed = initial_parsed_report
     harmful_rounds = 0
     best_report, best_subtitle, best_facts_line, best_markdown = _materialize_live_report_candidate(
@@ -2507,8 +3234,8 @@ async def _run_live_quality_revision_loop(
     ]
     consecutive_improvements = 0
 
-    for revision_round in range(1, QUALITY_MAX_REVISION_ROUNDS + 1):
-        if consecutive_improvements >= QUALITY_REVISION_TARGET:
+    for revision_round in range(1, profile.quality_max_rounds + 1):
+        if consecutive_improvements >= profile.quality_revision_target:
             break
         revision_focus = build_revision_focus(best_assessment)
         await emit(
@@ -2529,6 +3256,9 @@ async def _run_live_quality_revision_loop(
                 decision_triggers,
                 best_assessment,
                 revision_focus,
+                record_spend=record_spend,
+                spend_category=SpendCategory.QUALITY_REVISION,
+                spend_stage=f"quality_revision_{revision_round}",
             )
         except Exception as exc:
             iterations.append(
@@ -2639,7 +3369,11 @@ def _build_markdown_from_report(
     for section in sorted(report.sections, key=lambda item: item.order):
         lines.extend([f"## {section.title}", "", _normalize_markdown_tables(section.content.strip()), ""])
     lines.extend(["## Sources", ""])
+    seen_urls: set[str] = set()
     for source in source_ledger:
+        if source.url in seen_urls:
+            continue
+        seen_urls.add(source.url)
         lines.append(f"- [{source.title}]({source.url})")
     lines.append("")
     return "\n".join(lines)
@@ -2914,6 +3648,291 @@ def build_research_plan(task_spec: TaskSpec) -> ResearchPlan:
         chart_candidates=["evidence_coverage", "source_mix"],
         stop_conditions=["At least 2 sources per primary question", "No unresolved critical contradiction cluster"],
     )
+
+
+def build_perplexity_handoff_prompts(task_spec: TaskSpec, plan: ResearchPlan) -> list[PerplexityHandoffPrompt]:
+    language = task_spec.request_spec.language
+    dimensions = ", ".join(task_spec.evaluation_dimensions[:4])
+    primary_questions = "\n".join(f"- {question.question}" for question in plan.primary_questions[:4])
+    if language == "ru":
+        prompts = [
+            PerplexityHandoffPrompt(
+                stage="initial_landscape",
+                title="Core deep research prompt",
+                rationale="Собирает основное пространство вариантов, факторы выбора и сильнейшие первичные источники.",
+                prompt=(
+                    f"Подготовь decision-grade deep research по теме: {task_spec.request_spec.original_query}\n\n"
+                    f"Контекст решения: {task_spec.request_spec.decision_context}\n"
+                    f"География: {task_spec.request_spec.geography}\n"
+                    f"Критерии выбора: {dimensions}\n"
+                    "Обязательно покрой вопросы:\n"
+                    f"{primary_questions}\n\n"
+                    "Требования к ответу:\n"
+                    "- опирайся на official docs, pricing pages, GitHub repos, benchmark pages и сильные кейсы\n"
+                    "- явно покажи option space, а не только один фокусный вариант\n"
+                    "- отмечай неизвестности и спорные места\n"
+                    "- не выдумывай точные цифры без опоры на источник\n"
+                    "- в конце дай structured findings, alternatives, risks, decision triggers и references"
+                ),
+            ),
+            PerplexityHandoffPrompt(
+                stage="alternatives_and_tradeoffs",
+                title="Alternative space and trade-offs",
+                rationale="Выдёргивает альтернативы и контраргументы, которые модели часто пропускают в первом проходе.",
+                prompt=(
+                    f"Критически проверь пространство альтернатив по теме: {task_spec.request_spec.subject}\n\n"
+                    f"Исходный запрос: {task_spec.request_spec.original_query}\n"
+                    f"Оси сравнения: {dimensions}\n"
+                    "Сделай акцент на:\n"
+                    "- какие реальные альтернативы чаще всего недооценивают\n"
+                    "- где текущая рекомендация может быть ошибочной\n"
+                    "- какие trade-offs, hidden variables и switch conditions реально меняют выбор\n"
+                    "- какие вопросы нужно явно дозакрыть до финальной рекомендации"
+                ),
+            ),
+            PerplexityHandoffPrompt(
+                stage="validation_backlog",
+                title="Validation backlog and objections",
+                rationale="Формирует explicit validation backlog, чтобы не выпускать красивый, но хрупкий вывод.",
+                prompt=(
+                    f"Ты читаешь почти готовый аналитический отчёт по теме: {task_spec.request_spec.subject}\n"
+                    f"Решение: {task_spec.request_spec.decision_context}\n\n"
+                    "Дай именно senior-analyst critique:\n"
+                    "- что недодоказано\n"
+                    "- какие objections самые опасные\n"
+                    "- какие 5 проверок сильнее всего изменят качество решения\n"
+                    "- при каких условиях рекомендация должна переключиться на альтернативу\n"
+                    "- какие данные или внутренние материалы клиенту нужно добавить в следующий проход"
+                ),
+            ),
+        ]
+    else:
+        prompts = [
+            PerplexityHandoffPrompt(
+                stage="initial_landscape",
+                title="Core deep research prompt",
+                rationale="Maps the option space, evidence base, and strongest primary sources.",
+                prompt=(
+                    f"Prepare a decision-grade deep research package for: {task_spec.request_spec.original_query}\n\n"
+                    f"Decision context: {task_spec.request_spec.decision_context}\n"
+                    f"Geography: {task_spec.request_spec.geography}\n"
+                    f"Decision criteria: {dimensions}\n"
+                    "Must cover:\n"
+                    f"{primary_questions}\n\n"
+                    "Requirements:\n"
+                    "- prioritize official docs, pricing pages, GitHub repos, benchmark pages, and serious case evidence\n"
+                    "- show the true option space, not just the focal candidate\n"
+                    "- flag unresolved unknowns and contradictions\n"
+                    "- avoid unsupported precise numbers\n"
+                    "- finish with structured findings, alternatives, risks, decision triggers, and references"
+                ),
+            ),
+            PerplexityHandoffPrompt(
+                stage="alternatives_and_tradeoffs",
+                title="Alternative space and trade-offs",
+                rationale="Pulls out alternative paths and counterarguments that often get missed in the first pass.",
+                prompt=(
+                    f"Critically challenge the current option space for: {task_spec.request_spec.subject}\n\n"
+                    f"Original ask: {task_spec.request_spec.original_query}\n"
+                    f"Comparison axes: {dimensions}\n"
+                    "Focus on:\n"
+                    "- credible alternatives that are often overlooked\n"
+                    "- where the current recommendation is likely wrong\n"
+                    "- tradeoffs, hidden variables, and switch conditions that materially change the decision\n"
+                    "- which questions must be explicitly closed before a final recommendation"
+                ),
+            ),
+            PerplexityHandoffPrompt(
+                stage="validation_backlog",
+                title="Validation backlog and objections",
+                rationale="Builds an explicit validation backlog instead of a fragile polished conclusion.",
+                prompt=(
+                    f"You are reviewing a near-final analytical report on: {task_spec.request_spec.subject}\n"
+                    f"Decision to support: {task_spec.request_spec.decision_context}\n\n"
+                    "Provide senior-analyst critique on:\n"
+                    "- what remains under-evidenced\n"
+                    "- the most dangerous objections\n"
+                    "- the 5 checks that would most improve decision quality\n"
+                    "- the conditions that should flip the recommendation\n"
+                    "- which internal materials or data should be added next"
+                ),
+            ),
+        ]
+    return prompts
+
+
+def _build_validation_questions(
+    task_spec: TaskSpec,
+    critique_findings: list[CritiqueFinding],
+    decision_triggers: list[DecisionTrigger],
+    coverage: CoverageReport | None = None,
+) -> list[ResearchQuestion]:
+    profile = _depth_profile(task_spec)
+    limit = profile.validation_research_branches
+    if limit <= 0:
+        return []
+    questions: list[ResearchQuestion] = []
+    if coverage is not None:
+        gap_questions = [item for item in coverage.questions if item.status != "covered"]
+        for gap in gap_questions:
+            if len(questions) >= limit:
+                break
+            if gap.question_id == "q4":
+                question_text = (
+                    "Close the uncovered core question on tradeoffs, risks, buyer objections, pricing pressure, procurement friction, and recommendation-switch conditions for the final recommendation."
+                    if task_spec.request_spec.language != "ru"
+                    else "Закрой незакрытый core-вопрос про trade-offs, риски, buyer objections, ценовое давление, procurement friction и условия переключения рекомендации."
+                )
+                kind = QuestionKind.ADJACENT_BOUNDARY
+            elif gap.question_id == "q2":
+                question_text = (
+                    "Close the uncovered core question on competitors, incumbent workflows, and free substitutes that should be compared against the focal product."
+                    if task_spec.request_spec.language != "ru"
+                    else "Закрой незакрытый core-вопрос про конкурентов, incumbent workflows и бесплатные substitutes, с которыми нужно сравнить продукт."
+                )
+                kind = QuestionKind.ADJACENT_ALTERNATIVE
+            else:
+                question_text = (
+                    f"Close this uncovered core question with concrete evidence for the final recommendation: {gap.question}"
+                    if task_spec.request_spec.language != "ru"
+                    else f"Закрой этот незакрытый core-вопрос конкретными фактами для финальной рекомендации: {gap.question}"
+                )
+                kind = QuestionKind.ADJACENT_HIDDEN_VARIABLE
+            questions.append(
+                ResearchQuestion(
+                    question_id=f"vg{len(questions) + 1}",
+                    question=question_text,
+                    kind=kind,
+                    priority=len(questions) + 1,
+                    required_evidence_count=2,
+                )
+            )
+    for index, finding in enumerate(critique_findings[:limit], start=1):
+        if len(questions) >= limit:
+            break
+        summary = " ".join(finding.summary.split()).strip()
+        if not summary:
+            continue
+        question_text = (
+            f"Validate or disprove this unresolved issue for the final recommendation: {summary}"
+            if task_spec.request_spec.language != "ru"
+            else f"Проверь и по возможности опровергни этот критичный незакрытый вопрос для финальной рекомендации: {summary}"
+        )
+        questions.append(
+            ResearchQuestion(
+                question_id=f"v{index}",
+                question=question_text,
+                kind=QuestionKind.ADJACENT_BOUNDARY,
+                priority=index,
+                required_evidence_count=2,
+            )
+        )
+    trigger_slots = max(0, limit - len(questions))
+    for offset, trigger in enumerate(decision_triggers[:trigger_slots], start=1):
+        question_text = (
+            f"Test the switch condition '{trigger.label}': {trigger.condition}. What evidence would confirm or weaken it?"
+            if task_spec.request_spec.language != "ru"
+            else f"Проверь decision trigger '{trigger.label}': {trigger.condition}. Какие факты подтверждают его или ослабляют?"
+        )
+        questions.append(
+            ResearchQuestion(
+                question_id=f"vt{offset}",
+                question=question_text,
+                kind=QuestionKind.ADJACENT_BOUNDARY,
+                priority=len(questions) + 1,
+                required_evidence_count=2,
+            )
+        )
+    return questions[:limit]
+
+
+def _truncate_phrase(text: str, max_chars: int = 140) -> str:
+    normalized = " ".join(str(text or "").split()).strip()
+    if len(normalized) <= max_chars:
+        return normalized
+    cutoff = normalized.rfind(" ", 0, max_chars - 1)
+    if cutoff < max_chars // 2:
+        cutoff = max_chars - 1
+    return normalized[:cutoff].rstrip(" ,;:-") + "…"
+
+
+def _extract_parenthetical_examples(text: str) -> str:
+    match = re.search(r"\((?:e\.g\.,?|for example|например)\s*([^)]+)\)", text, flags=re.IGNORECASE)
+    if not match:
+        return ""
+    examples = re.sub(r"\b(and|or)\b", ",", match.group(1), flags=re.IGNORECASE)
+    parts = [part.strip(" .") for part in examples.split(",") if part.strip(" .")]
+    if not parts:
+        return ""
+    return ", ".join(parts[:4])
+
+
+def _adjacent_question_brief_line(question: ResearchQuestion, language: str = "en") -> str:
+    text = " ".join(question.question.split()).strip()
+    lowered = text.lower()
+    examples = _extract_parenthetical_examples(text)
+
+    if language == "ru":
+        if question.kind == QuestionKind.ADJACENT_ALTERNATIVE:
+            if examples:
+                return f"Явный comparison set должен включать {examples}, а не только фокальный продукт."
+            return "Отчёт должен явно сравнить фокальный вариант с сильнейшими реальными альтернативами."
+        if question.kind == QuestionKind.ADJACENT_COUNTERARGUMENT:
+            if any(marker in lowered for marker in ("chatgpt", "perplexity", "free", "бесплат")):
+                return "Нужно честно проверить strongest counter-case: останутся ли покупатели на ChatGPT, Perplexity или собранном вручную бесплатном стеке вместо платного продукта."
+            return "Отчёт должен явно разобрать strongest counter-case, а не только защищать основной вывод."
+        if question.kind == QuestionKind.ADJACENT_HIDDEN_VARIABLE:
+            return "Скрытые переменные вроде стоимости внедрения, procurement friction и операционной нагрузки всё ещё могут перевернуть вывод."
+        if question.kind == QuestionKind.ADJACENT_BOUNDARY:
+            return "Нужно явно описать boundary conditions: при каких порогах рынка, ROI или сложности рекомендация перестаёт работать."
+        if question.kind == QuestionKind.ADJACENT_STAKEHOLDER:
+            return "Возражения CFO, procurement и владельцев процесса по ROI и integration risk должны быть закрыты явно."
+        if question.kind == QuestionKind.ADJACENT_TIME_SHIFT:
+            return "Вывод нужно проверить на сдвиг горизонта 6-12 месяцев: рынок и бесплатные альтернативы могут быстро поменять картину."
+        return _truncate_phrase(text, 160)
+
+    if question.kind == QuestionKind.ADJACENT_ALTERNATIVE:
+        if examples:
+            return f"The comparison set should explicitly include {examples}, not just the focal product."
+        return "The report should explicitly compare the focal option against the strongest credible alternatives."
+    if question.kind == QuestionKind.ADJACENT_COUNTERARGUMENT:
+        if any(marker in lowered for marker in ("chatgpt", "perplexity", "free", "free options")):
+            return "The strongest counter-case is that buyers may stay with ChatGPT, Perplexity, or stitched free workflows instead of paying for an integrated product."
+        return "The report must test the strongest counter-case instead of only defending the current thesis."
+    if question.kind == QuestionKind.ADJACENT_HIDDEN_VARIABLE:
+        return "Hidden variables such as implementation burden, procurement friction, and operating cost may still overturn the recommendation."
+    if question.kind == QuestionKind.ADJACENT_BOUNDARY:
+        return "The recommendation still needs explicit boundary conditions showing when market size, ROI, or complexity make it uneconomic."
+    if question.kind == QuestionKind.ADJACENT_STAKEHOLDER:
+        return "CFO, procurement, and workflow-owner objections around ROI and integration risk still need explicit closure."
+    if question.kind == QuestionKind.ADJACENT_TIME_SHIFT:
+        return "The conclusion should be stress-tested against a 6-12 month market shift, especially if free tools keep improving."
+    return _truncate_phrase(text, 160)
+
+
+def _coverage_gap_brief_line(gap: str, language: str = "en") -> str:
+    normalized = " ".join(str(gap or "").split()).strip().rstrip("?")
+    lowered = normalized.lower()
+    if language == "ru":
+        if lowered.startswith("what are the strongest evidence-backed tradeoffs") or "tradeoffs" in lowered:
+            return "Tradeoffs, risks и decision triggers всё ещё недодоказаны и требуют отдельного закрытия."
+        if lowered.startswith("what credible alternatives should be compared"):
+            return "Пространство альтернатив всё ещё недосравнено по качеству, стоимости и операционному риску."
+        if lowered.startswith("which option or stack best supports"):
+            return "Текущая рекомендация всё ещё слабо привязана к контексту решения и требует более жёсткого option-to-context fit."
+        if lowered.startswith("what concrete decision should this report support"):
+            return "Формулировка самого решения всё ещё нуждается в более чёткой рамке."
+        return _truncate_phrase(normalized + ".", 160)
+
+    if lowered.startswith("what are the strongest evidence-backed tradeoffs") or "tradeoffs" in lowered:
+        return "Tradeoffs, risks, and recommendation-switch conditions remain under-evidenced."
+    if lowered.startswith("what credible alternatives should be compared"):
+        return "The alternative space still needs explicit comparison across quality, cost, and operating risk."
+    if lowered.startswith("which option or stack best supports"):
+        return "The current recommendation still needs a cleaner option-to-context fit."
+    if lowered.startswith("what concrete decision should this report support"):
+        return "The decision frame still needs sharper definition."
+    return _truncate_phrase(normalized + ".", 160)
 
 
 def _first_number(text: str) -> float | None:
@@ -3203,15 +4222,18 @@ def build_analysis_brief(
     decision_triggers = decision_triggers or []
     safe_claims = [claim for claim in _select_report_worthy_claims(claims) if claim.recommendation_safe][:5]
     findings = [f"{claim.statement} [Evidence: {', '.join(claim.supporting_evidence_ids[:2])}]" for claim in safe_claims]
-    limitations = coverage.gaps[:]
+    language = task_spec.request_spec.language
+    limitations = [_coverage_gap_brief_line(gap, language) for gap in coverage.gaps]
     if coverage.contradiction_count:
         limitations.append("At least one contradiction cluster remains unresolved.")
     critique_priorities = [item.summary for item in critique_findings[:4]]
-    option_space = [
-        question.question
-        for question in adjacent_questions
-        if question.kind in {QuestionKind.ADJACENT_ALTERNATIVE, QuestionKind.ADJACENT_COUNTERARGUMENT}
-    ]
+    option_space: list[str] = []
+    for question in adjacent_questions:
+        if question.kind not in {QuestionKind.ADJACENT_ALTERNATIVE, QuestionKind.ADJACENT_COUNTERARGUMENT}:
+            continue
+        line = _adjacent_question_brief_line(question, language)
+        if line:
+            option_space.append(line)
     critical_unknowns = limitations + critique_priorities[:2]
     trigger_lines = [f"{item.label}: {item.condition} -> {item.implication}" for item in decision_triggers[:4]]
     recommendation_posture = "bounded_analysis_only"
@@ -3259,9 +4281,12 @@ def _decision_addendum_sections(brief: AnalysisBrief, language: str) -> list[tup
     ]
 
 
-def _table_cell(value: object) -> str:
+def _table_cell(value: object, max_chars: int | None = None) -> str:
     normalized = " ".join(str(value or "").split()).strip()
-    return normalized.replace("|", "/") or "-"
+    normalized = normalized.replace("|", "/")
+    if max_chars:
+        normalized = _truncate_phrase(normalized, max_chars)
+    return normalized or "-"
 
 
 def _source_type_label(source_type: SourceType, language: str) -> str:
@@ -3272,6 +4297,7 @@ def _source_type_label(source_type: SourceType, language: str) -> str:
             SourceType.GOVERNMENT: "government",
             SourceType.RESEARCH_PAPER: "research paper",
             SourceType.BENCHMARK: "benchmark",
+            SourceType.USER_MATERIAL: "user material",
             SourceType.HIGH_QUALITY_SECONDARY: "high-quality secondary",
             SourceType.WEAK_SECONDARY: "weak secondary",
         }
@@ -3295,19 +4321,19 @@ def _traceability_appendix_sections(
 ) -> list[tuple[str, str]]:
     top_sources = source_ledger[:6]
     coverage_rows = [
-        f"| {question.question_id.upper()} | {_table_cell(question.question)} | {_coverage_status_label(question.status, language)} | {question.evidence_count} | {question.source_count} |"
+        f"| {question.question_id.upper()} | {_table_cell(question.question, 120)} | {_coverage_status_label(question.status, language)} | {question.evidence_count} | {question.source_count} |"
         for question in coverage.questions
     ] or ["| Q-? | - | gap | 0 | 0 |"]
     source_rows = [
-        f"| [{_table_cell(source.title[:70])}]({source.url}) | {_source_type_label(source.source_type, language)} | {source.reliability_score:.2f} | {_table_cell(', '.join(source.question_links[:4]))} |"
+        f"| [{_table_cell(source.title, 72)}]({source.url}) | {_source_type_label(source.source_type, language)} | {source.reliability_score:.2f} | {_table_cell(', '.join(source.question_links[:4]), 48)} |"
         for source in top_sources
     ] or ["| - | - | 0.00 | - |"]
     critique_rows = [
-        f"| {_table_cell(item.kind.value)} | {_table_cell(item.severity)} | {_table_cell(item.summary[:120])} |"
+        f"| {_table_cell(item.kind.value)} | {_table_cell(item.severity)} | {_table_cell(item.summary, 140)} |"
         for item in critique_findings[:4]
     ] or ["| decision_risk | medium | Additional validation priorities were not captured in time. |"]
     trigger_rows = [
-        f"| {_table_cell(item.label)} | {_table_cell(item.condition[:100])} | {_table_cell(item.implication[:100])} | {item.confidence:.2f} |"
+        f"| {_table_cell(item.label)} | {_table_cell(item.condition, 140)} | {_table_cell(item.implication, 140)} | {item.confidence:.2f} |"
         for item in decision_triggers[:4]
     ] or ["| No trigger captured | Further validation needed | Keep recommendation bounded | 0.00 |"]
 
@@ -3393,22 +4419,26 @@ def _append_decision_addendum_sections(
     decision_triggers: list[DecisionTrigger],
     language: str,
 ) -> ReportOutput:
-    existing_titles = {section.title.strip().lower() for section in report.sections}
     order = max((section.order for section in report.sections), default=0)
     source_urls = [item.url for item in source_ledger[:4]]
     for title, lines in _decision_addendum_sections(brief, language):
-        if title.strip().lower() in existing_titles:
+        normalized_title = title.strip().lower()
+        deterministic_content = "\n".join(f"- {line}" for line in lines if line)
+        existing_section = next((section for section in report.sections if section.title.strip().lower() == normalized_title), None)
+        if existing_section is not None:
+            existing_section.title = title
+            existing_section.content = deterministic_content
+            existing_section.sources = source_urls
             continue
         order += 1
         report.sections.append(
             ReportSection(
                 title=title,
-                content="\n".join(f"- {line}" for line in lines if line),
+                content=deterministic_content,
                 order=order,
                 sources=source_urls,
             )
         )
-        existing_titles.add(title.strip().lower())
     for title, content in _traceability_appendix_sections(
         coverage=coverage,
         source_ledger=source_ledger,
@@ -3416,7 +4446,12 @@ def _append_decision_addendum_sections(
         decision_triggers=decision_triggers,
         language=language,
     ):
-        if title.strip().lower() in existing_titles:
+        normalized_title = title.strip().lower()
+        existing_section = next((section for section in report.sections if section.title.strip().lower() == normalized_title), None)
+        if existing_section is not None:
+            existing_section.title = title
+            existing_section.content = content
+            existing_section.sources = source_urls
             continue
         order += 1
         report.sections.append(
@@ -3427,7 +4462,6 @@ def _append_decision_addendum_sections(
                 sources=source_urls,
             )
         )
-        existing_titles.add(title.strip().lower())
     return report
 
 
@@ -3530,24 +4564,41 @@ def _build_adjacent_research_row(
     }
 
 
+def _has_usable_research_rows(rows: list[dict]) -> bool:
+    return any(row.get("findings") for row in rows)
+
+
 def _adjacent_to_primary_question_id(plan: ResearchPlan, question: ResearchQuestion) -> str | None:
     if not plan.primary_questions:
         return None
     question_tokens = _topic_tokens(question.question)
+    lowered_question = question.question.lower()
     best_score = -1.0
     best_question_id = plan.primary_questions[0].question_id
     for index, primary_question in enumerate(plan.primary_questions):
         score = float(len(question_tokens & _topic_tokens(primary_question.question)))
-        if question.kind == QuestionKind.ADJACENT_ALTERNATIVE and index in {1, 2}:
-            score += 1.5
-        if question.kind == QuestionKind.ADJACENT_BOUNDARY and index == 2:
+        if question.kind == QuestionKind.ADJACENT_ALTERNATIVE and index == 1:
             score += 2.5
-        if question.kind == QuestionKind.ADJACENT_STAKEHOLDER and index in {2, 3}:
-            score += 1.5
-        if question.kind in {QuestionKind.ADJACENT_COUNTERARGUMENT, QuestionKind.ADJACENT_HIDDEN_VARIABLE} and index == 3:
-            score += 1.5
-        if question.kind == QuestionKind.ADJACENT_TIME_SHIFT and index in {2, 3}:
-            score += 1.0
+        if question.kind == QuestionKind.ADJACENT_COUNTERARGUMENT and index in {1, 3}:
+            score += 1.75
+        if question.kind == QuestionKind.ADJACENT_HIDDEN_VARIABLE and index == 3:
+            score += 2.0
+        if question.kind == QuestionKind.ADJACENT_BOUNDARY:
+            if any(
+                marker in lowered_question
+                for marker in ("under what", "when ", "threshold", "switch", "stop", "cease", "boundary")
+            ):
+                if index == 3:
+                    score += 3.0
+            else:
+                if index == 2:
+                    score += 2.0
+                if index == 3:
+                    score += 1.0
+        if question.kind == QuestionKind.ADJACENT_STAKEHOLDER and index == 3:
+            score += 2.0
+        if question.kind == QuestionKind.ADJACENT_TIME_SHIFT and index == 3:
+            score += 2.0
         if score > best_score:
             best_score = score
             best_question_id = primary_question.question_id
@@ -3559,22 +4610,27 @@ async def _run_live_adjacent_research(
     plan: ResearchPlan,
     adjacent_questions: list[ResearchQuestion],
     source_ledger: list[SourceLedgerEntry],
-) -> tuple[list[dict], list[SourceLedgerEntry], float]:
+) -> tuple[list[dict], list[SourceLedgerEntry], float, list[dict]]:
     if not adjacent_questions:
-        return [], source_ledger, 0.0
+        return [], source_ledger, 0.0, []
 
     depth = _budget_to_research_depth(task_spec)
     source_map = {entry.url: entry.model_copy(deep=True) for entry in source_ledger}
     research_rows: list[dict] = []
     total_cost = 0.0
+    branch_meta: list[dict] = []
+    profile = _depth_profile(task_spec)
     research_runs = await asyncio.gather(
         *[
             _research_single(_build_live_adjacent_query(task_spec, question), iteration=index, depth=depth)
-            for index, question in enumerate(adjacent_questions, start=1)
+            for index, question in enumerate(adjacent_questions[: profile.adjacent_research_branches], start=1)
         ]
     )
-    for question, (result, branch_cost, _evidence_items) in zip(adjacent_questions, research_runs):
+    for question, run_result in zip(adjacent_questions[: profile.adjacent_research_branches], research_runs):
+        result, branch_cost, _evidence_items = run_result[:3]
+        meta = run_result[3] if len(run_result) > 3 else {}
         total_cost += branch_cost
+        branch_meta.append({**meta, "cost_usd": branch_cost})
         primary_question_id = _adjacent_to_primary_question_id(plan, question)
         source_urls: list[str] = []
         row_sources: list[SourceLedgerEntry] = []
@@ -3592,12 +4648,12 @@ async def _run_live_adjacent_research(
                 row_sources.append(source_map[source.url])
             source_urls.append(source.url)
         research_rows.append(_build_adjacent_research_row(question, primary_question_id, result.findings[:8], source_urls, row_sources))
-    merged_sources = _rank_live_sources(list(source_map.values()), task_spec, plan, limit=16)
+    merged_sources = _rank_live_sources(list(source_map.values()), task_spec, plan, limit=profile.source_limit)
     allowlist = {entry.url for entry in merged_sources}
     for row in research_rows:
         row["source_urls"] = [url for url in row["source_urls"] if url in allowlist]
         row["sources"] = [source for source in row["sources"] if source.get("url") in allowlist]
-    return research_rows, merged_sources, total_cost
+    return research_rows, merged_sources, total_cost, branch_meta
 
 
 async def _run_fallback_adjacent_research(
@@ -3615,7 +4671,8 @@ async def _run_fallback_adjacent_research(
     snapshot_by_url = {snapshot.url: snapshot for snapshot in snapshots}
     research_rows: list[dict] = []
 
-    for question in adjacent_questions:
+    profile = _depth_profile(task_spec)
+    for question in adjacent_questions[: profile.adjacent_research_branches]:
         single_plan = ResearchPlan(primary_questions=[question], preferred_domains=plan.preferred_domains)
         primary_question_id = _adjacent_to_primary_question_id(plan, question)
         candidates = await provider.search(_build_fallback_adjacent_query(task_spec, question), single_plan)
@@ -3644,7 +4701,7 @@ async def _run_fallback_adjacent_research(
             findings.extend(_sentence_candidates(snapshot, question))
         research_rows.append(_build_adjacent_research_row(question, primary_question_id, findings[:8], source_urls, row_sources))
 
-    merged_sources = _rank_live_sources(list(source_map.values()), task_spec, plan, limit=16)
+    merged_sources = _rank_live_sources(list(source_map.values()), task_spec, plan, limit=profile.source_limit)
     merged_snapshots = list(snapshot_by_url.values())
     allowlist = {entry.url for entry in merged_sources}
     for row in research_rows:
@@ -3663,6 +4720,8 @@ async def _run_stack_source_backfill(
     query_specs = _build_stack_backfill_queries(task_spec)
     if not query_specs:
         return [], source_ledger, snapshots
+    profile = _depth_profile(task_spec)
+    query_specs = query_specs[: profile.stack_backfill_limit]
 
     provider = DuckDuckGoSearchProvider()
     source_map = {entry.url: entry.model_copy(deep=True) for entry in source_ledger}
@@ -3715,7 +4774,81 @@ async def _run_stack_source_backfill(
             }
         )
 
-    merged_sources = _rank_live_sources(list(source_map.values()), task_spec, plan, limit=16)
+    merged_sources = _rank_live_sources(list(source_map.values()), task_spec, plan, limit=profile.source_limit)
+    allowlist = {entry.url for entry in merged_sources}
+    for row in research_rows:
+        row["source_urls"] = [url for url in row["source_urls"] if url in allowlist]
+        row["sources"] = [source for source in row["sources"] if source.get("url") in allowlist]
+    merged_snapshots = [snapshot for snapshot in snapshot_by_url.values() if snapshot.url in allowlist]
+    filtered_rows = [row for row in research_rows if row["source_urls"] and row["findings"]]
+    return filtered_rows, merged_sources, merged_snapshots
+
+
+async def _run_business_source_backfill(
+    task_spec: TaskSpec,
+    plan: ResearchPlan,
+    source_ledger: list[SourceLedgerEntry],
+    snapshots: list[SourceSnapshot],
+    target_question_ids: set[str] | None = None,
+) -> tuple[list[dict], list[SourceLedgerEntry], list[SourceSnapshot]]:
+    query_specs = _build_business_backfill_queries(task_spec, target_question_ids)
+    if not query_specs:
+        return [], source_ledger, snapshots
+    profile = _depth_profile(task_spec)
+    query_specs = query_specs[: max(6, profile.stack_backfill_limit)]
+
+    provider = DuckDuckGoSearchProvider()
+    source_map = {entry.url: entry.model_copy(deep=True) for entry in source_ledger}
+    snapshot_by_url = {snapshot.url: snapshot for snapshot in snapshots}
+    question_by_id = {question.question_id: question for question in plan.primary_questions}
+    research_rows: list[dict] = []
+
+    for question_id, query in query_specs:
+        question = question_by_id.get(question_id)
+        if question is None:
+            continue
+        single_plan = ResearchPlan(
+            primary_questions=[question],
+            preferred_domains=plan.preferred_domains,
+            required_source_mix=plan.required_source_mix,
+        )
+        candidates = await provider.search(query, single_plan)
+        selected_sources = select_sources(candidates, single_plan)[:2]
+        if not selected_sources:
+            continue
+        findings: list[str] = []
+        source_urls: list[str] = []
+        row_sources: list[SourceLedgerEntry] = []
+        for source in selected_sources:
+            existing = source_map.get(source.url)
+            if existing is None:
+                source_map[source.url] = source
+                existing = source
+            if question_id not in existing.question_links:
+                existing.question_links.append(question_id)
+            row_sources.append(existing)
+            if source.url not in snapshot_by_url:
+                snapshot_by_url[source.url] = await provider.fetch(existing)
+            snapshot = snapshot_by_url[source.url]
+            if snapshot.fetch_status != "ok" or not snapshot.content:
+                continue
+            source_urls.append(snapshot.url)
+            findings.extend(_sentence_candidates(snapshot, question))
+        if not findings:
+            continue
+        research_rows.append(
+            {
+                "question_id": question_id,
+                "query": query,
+                "confidence": 0.66,
+                "gaps": [],
+                "findings": findings[:6],
+                "source_urls": list(dict.fromkeys(source_urls)),
+                "sources": [source.model_dump(mode="json") for source in row_sources[:4]],
+            }
+        )
+
+    merged_sources = _rank_live_sources(list(source_map.values()), task_spec, plan, limit=profile.source_limit)
     allowlist = {entry.url for entry in merged_sources}
     for row in research_rows:
         row["source_urls"] = [url for url in row["source_urls"] if url in allowlist]
@@ -4058,13 +5191,169 @@ def _render_rich_docx_bytes(report: ReportOutput) -> bytes | None:
         return output_path.read_bytes() if output_path.exists() else None
 
 
+def _material_url(run_id: str, material_id: str) -> str:
+    return f"material://{run_id}/{material_id}"
+
+
+def _materialize_material_rows(
+    repo: FileRunRepository,
+    run_id: str,
+    task_spec: TaskSpec,
+    plan: ResearchPlan,
+    materials: list[MaterialRecord],
+) -> tuple[list[dict], list[SourceLedgerEntry], list[SourceSnapshot]]:
+    if not materials:
+        return [], [], []
+
+    source_entries: list[SourceLedgerEntry] = []
+    snapshots: list[SourceSnapshot] = []
+    question_rows: list[dict] = []
+
+    for material in materials:
+        text = load_material_text(repo, run_id, material)
+        if not text.strip():
+            continue
+        material_url = _material_url(run_id, material.material_id)
+        source_entry = SourceLedgerEntry(
+            url=material_url,
+            title=material.title,
+            domain="user-material",
+            source_type=SourceType.USER_MATERIAL,
+            publisher="user upload",
+            reliability_score=0.92,
+            selection_reason="Run-scoped material supplied by the user",
+            question_links=[],
+        )
+        snapshot = SourceSnapshot(
+            source_id=source_entry.source_id,
+            url=material_url,
+            title=material.title,
+            content=text,
+            excerpt=text[:400],
+            provider="user-material",
+            fetch_status="ok",
+        )
+        source_entries.append(source_entry)
+        snapshots.append(snapshot)
+
+    for question in plan.primary_questions:
+        findings: list[str] = []
+        row_sources: list[SourceLedgerEntry] = []
+        source_urls: list[str] = []
+        for source_entry, snapshot in zip(source_entries, snapshots):
+            candidates = _sentence_candidates(snapshot, question)
+            if not candidates:
+                continue
+            if question.question_id not in source_entry.question_links:
+                source_entry.question_links.append(question.question_id)
+            row_sources.append(source_entry)
+            source_urls.append(source_entry.url)
+            findings.extend(candidates[:3])
+        if not findings:
+            continue
+        question_rows.append(
+            {
+                "question_id": question.question_id,
+                "query": f"User materials for {question.question}",
+                "confidence": 0.74,
+                "gaps": [],
+                "findings": findings[:8],
+                "source_urls": list(dict.fromkeys(source_urls)),
+                "sources": [item.model_dump(mode="json") for item in row_sources],
+            }
+        )
+    return question_rows, source_entries, snapshots
+
+
+async def _generate_presentation_package(
+    repo: FileRunRepository,
+    run_id: str,
+    report: ReportOutput,
+    language: str,
+) -> tuple[dict, list[SpendEntry], str | None]:
+    input_payload = {
+        "executive_summary": report.executive_summary,
+        "key_data": [
+            {"section": section.title, "source_count": len(section.sources)}
+            for section in report.sections
+        ],
+        "report_schema": {
+            "title": report.title,
+            "sections": [section.title for section in report.sections],
+        },
+        "chart_refs": [],
+    }
+    serialized = json.dumps(input_payload, ensure_ascii=False)
+    model = get_model(AgentTask.PRESENTATION)
+    raw = await _generate_slide_json(serialized, model, lang=language)
+    slides_json = _parse_slides_json(raw, report.title)
+    slides_path = repo.write_report_file(run_id, "slides.json", json.dumps(slides_json, ensure_ascii=False, indent=2))
+    markdown = _build_presentation_markdown(slides_json)
+    repo.write_report_file(run_id, "presentation.md", markdown)
+
+    spend_entries = [
+        _make_spend_entry(
+            category=SpendCategory.PRESENTATION,
+            stage="presentation_outline",
+            provider="openrouter",
+            model=model,
+            input_tokens=_estimate_tokens(serialized),
+            output_tokens=_estimate_tokens(raw),
+            cost_usd=estimate_cost(AgentTask.PRESENTATION, _estimate_tokens(serialized), _estimate_tokens(raw)),
+            pricing_basis="estimated_chars",
+            notes="Presentation structure and slide plan",
+        )
+    ]
+
+    pptx_path: str | None = None
+    if settings.gamma_api_key:
+        target = repo.report_dir(run_id) / "report.pptx"
+        await _gamma_create(markdown, str(target))
+        pptx_path = str(target)
+        spend_entries.append(
+            _make_spend_entry(
+                category=SpendCategory.PRESENTATION,
+                stage="presentation_export",
+                provider="gamma",
+                model="gamma-export",
+                cost_usd=0.0,
+                pricing_basis="external_service_unpriced",
+                notes="Gamma export pricing is not modeled locally",
+            )
+        )
+
+    return slides_json, spend_entries, pptx_path or str(slides_path)
+
+
 async def _execute_live_report_run(
     repo: FileRunRepository,
     summary: RunSummary,
     task_spec: TaskSpec,
     emit: EmitFn,
 ) -> RunSummary:
+    profile = _depth_profile(task_spec)
     plan = build_research_plan(task_spec)
+    summary.depth_profile = profile
+    if task_spec.allow_perplexity_handoff and not summary.handoff_prompts:
+        summary.handoff_prompts = build_perplexity_handoff_prompts(task_spec, plan)
+    spend_entries = list(summary.spend_breakdown)
+
+    def record_spend(entry: SpendEntry) -> None:
+        _record_spend(spend_entries, entry)
+
+    repo.save_artifact(summary.run_id, "depth_profile.json", profile.model_dump(mode="json"))
+    if summary.handoff_prompts:
+        repo.save_artifact(
+            summary.run_id,
+            "handoff_prompts.json",
+            [item.model_dump(mode="json") for item in summary.handoff_prompts],
+        )
+    if summary.materials:
+        repo.save_artifact(
+            summary.run_id,
+            "materials.json",
+            [item.model_dump(mode="json") for item in summary.materials],
+        )
     await emit(RunEvent(step="planning", status="started", message="Building long-form research plan"))
     repo.save_artifact(summary.run_id, "request_spec.json", task_spec.request_spec.model_dump(mode="json"))
     repo.save_artifact(summary.run_id, "task_spec.json", task_spec.model_dump(mode="json"))
@@ -4072,13 +5361,12 @@ async def _execute_live_report_run(
     await emit(RunEvent(step="planning", status="done", message="Long-form plan ready"))
 
     await emit(RunEvent(step="research", status="started", message="Running deep research branches"))
-    research_queries = _build_live_research_queries(task_spec, plan)
+    research_queries = _build_live_research_queries(task_spec, plan)[: profile.initial_research_branches]
     depth = _budget_to_research_depth(task_spec)
     research_rows: list[dict] = []
     source_ledger: list[SourceLedgerEntry] = []
     snapshots: list[SourceSnapshot] = []
     evidence: list[EvidenceRecord] | None = None
-    total_cost = 0.0
     used_fallback = False
 
     try:
@@ -4090,8 +5378,11 @@ async def _execute_live_report_run(
         )
 
         source_map: dict[str, SourceLedgerEntry] = {}
-        for (question_id, query), (result, branch_cost, _evidence_items) in zip(research_queries, research_runs):
-            total_cost += branch_cost
+        initial_branch_meta: list[dict] = []
+        for (question_id, query), run_result in zip(research_queries, research_runs):
+            result, branch_cost, _evidence_items = run_result[:3]
+            meta = run_result[3] if len(run_result) > 3 else {}
+            initial_branch_meta.append({**meta, "cost_usd": branch_cost})
             source_urls: list[str] = []
             for source in result.sources:
                 _upsert_live_source(
@@ -4116,7 +5407,19 @@ async def _execute_live_report_run(
                 }
             )
 
-        source_ledger = _rank_live_sources(list(source_map.values()), task_spec, plan, limit=16)
+        initial_spend_entry = _aggregate_research_spend(
+            initial_branch_meta,
+            category=SpendCategory.RESEARCH,
+            stage="initial_research",
+            fallback_provider="perplexity",
+            fallback_model=depth,
+            branch_count=len(research_queries),
+            notes="Primary research pass",
+        )
+        if initial_spend_entry is not None:
+            record_spend(initial_spend_entry)
+
+        source_ledger = _rank_live_sources(list(source_map.values()), task_spec, plan, limit=profile.source_limit)
         if not source_ledger:
             raise RuntimeError("Live research returned no usable sources")
         source_url_allowlist = {entry.url for entry in source_ledger}
@@ -4159,6 +5462,47 @@ async def _execute_live_report_run(
             )
         )
 
+    if summary.materials:
+        material_rows, material_sources, material_snapshots = _materialize_material_rows(
+            repo,
+            summary.run_id,
+            task_spec,
+            plan,
+            summary.materials,
+        )
+        if material_sources:
+            source_map = {entry.url: entry for entry in source_ledger}
+            for source in material_sources:
+                existing = source_map.get(source.url)
+                if existing is None:
+                    source_map[source.url] = source
+                    existing = source
+                else:
+                    for question_id in source.question_links:
+                        if question_id not in existing.question_links:
+                            existing.question_links.append(question_id)
+            source_ledger = _rank_live_sources(list(source_map.values()), task_spec, plan, limit=profile.source_limit)
+            allowlist = {entry.url for entry in source_ledger}
+            snapshots.extend([snapshot for snapshot in material_snapshots if snapshot.url in allowlist])
+            research_rows.extend(
+                [
+                    {
+                        **row,
+                        "source_urls": [url for url in row["source_urls"] if url in allowlist],
+                        "sources": [source for source in row["sources"] if source.get("url") in allowlist],
+                    }
+                    for row in material_rows
+                    if any(url in allowlist for url in row["source_urls"])
+                ]
+            )
+            await emit(
+                RunEvent(
+                    step="research",
+                    status="done",
+                    message=f"Added {len(material_sources)} user materials into the evidence pack",
+                )
+            )
+
     repo.save_artifact(summary.run_id, "live_research_results.json", research_rows)
     repo.save_artifact(summary.run_id, "source_ledger.json", [item.model_dump(mode="json") for item in source_ledger])
     if snapshots:
@@ -4188,6 +5532,63 @@ async def _execute_live_report_run(
         )
     )
 
+    business_gap_question_ids = _coverage_gap_question_ids(coverage) & {"q1", "q2", "q3", "q4"}
+    if _is_business_topic_task(task_spec) and business_gap_question_ids:
+        await emit(
+            RunEvent(
+                step="research",
+                status="started",
+                message=(
+                    "Running targeted business backfill only for uncovered questions: "
+                    + ", ".join(sorted(business_gap_question_ids))
+                ),
+            )
+        )
+        try:
+            business_backfill_rows, source_ledger, snapshots = await _run_business_source_backfill(
+                task_spec,
+                plan,
+                source_ledger,
+                snapshots,
+                target_question_ids=business_gap_question_ids,
+            )
+            if business_backfill_rows:
+                research_rows.extend(business_backfill_rows)
+                repo.save_artifact(summary.run_id, "live_research_results.json", research_rows)
+                repo.save_artifact(summary.run_id, "source_ledger.json", [item.model_dump(mode="json") for item in source_ledger])
+                if snapshots:
+                    repo.save_artifact(summary.run_id, "source_snapshots.json", [item.model_dump(mode="json") for item in snapshots])
+                evidence = _build_live_evidence(research_rows, source_ledger, task_spec)
+                repo.save_artifact(summary.run_id, "evidence_ledger.json", [item.model_dump(mode="json") for item in evidence])
+                claims = build_claim_table(evidence)
+                repo.save_artifact(summary.run_id, "claim_table.json", [item.model_dump(mode="json") for item in claims])
+                contradiction_notes = sorted({note for claim in claims for note in claim.contradiction_notes})
+                coverage = build_coverage_report(plan, claims, len(source_ledger), contradiction_notes)
+                repo.save_artifact(summary.run_id, "coverage_report.json", coverage.model_dump(mode="json"))
+                await emit(
+                    RunEvent(
+                        step="research",
+                        status="done",
+                        message=f"Business backfill added {len(business_backfill_rows)} targeted branches for {', '.join(sorted(business_gap_question_ids))}",
+                    )
+                )
+            else:
+                await emit(
+                    RunEvent(
+                        step="research",
+                        status="done",
+                        message="Business backfill found no stronger targeted branches for the uncovered questions",
+                    )
+                )
+        except Exception as exc:
+            await emit(
+                RunEvent(
+                    step="research",
+                    status="warning",
+                    message=f"Business backfill was skipped: {exc}",
+                )
+            )
+
     await emit(RunEvent(step="critique", status="started", message="Generating side questions and critique findings"))
     review_artifact: dict = {"source": "heuristic"}
     try:
@@ -4196,7 +5597,15 @@ async def _execute_live_report_run(
             critique_findings,
             decision_triggers,
             review_artifact,
-        ) = await _generate_model_driven_review(task_spec, plan, research_rows, source_ledger, claims, coverage)
+        ) = await _generate_model_driven_review(
+            task_spec,
+            plan,
+            research_rows,
+            source_ledger,
+            claims,
+            coverage,
+            record_spend=record_spend,
+        )
     except Exception as exc:
         review_artifact = {"source": "heuristic", "error": str(exc)}
         plan.adjacent_question_candidates = build_adjacent_question_candidates(task_spec, coverage, claims)
@@ -4230,12 +5639,13 @@ async def _execute_live_report_run(
         )
     )
 
-    if plan.selected_adjacent_questions:
+    selected_adjacent_questions = plan.selected_adjacent_questions[: profile.adjacent_research_branches]
+    if selected_adjacent_questions:
         await emit(
             RunEvent(
                 step="research",
                 status="started",
-                message=f"Running targeted side-question pass across {len(plan.selected_adjacent_questions)} branches",
+                message=f"Running targeted side-question pass across {len(selected_adjacent_questions)} branches",
             )
         )
         try:
@@ -4243,25 +5653,50 @@ async def _execute_live_report_run(
                 adjacent_rows, source_ledger, snapshots = await _run_fallback_adjacent_research(
                     task_spec,
                     plan,
-                    plan.selected_adjacent_questions,
+                    selected_adjacent_questions,
                     source_ledger,
                     snapshots,
                 )
             else:
-                adjacent_rows, source_ledger, adjacent_cost = await _run_live_adjacent_research(
+                adjacent_rows, source_ledger, adjacent_cost, adjacent_meta = await _run_live_adjacent_research(
                     task_spec,
                     plan,
-                    plan.selected_adjacent_questions,
+                    selected_adjacent_questions,
                     source_ledger,
                 )
-                total_cost += adjacent_cost
+                adjacent_spend_entry = _aggregate_research_spend(
+                    adjacent_meta,
+                    category=SpendCategory.RESEARCH,
+                    stage="adjacent_research",
+                    fallback_provider="perplexity",
+                    fallback_model=depth,
+                    branch_count=len(selected_adjacent_questions),
+                    notes="Adjacent-question pass",
+                )
+                if adjacent_spend_entry is not None:
+                    record_spend(adjacent_spend_entry)
+                if not _has_usable_research_rows(adjacent_rows):
+                    await emit(
+                        RunEvent(
+                            step="research",
+                            status="warning",
+                            message="Live side-question pass returned no usable findings; retrying with fallback retrieval",
+                        )
+                    )
+                    adjacent_rows, source_ledger, snapshots = await _run_fallback_adjacent_research(
+                        task_spec,
+                        plan,
+                        selected_adjacent_questions,
+                        source_ledger,
+                        snapshots,
+                    )
             if adjacent_rows:
                 research_rows.extend(adjacent_rows)
                 evidence = _build_live_evidence(research_rows, source_ledger, task_spec)
                 claims = build_claim_table(evidence)
                 contradiction_notes = sorted({note for claim in claims for note in claim.contradiction_notes})
                 coverage = build_coverage_report(plan, claims, len(source_ledger), contradiction_notes)
-                critique_findings = build_critique_findings(task_spec, plan, claims, coverage, plan.selected_adjacent_questions)
+                critique_findings = build_critique_findings(task_spec, plan, claims, coverage, selected_adjacent_questions)
                 decision_triggers = build_decision_triggers(task_spec)
                 repo.save_artifact(summary.run_id, "live_research_results.json", research_rows)
                 repo.save_artifact(summary.run_id, "source_ledger.json", [item.model_dump(mode="json") for item in source_ledger])
@@ -4293,9 +5728,187 @@ async def _execute_live_report_run(
                 RunEvent(
                     step="research",
                     status="warning",
-                    message=f"Targeted side-question pass failed and was skipped: {exc}",
+                    message=f"Live side-question pass failed ({exc}); retrying with fallback retrieval",
                 )
             )
+            try:
+                adjacent_rows, source_ledger, snapshots = await _run_fallback_adjacent_research(
+                    task_spec,
+                    plan,
+                    selected_adjacent_questions,
+                    source_ledger,
+                    snapshots,
+                )
+                if adjacent_rows:
+                    research_rows.extend(adjacent_rows)
+                    evidence = _build_live_evidence(research_rows, source_ledger, task_spec)
+                    claims = build_claim_table(evidence)
+                    contradiction_notes = sorted({note for claim in claims for note in claim.contradiction_notes})
+                    coverage = build_coverage_report(plan, claims, len(source_ledger), contradiction_notes)
+                    critique_findings = build_critique_findings(task_spec, plan, claims, coverage, selected_adjacent_questions)
+                    decision_triggers = build_decision_triggers(task_spec)
+                    repo.save_artifact(summary.run_id, "live_research_results.json", research_rows)
+                    repo.save_artifact(summary.run_id, "source_ledger.json", [item.model_dump(mode="json") for item in source_ledger])
+                    if snapshots:
+                        repo.save_artifact(summary.run_id, "source_snapshots.json", [item.model_dump(mode="json") for item in snapshots])
+                    repo.save_artifact(summary.run_id, "evidence_ledger.json", [item.model_dump(mode="json") for item in evidence])
+                    repo.save_artifact(summary.run_id, "claim_table.json", [item.model_dump(mode="json") for item in claims])
+                    repo.save_artifact(summary.run_id, "coverage_report.json", coverage.model_dump(mode="json"))
+                    repo.save_artifact(
+                        summary.run_id,
+                        "critique_findings.json",
+                        [item.model_dump(mode="json") for item in critique_findings],
+                    )
+                    repo.save_artifact(
+                        summary.run_id,
+                        "decision_triggers.json",
+                        [item.model_dump(mode="json") for item in decision_triggers],
+                    )
+                await emit(
+                    RunEvent(
+                        step="research",
+                        status="done",
+                        message=f"Fallback side-question pass completed with {len(adjacent_rows)} additional branches",
+                    )
+                )
+            except Exception as fallback_exc:
+                await emit(
+                    RunEvent(
+                        step="research",
+                        status="warning",
+                        message=f"Targeted side-question pass failed and fallback retrieval also failed: {fallback_exc}",
+                    )
+                )
+
+    validation_questions = _build_validation_questions(task_spec, critique_findings, decision_triggers, coverage)
+    if validation_questions:
+        await emit(
+            RunEvent(
+                step="research",
+                status="started",
+                message=f"Running validation pass across {len(validation_questions)} contradiction and trigger checks",
+            )
+        )
+        try:
+            if used_fallback:
+                validation_rows, source_ledger, snapshots = await _run_fallback_adjacent_research(
+                    task_spec,
+                    plan,
+                    validation_questions,
+                    source_ledger,
+                    snapshots,
+                )
+            else:
+                validation_rows, source_ledger, validation_cost, validation_meta = await _run_live_adjacent_research(
+                    task_spec,
+                    plan,
+                    validation_questions,
+                    source_ledger,
+                )
+                validation_spend_entry = _aggregate_research_spend(
+                    validation_meta,
+                    category=SpendCategory.RESEARCH,
+                    stage="validation_research",
+                    fallback_provider="perplexity",
+                    fallback_model=depth,
+                    branch_count=len(validation_questions),
+                    notes="Validation pass",
+                )
+                if validation_spend_entry is not None:
+                    record_spend(validation_spend_entry)
+                if not _has_usable_research_rows(validation_rows):
+                    await emit(
+                        RunEvent(
+                            step="research",
+                            status="warning",
+                            message="Live validation pass returned no usable findings; retrying with fallback retrieval",
+                        )
+                    )
+                    validation_rows, source_ledger, snapshots = await _run_fallback_adjacent_research(
+                        task_spec,
+                        plan,
+                        validation_questions,
+                        source_ledger,
+                        snapshots,
+                    )
+            if validation_rows:
+                research_rows.extend(validation_rows)
+                evidence = _build_live_evidence(research_rows, source_ledger, task_spec)
+                claims = build_claim_table(evidence)
+                contradiction_notes = sorted({note for claim in claims for note in claim.contradiction_notes})
+                coverage = build_coverage_report(plan, claims, len(source_ledger), contradiction_notes)
+                critique_findings = build_critique_findings(task_spec, plan, claims, coverage, selected_adjacent_questions)
+                decision_triggers = build_decision_triggers(task_spec)
+                repo.save_artifact(summary.run_id, "live_research_results.json", research_rows)
+                repo.save_artifact(summary.run_id, "source_ledger.json", [item.model_dump(mode="json") for item in source_ledger])
+                if snapshots:
+                    repo.save_artifact(summary.run_id, "source_snapshots.json", [item.model_dump(mode="json") for item in snapshots])
+                repo.save_artifact(summary.run_id, "evidence_ledger.json", [item.model_dump(mode="json") for item in evidence])
+                repo.save_artifact(summary.run_id, "claim_table.json", [item.model_dump(mode="json") for item in claims])
+                repo.save_artifact(summary.run_id, "coverage_report.json", coverage.model_dump(mode="json"))
+            await emit(
+                RunEvent(
+                    step="research",
+                    status="done",
+                    message=f"Validation pass completed with {len(validation_rows)} additional branches",
+                )
+            )
+        except Exception as exc:
+            await emit(
+                RunEvent(
+                    step="research",
+                    status="warning",
+                    message=f"Live validation pass failed ({exc}); retrying with fallback retrieval",
+                )
+            )
+            try:
+                validation_rows, source_ledger, snapshots = await _run_fallback_adjacent_research(
+                    task_spec,
+                    plan,
+                    validation_questions,
+                    source_ledger,
+                    snapshots,
+                )
+                if validation_rows:
+                    research_rows.extend(validation_rows)
+                    evidence = _build_live_evidence(research_rows, source_ledger, task_spec)
+                    claims = build_claim_table(evidence)
+                    contradiction_notes = sorted({note for claim in claims for note in claim.contradiction_notes})
+                    coverage = build_coverage_report(plan, claims, len(source_ledger), contradiction_notes)
+                    critique_findings = build_critique_findings(task_spec, plan, claims, coverage, selected_adjacent_questions)
+                    decision_triggers = build_decision_triggers(task_spec)
+                    repo.save_artifact(summary.run_id, "live_research_results.json", research_rows)
+                    repo.save_artifact(summary.run_id, "source_ledger.json", [item.model_dump(mode="json") for item in source_ledger])
+                    if snapshots:
+                        repo.save_artifact(summary.run_id, "source_snapshots.json", [item.model_dump(mode="json") for item in snapshots])
+                    repo.save_artifact(summary.run_id, "evidence_ledger.json", [item.model_dump(mode="json") for item in evidence])
+                    repo.save_artifact(summary.run_id, "claim_table.json", [item.model_dump(mode="json") for item in claims])
+                    repo.save_artifact(summary.run_id, "coverage_report.json", coverage.model_dump(mode="json"))
+                    repo.save_artifact(
+                        summary.run_id,
+                        "critique_findings.json",
+                        [item.model_dump(mode="json") for item in critique_findings],
+                    )
+                    repo.save_artifact(
+                        summary.run_id,
+                        "decision_triggers.json",
+                        [item.model_dump(mode="json") for item in decision_triggers],
+                    )
+                await emit(
+                    RunEvent(
+                        step="research",
+                        status="done",
+                        message=f"Fallback validation pass completed with {len(validation_rows)} additional branches",
+                    )
+                )
+            except Exception as fallback_exc:
+                await emit(
+                    RunEvent(
+                        step="research",
+                        status="warning",
+                        message=f"Validation pass failed and fallback retrieval also failed: {fallback_exc}",
+                    )
+                )
 
     brief = build_analysis_brief(
         task_spec,
@@ -4317,6 +5930,7 @@ async def _execute_live_report_run(
             plan.selected_adjacent_questions,
             critique_findings,
             decision_triggers,
+            record_spend=record_spend,
         )
     except Exception as exc:
         await emit(
@@ -4348,9 +5962,10 @@ async def _execute_live_report_run(
         critique_findings=critique_findings,
         decision_triggers=decision_triggers,
         brief=brief,
-        total_cost=total_cost,
+        total_cost=_spend_totals(spend_entries)[0],
         initial_parsed_report=parsed_report,
         emit=emit,
+        record_spend=record_spend,
     )
     (
         parsed_report,
@@ -4373,11 +5988,63 @@ async def _execute_live_report_run(
         critique_findings=critique_findings,
         decision_triggers=decision_triggers,
         brief=brief,
-        total_cost=total_cost,
+        total_cost=_spend_totals(spend_entries)[0],
         assessment=quality_assessment,
         iterations=quality_iterations,
         emit=emit,
+        record_spend=record_spend,
     )
+    remaining_unsupported = find_unsupported_precise_numbers(
+        _report_body_for_grounding_scan(markdown_text),
+        [claim.statement for claim in claims],
+    )
+    if remaining_unsupported:
+        sanitized_parsed_report = _sanitize_report_grounding(parsed_report, [claim.statement for claim in claims])
+        if sanitized_parsed_report != parsed_report:
+            previous_quality_score = quality_assessment.overall_score
+            parsed_report = sanitized_parsed_report
+            report, subtitle, facts_line, markdown_text = _materialize_live_report_candidate(
+                summary.run_id,
+                parsed_report,
+                source_ledger,
+                coverage,
+                critique_findings,
+                decision_triggers,
+                _spend_totals(spend_entries)[0],
+                brief,
+                task_spec.request_spec.language,
+            )
+            quality_assessment = _assess_live_report_candidate(
+                task_spec,
+                report,
+                source_ledger,
+                claims,
+                evidence,
+                coverage,
+                plan.selected_adjacent_questions,
+                critique_findings,
+                decision_triggers,
+            )
+            quality_iterations.append(
+                build_quality_iteration(
+                    len(quality_iterations),
+                    quality_assessment,
+                    previous_score=previous_quality_score,
+                    improved=False,
+                    revision_focus=["grounding discipline"],
+                    consecutive_improvements=0,
+                    notes=[
+                        f"Deterministic sanitization removed unsupported precise numbers: {', '.join(remaining_unsupported[:4])}",
+                    ],
+                )
+            )
+            await emit(
+                RunEvent(
+                    step="quality",
+                    status="done",
+                    message="Applied deterministic grounding cleanup to strip unsupported precise numbers from the final draft",
+                )
+            )
     report.metadata["quality_overall_score"] = quality_assessment.overall_score
     report.metadata["quality_verdict"] = quality_assessment.verdict
     report.metadata["quality_improvement_rounds"] = len([item for item in quality_iterations if item.improved])
@@ -4410,19 +6077,50 @@ async def _execute_live_report_run(
             f"quality_round_{item.iteration}.json",
             item.model_dump(mode="json"),
         )
+    total_cost, total_tokens = _spend_totals(spend_entries)
+    report.total_cost_usd = total_cost
+    report.metadata["spend_breakdown"] = [item.model_dump(mode="json") for item in spend_entries]
+    report.metadata["depth_profile"] = profile.model_dump(mode="json")
+    report.metadata["material_count"] = len(summary.materials)
+    markdown_text = _final_markdown_compliance_cleanup(markdown_text, [claim.statement for claim in claims])
     html_text = _build_rich_html(report, [], lang=task_spec.request_spec.language)
     repo.write_report_file(summary.run_id, "report.md", markdown_text)
-    repo.write_report_file(summary.run_id, "report.html", html_text)
-    pdf_bytes = render_pdf(html_text, markdown_text, report.title, subtitle=subtitle, facts_line=facts_line)
-    if pdf_bytes:
-        repo.write_report_file(summary.run_id, "report.pdf", pdf_bytes)
-    docx_bytes = _render_rich_docx_bytes(report)
-    if docx_bytes:
-        repo.write_report_file(summary.run_id, "report.docx", docx_bytes)
+    if ArtifactFormat.HTML in task_spec.output_package:
+        repo.write_report_file(summary.run_id, "report.html", html_text)
+    if ArtifactFormat.PDF in task_spec.output_package:
+        pdf_bytes = render_pdf(html_text, markdown_text, report.title, subtitle=subtitle, facts_line=facts_line)
+        if pdf_bytes:
+            repo.write_report_file(summary.run_id, "report.pdf", pdf_bytes)
+    if ArtifactFormat.DOCX in task_spec.output_package:
+        docx_bytes = _render_rich_docx_bytes(report)
+        if docx_bytes:
+            repo.write_report_file(summary.run_id, "report.docx", docx_bytes)
+    if ArtifactFormat.PPTX in task_spec.output_package:
+        try:
+            _slides_json, presentation_spend, _presentation_path = await _generate_presentation_package(
+                repo,
+                summary.run_id,
+                report,
+                task_spec.request_spec.language,
+            )
+            for entry in presentation_spend:
+                record_spend(entry)
+            total_cost, total_tokens = _spend_totals(spend_entries)
+            report.total_cost_usd = total_cost
+            report.metadata["spend_breakdown"] = [item.model_dump(mode="json") for item in spend_entries]
+        except Exception as exc:
+            await emit(
+                RunEvent(
+                    step="report",
+                    status="warning",
+                    message=f"Presentation export was skipped: {exc}",
+                )
+            )
 
     package_payloads = {
         "request_spec.json": task_spec.request_spec.model_dump(mode="json"),
         "task_spec.json": task_spec.model_dump(mode="json"),
+        "depth_profile.json": profile.model_dump(mode="json"),
         "research_plan.json": plan.model_dump(mode="json"),
         "sources.json": [item.model_dump(mode="json") for item in source_ledger],
         "live_research_results.json": research_rows,
@@ -4436,6 +6134,9 @@ async def _execute_live_report_run(
         "coverage_report.json": coverage.model_dump(mode="json"),
         "quality_assessment.json": quality_assessment.model_dump(mode="json"),
         "quality_iterations.json": [item.model_dump(mode="json") for item in quality_iterations],
+        "spend_breakdown.json": [item.model_dump(mode="json") for item in spend_entries],
+        "materials.json": [item.model_dump(mode="json") for item in summary.materials],
+        "handoff_prompts.json": [item.model_dump(mode="json") for item in summary.handoff_prompts],
         "report_output.json": report.model_dump(mode="json"),
     }
     for filename, payload in package_payloads.items():
@@ -4464,6 +6165,8 @@ async def _execute_live_report_run(
     repo.save_artifact(summary.run_id, "report_output.json", report.model_dump(mode="json"))
     summary.title = report.title
     summary.cost_usd = total_cost
+    summary.tokens_used = total_tokens
+    summary.spend_breakdown = spend_entries
     summary.analysis_brief = brief
     summary.coverage_report = coverage
     summary.audit_summary = audit
@@ -4697,6 +6400,7 @@ async def execute_report_run(repo: FileRunRepository, summary: RunSummary, task_
     brief.title = report.title
     brief.executive_summary = report.executive_summary
     markdown_text = _build_markdown_from_report(report, source_ledger, facts_line=facts_line)
+    markdown_text = _final_markdown_compliance_cleanup(markdown_text, [claim.statement for claim in claims])
     html_text = _build_rich_html(report, [], lang=task_spec.request_spec.language)
     repo.write_report_file(summary.run_id, "report.md", markdown_text)
     repo.write_report_file(summary.run_id, "report.html", html_text)
@@ -4751,6 +6455,27 @@ async def execute_report_run(repo: FileRunRepository, summary: RunSummary, task_
     return repo.save_run(summary)
 
 
-def build_draft_run(run_id: str, query: str, depth: str | None = None) -> RunSummary:
+def build_draft_run(
+    run_id: str,
+    query: str,
+    *,
+    depth: str | None = None,
+    output_formats: list[ArtifactFormat] | None = None,
+    allow_perplexity_handoff: bool = False,
+) -> RunSummary:
     request_spec = build_request_spec(query, depth=depth)
-    return RunSummary(run_id=run_id, request=query, budget_tier=request_spec.budget_tier, request_spec=request_spec)
+    return RunSummary(
+        run_id=run_id,
+        request=query,
+        budget_tier=request_spec.budget_tier,
+        request_spec=request_spec,
+        requested_output_formats=output_formats or [
+            ArtifactFormat.MARKDOWN,
+            ArtifactFormat.HTML,
+            ArtifactFormat.PDF,
+            ArtifactFormat.DOCX,
+            ArtifactFormat.JSON,
+        ],
+        allow_perplexity_handoff=allow_perplexity_handoff,
+        depth_profile=build_depth_profile(request_spec.budget_tier),
+    )

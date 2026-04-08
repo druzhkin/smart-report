@@ -156,6 +156,11 @@ def classify_source_type(url: str) -> SourceType:
         return SourceType.RESEARCH_PAPER
 
     if "github.com" in domain:
+        if "/blob/" in path and any(
+            path.endswith(suffix)
+            for suffix in (".js", ".js.map", ".json", ".lock", ".min.js", ".csv", ".ts", ".tsx", ".py", ".mdx")
+        ):
+            return SourceType.WEAK_SECONDARY
         if "/topics/" in path or "awesome" in path or "case-stud" in path:
             return SourceType.WEAK_SECONDARY
         return SourceType.OFFICIAL_DOCUMENTATION

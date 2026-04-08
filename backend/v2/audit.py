@@ -32,6 +32,10 @@ _REQUIRED_ANALYTICAL_HEADINGS = (
     ("What Could Change The Recommendation", "Что может изменить рекомендацию"),
     ("Unknowns and Next Questions", "Неизвестное и следующие вопросы"),
 )
+_RAW_HTML_TABLE_MARKDOWN_PATTERN = re.compile(
+    r"<p>\s*\|[^<\n]+\|\s*</p>\s*<p>\s*\|[-:\s|]+\|\s*</p>",
+    flags=re.IGNORECASE,
+)
 
 
 def _section_body(report_md: str, heading: str) -> str:
@@ -55,9 +59,15 @@ def _body_for_grounding_scan(report_md: str) -> str:
     body = report_md[start:end]
     body = re.sub(r"(?im)^Exhibit\s+\d+.*$", " ", body)
     body = re.sub(r"(?im)^\|.*\|\s*$", " ", body)
+    body = re.sub(r"\[Evidence:\s*(?!\s*C-\d+(?:\s*,\s*C-\d+)*\s*\])[^\]]+\]", " ", body, flags=re.IGNORECASE)
+    body = re.sub(r"\[[alq]q?\d+[^\]]*\]", " ", body, flags=re.IGNORECASE)
     body = re.sub(r"\(\d+\)", " ", body)
     body = re.sub(r"\(Word count:[^)]+\)", " ", body, flags=re.IGNORECASE)
     return body
+
+
+def _html_has_unrendered_markdown_tables(report_html: str) -> bool:
+    return bool(_RAW_HTML_TABLE_MARKDOWN_PATTERN.search(report_html))
 
 
 def audit_report_package(package_dir: str | Path) -> AuditSummary:
@@ -84,6 +94,7 @@ def audit_report_package(package_dir: str | Path) -> AuditSummary:
             failures.append(f"Missing required artifact: {filename}")
 
     report_md = (path / "report.md").read_text(encoding="utf-8") if (path / "report.md").exists() else ""
+    report_html = (path / "report.html").read_text(encoding="utf-8") if (path / "report.html").exists() else ""
     lowered = report_md.lower()
     for phrase in _BANNED_PHRASES:
         if phrase in lowered:
@@ -92,6 +103,8 @@ def audit_report_package(package_dir: str | Path) -> AuditSummary:
         failures.append("Broken footnote-style citations detected; use markdown links or explicit evidence markers")
     if any(marker in report_md for marker in _MOJIBAKE_MARKERS):
         failures.append("Broken text encoding markers detected in report output")
+    if _html_has_unrendered_markdown_tables(report_html):
+        failures.append("HTML report still contains raw markdown tables instead of rendered table elements")
 
     headings = re.findall(r"^##\s+(.+)$", report_md, flags=re.MULTILINE)
     if len(headings) != len(set(headings)):

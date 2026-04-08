@@ -4,15 +4,19 @@ import asyncio
 import json
 from pathlib import Path
 
+from backend.agents.renderer import _build_html, _ensure_table_spacing
 from backend.schemas.report_schema import ReportOutput, ReportSection, ReportStatus
 from backend.schemas.research_result import ResearchResult, Source
 from backend.v2.audit import audit_report_package
-from backend.v2.grounding import extract_numeric_facts
+from backend.v2.grounding import extract_numeric_facts, find_unsupported_precise_numbers, sanitize_unsupported_precise_numbers
 from backend.v2.intake import build_request_spec, build_task_spec
 from backend.v2.models import (
+    AnalysisBrief,
     ClaimRecord,
+    CritiqueKind,
     CritiqueFinding,
     CoverageReport,
+    CoverageQuestionStatus,
     DecisionTrigger,
     EvidenceRecord,
     QualityAssessment,
@@ -21,6 +25,7 @@ from backend.v2.models import (
     ResearchPlan,
     ResearchQuestion,
     SearchCandidate,
+    SpendCategory,
     SourceLedgerEntry,
     SourceSnapshot,
     SourceType,
@@ -28,12 +33,21 @@ from backend.v2.models import (
 from backend.v2.pipeline import (
     LATERAL_REVIEW_PROMPT,
     _adjacent_to_primary_question_id,
+    _aggregate_research_spend,
+    _build_business_backfill_queries,
     _build_stack_backfill_queries,
+    _build_question_fallback_queries,
     _build_live_research_queries,
     _build_live_evidence,
+    _build_validation_questions,
+    _coverage_gap_question_ids,
+    _final_markdown_compliance_cleanup,
     _language_name,
+    _append_decision_addendum_sections,
+    _rank_live_sources,
     _sanitize_llm_markdown,
     _traceability_appendix_sections,
+    build_analysis_brief,
     build_claim_table,
     build_evidence_ledger,
     build_research_plan,
@@ -149,6 +163,79 @@ def test_audit_blocks_incomplete_package(tmp_path: Path) -> None:
 
     assert audit_summary.release_status == "blocked"
     assert any("lacks evidence linkage" in failure for failure in audit_summary.failures)
+
+
+def test_audit_blocks_html_with_raw_markdown_tables(tmp_path: Path) -> None:
+    package_dir = tmp_path / "format-broken-package"
+    package_dir.mkdir(parents=True)
+    report_md = (
+        "# Format Broken\n\n"
+        "## Executive Summary\n\n"
+        "Short summary.\n\n"
+        "## Recommendation and Decision Posture\n\n"
+        "- Recommend a phased pilot with bounded rollout [Evidence: C-01]\n\n"
+        "## Option Space\n\n"
+        "Comparison text.\n\n"
+        "## What Could Change The Recommendation\n\n"
+        "Trigger text.\n\n"
+        "## Unknowns and Next Questions\n\n"
+        "Open questions.\n"
+    )
+    report_html = (
+        "<html><body>"
+        "<p>| Option | Cost |</p>"
+        "<p>|---|---|</p>"
+        "<p>| Deep | $0.75 |</p>"
+        "</body></html>"
+    )
+    (package_dir / "report.md").write_text(report_md, encoding="utf-8")
+    (package_dir / "report.html").write_text(report_html, encoding="utf-8")
+    (package_dir / "sources.json").write_text(
+        json.dumps(
+            [
+                {
+                    "source_id": "S-01",
+                    "url": "https://example.com/source",
+                    "source_type": "research_paper",
+                    "reliability_score": 0.9,
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (package_dir / "claim_table.json").write_text(
+        json.dumps(
+            [
+                {
+                    "claim_id": "C-01",
+                    "statement": "A phased pilot reduces rollout risk.",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (package_dir / "analysis_brief.json").write_text("{}", encoding="utf-8")
+    (package_dir / "coverage_report.json").write_text(
+        json.dumps({"coverage_ratio": 1.0, "contradiction_count": 0}),
+        encoding="utf-8",
+    )
+    (package_dir / "quality_assessment.json").write_text(
+        json.dumps({"overall_score": 80.0, "verdict": "strong", "dimensions": []}),
+        encoding="utf-8",
+    )
+    (package_dir / "quality_iterations.json").write_text(
+        json.dumps([{"iteration": 0, "improved": False}]),
+        encoding="utf-8",
+    )
+    (package_dir / "adjacent_questions.json").write_text(json.dumps([{"question_id": "aq1"}]), encoding="utf-8")
+    (package_dir / "critique_findings.json").write_text(json.dumps([{"finding_id": "f1"}]), encoding="utf-8")
+    (package_dir / "decision_triggers.json").write_text(json.dumps([{"label": "Budget"}]), encoding="utf-8")
+    (package_dir / "lateral_review.json").write_text(json.dumps({"source": "model"}), encoding="utf-8")
+
+    audit_summary = audit_report_package(package_dir)
+
+    assert audit_summary.release_status == "blocked"
+    assert any("raw markdown tables" in failure for failure in audit_summary.failures)
 
 
 def test_adjacent_question_selection_prioritizes_alternatives_and_counterarguments() -> None:
@@ -527,6 +614,58 @@ def test_extract_numeric_facts_uses_local_subjects_for_comparison_sentences() ->
     assert all("gpt-5.4" not in fact.subjects for fact in benchmark_facts)
 
 
+def test_extract_numeric_facts_preserves_thousand_separators() -> None:
+    facts = extract_numeric_facts("The platform handled 40,000 requests per day during the benchmark window.")
+
+    assert any(int(fact.value) == 40000 for fact in facts)
+
+
+def test_sanitize_unsupported_precise_numbers_rewrites_unbacked_metrics() -> None:
+    report_text = "Launch at $50 per user, size the market at USD 13.3 billion, and expect 30% conversion in the first quarter."
+    claim_texts = ["Comparable tools are sold with paid subscriptions, but exact price and conversion are not validated yet."]
+
+    sanitized = sanitize_unsupported_precise_numbers(report_text, claim_texts)
+
+    assert "$50" not in sanitized
+    assert "13.3 billion" not in sanitized
+    assert "30%" not in sanitized
+    assert "a paid tier" in sanitized
+    assert "a large market category" in sanitized
+    assert "a meaningful threshold" in sanitized
+    assert "pointillion" not in sanitized
+
+
+def test_find_unsupported_precise_numbers_ignores_low_signal_document_counters() -> None:
+    report_text = "Exhibit 4\n\nPhase 1 validates the workflow in 6 months before a broader rollout."
+    claim_texts = ["The workflow should be validated before broad rollout."]
+
+    unsupported = find_unsupported_precise_numbers(report_text, claim_texts)
+
+    assert unsupported == []
+
+
+def test_final_markdown_compliance_cleanup_strips_unlinked_recommendation_bullets_and_numbers() -> None:
+    report_markdown = (
+        "# Demo\n\n"
+        "## Recommendation and Decision Posture\n\n"
+        "- Keep the product free until adoption rises above 25%\n"
+        "- Launch a premium tier [Evidence: C-01]\n\n"
+        "Net Promoter Score above 50\n\n"
+        "## Other Section\n\n"
+        "- Evidence-backed point with 42% growth.\n"
+    )
+    claim_texts = ["Launch a premium tier when adoption reaches a validated threshold."]
+
+    cleaned = _final_markdown_compliance_cleanup(report_markdown, claim_texts)
+
+    assert "- Keep the product free until adoption rises above 25%" not in cleaned
+    assert "Keep the product free until adoption rises above a meaningful threshold" in cleaned
+    assert "- Launch a premium tier [Evidence: C-01]" in cleaned
+    assert "42%" not in cleaned
+    assert "Net Promoter Score above 50" not in cleaned
+    assert "Net Promoter Score above a strong satisfaction threshold" in cleaned
+
+
 def test_live_evidence_uses_primary_question_id_hint() -> None:
     source = SourceLedgerEntry(
         url="https://example.com/source",
@@ -656,6 +795,16 @@ def test_sanitize_llm_markdown_removes_broken_footnotes_and_mojibake() -> None:
     assert "Word count" not in cleaned
     assert "traceability-but only at scale" in cleaned
     assert "Budget dominance -> simpler stack" in cleaned
+
+
+def test_sanitize_llm_markdown_removes_invalid_internal_evidence_markers() -> None:
+    cleaned = _sanitize_llm_markdown(
+        "Recommendation: pursue validation. [Evidence: q1, aq1]\n\nRoadmap [Evidence: C-01, C-02]\n\n[...]"
+    )
+
+    assert "[Evidence: q1, aq1]" not in cleaned
+    assert "[Evidence: C-01, C-02]" in cleaned
+    assert "[...]" not in cleaned
 
 
 def test_sanitize_llm_markdown_collapses_blank_lines_inside_tables() -> None:
@@ -1535,3 +1684,891 @@ def test_live_quality_loop_records_three_improvements(tmp_path: Path, monkeypatc
     assert len(quality_iterations) >= 4
     assert len([item for item in quality_iterations if item["improved"]]) >= 3
     assert any(event.step == "quality" for event in events)
+
+
+def test_ensure_table_spacing_keeps_markdown_table_rows_contiguous() -> None:
+    text = (
+        "Exhibit 1\n"
+        "| Column A | Column B |\n"
+        "|---|---|\n"
+        "| Alpha | Beta |\n"
+        "Follow-up paragraph."
+    )
+
+    formatted = _ensure_table_spacing(text)
+
+    assert "\n\n| Column A | Column B |\n|---|---|\n| Alpha | Beta |\n\nFollow-up paragraph." in formatted
+    assert "\n\n|---|---|\n\n" not in formatted
+    assert "\n\n| Alpha | Beta |\n\n" not in formatted
+
+
+def test_build_html_renders_markdown_tables_as_table_elements() -> None:
+    report = ReportOutput(
+        id="table-report",
+        title="Table Rendering",
+        executive_summary="Summary paragraph.",
+        sections=[
+            ReportSection(
+                title="Comparative Exhibit",
+                content=(
+                    "Exhibit 1\n\n"
+                    "| Option | Cost |\n"
+                    "|---|---:|\n"
+                    "| Light | $0.29 |\n"
+                    "| Deep | $0.75 |\n\n"
+                    "Interpretation paragraph."
+                ),
+                order=1,
+                sources=[],
+            )
+        ],
+        total_cost_usd=0.0,
+        metadata={},
+    )
+
+    html = _build_html(report, [], lang="en")
+
+    assert "<table>" in html
+    assert "<thead>" in html
+    assert "<tbody>" in html
+    assert "<td>Light</td>" in html
+    assert "$0.75</td>" in html
+
+
+def test_build_decision_triggers_do_not_embed_long_subject_verbatim() -> None:
+    request_spec = build_request_spec(
+        "Assess whether there is a real market for decision-grade AI research/report tools like Smart Report, identify buyer segments, and estimate willingness to pay.",
+        depth="deep",
+    )
+    task_spec = build_task_spec(
+        request_spec,
+        answers={
+            "decision-context": "Decide whether Smart Report should be positioned as a paid product for consulting and strategy teams.",
+            "geography": "global",
+        },
+    )
+
+    triggers = build_decision_triggers(task_spec)
+    serialized = " ".join(f"{item.label} {item.condition} {item.implication}" for item in triggers)
+
+    assert "option around whether there is a real market" not in serialized
+    assert "the dominant filter" in serialized
+    assert any(item.label == "Budget Dominance" for item in triggers)
+
+
+def test_build_analysis_brief_uses_analytical_lines_instead_of_raw_questions() -> None:
+    request_spec = build_request_spec(
+        "Assess whether Smart Report should become a paid product for consulting and investment teams.",
+        depth="deep",
+    )
+    task_spec = build_task_spec(
+        request_spec,
+        answers={
+            "decision-context": "Choose the monetization path.",
+            "geography": "global",
+        },
+    )
+    coverage = CoverageReport(
+        total_questions=4,
+        covered_questions=3,
+        coverage_ratio=0.75,
+        strong_source_ratio=1.0,
+        contradiction_count=0,
+        questions=[],
+        gaps=["What are the strongest evidence-backed tradeoffs, risks, and decision triggers?"],
+    )
+    adjacent_questions = [
+        ResearchQuestion(
+            question_id="aq1",
+            question="What are the top existing AI market research tools (e.g., Perplexity, Aomni, GWI Spark) and how do they compare to Smart Report on quality, cost, and operational risk?",
+            kind=QuestionKind.ADJACENT_ALTERNATIVE,
+            priority=1,
+            required_evidence_count=1,
+        ),
+        ResearchQuestion(
+            question_id="aq2",
+            question="What evidence shows low willingness to pay for AI research tools among consulting/strategy teams, or preference for free options like ChatGPT/Perplexity?",
+            kind=QuestionKind.ADJACENT_COUNTERARGUMENT,
+            priority=2,
+            required_evidence_count=1,
+        ),
+    ]
+    critique_findings = [
+        CritiqueFinding(
+            summary="The current draft still relies on thinly supported claims and should not finalize an unqualified recommendation.",
+            kind=CritiqueKind.WEAK_EVIDENCE,
+            severity="high",
+        )
+    ]
+    decision_triggers = [
+        DecisionTrigger(
+            label="Budget Dominance",
+            condition="If total cost of ownership becomes the dominant filter, favor the lowest-burden option over the richest feature set.",
+            implication="The recommendation may shift toward a cheaper, simpler stack even if it is weaker on absolute quality.",
+            confidence=0.74,
+        )
+    ]
+
+    brief = build_analysis_brief(
+        task_spec,
+        claims=[],
+        coverage=coverage,
+        adjacent_questions=adjacent_questions,
+        critique_findings=critique_findings,
+        decision_triggers=decision_triggers,
+    )
+
+    assert brief.option_space
+    assert all(not line.endswith("?") for line in brief.option_space)
+    assert any("Perplexity" in line for line in brief.option_space)
+    assert any("Tradeoffs, risks" in line for line in brief.critical_unknowns)
+
+
+def test_adjacent_boundary_and_hidden_variable_map_into_q4() -> None:
+    plan = ResearchPlan(
+        primary_questions=[
+            ResearchQuestion(question_id="q1", question="Decision framing", kind=QuestionKind.PRIMARY, priority=1, required_evidence_count=2),
+            ResearchQuestion(question_id="q2", question="Alternatives and comparators", kind=QuestionKind.PRIMARY, priority=2, required_evidence_count=2),
+            ResearchQuestion(question_id="q3", question="Recommended option and stack fit", kind=QuestionKind.PRIMARY, priority=3, required_evidence_count=2),
+            ResearchQuestion(question_id="q4", question="Tradeoffs, risks, failure modes, and decision triggers", kind=QuestionKind.PRIMARY, priority=4, required_evidence_count=2),
+        ]
+    )
+
+    boundary = ResearchQuestion(
+        question_id="aq4",
+        question="Under what conditions does the recommendation stop working?",
+        kind=QuestionKind.ADJACENT_BOUNDARY,
+        priority=4,
+        required_evidence_count=1,
+    )
+    hidden = ResearchQuestion(
+        question_id="aq3",
+        question="Which hidden variables and operating risks can still overturn the recommendation?",
+        kind=QuestionKind.ADJACENT_HIDDEN_VARIABLE,
+        priority=3,
+        required_evidence_count=1,
+    )
+
+    assert _adjacent_to_primary_question_id(plan, boundary) == "q4"
+    assert _adjacent_to_primary_question_id(plan, hidden) == "q4"
+
+
+def test_append_decision_addendum_sections_overwrites_placeholder_sections() -> None:
+    report = ReportOutput(
+        id="overwrite-demo",
+        title="Overwrite Demo",
+        executive_summary="Summary",
+        sections=[
+            ReportSection(
+                title="Option Space",
+                content="- Raw planner question?",
+                order=1,
+                sources=[],
+            ),
+            ReportSection(
+                title="What Could Change The Recommendation",
+                content="- Old broken trigger line",
+                order=2,
+                sources=[],
+            ),
+        ],
+        total_cost_usd=0.0,
+        metadata={},
+    )
+    brief = AnalysisBrief(
+        title="Brief",
+        executive_summary="Summary",
+        decision_context="Choose a path",
+        recommendation_posture="bounded_analysis_only",
+        key_findings=[],
+        key_risks=[],
+        option_space=["The comparison set should explicitly include Perplexity, Aomni, GWI Spark, not just the focal product."],
+        critical_unknowns=["Tradeoffs, risks, and recommendation-switch conditions remain under-evidenced."],
+        decision_triggers=["Budget Dominance: If total cost of ownership becomes the dominant filter, favor the lowest-burden option over the richest feature set. -> The recommendation may shift toward a cheaper, simpler stack even if it is weaker on absolute quality."],
+        improvement_priorities=[],
+        limitations=[],
+        uncertainty_statement="",
+        chart_candidates=[],
+    )
+    sources = [
+        SourceLedgerEntry(
+            question_links=["q1"],
+            source_type=SourceType.RESEARCH_PAPER,
+            url="https://example.com/source",
+            title="Example Source",
+            domain="example.com",
+            reliability_score=0.91,
+            selection_reason="Strong source",
+        )
+    ]
+    coverage = CoverageReport(
+        total_questions=4,
+        covered_questions=4,
+        coverage_ratio=1.0,
+        strong_source_ratio=1.0,
+        contradiction_count=0,
+        questions=[],
+        gaps=[],
+    )
+
+    updated = _append_decision_addendum_sections(
+        report,
+        brief,
+        sources,
+        coverage,
+        critique_findings=[],
+        decision_triggers=[],
+        language="en",
+    )
+
+    option_section = next(section for section in updated.sections if section.title == "Option Space")
+    trigger_section = next(section for section in updated.sections if section.title == "What Could Change The Recommendation")
+
+    assert "Raw planner question?" not in option_section.content
+    assert "The comparison set should explicitly include Perplexity" in option_section.content
+    assert "Old broken trigger line" not in trigger_section.content
+    assert "Budget Dominance:" in trigger_section.content
+
+
+def test_rank_live_sources_preserves_anchor_source_for_each_primary_question() -> None:
+    request_spec = build_request_spec(
+        "Assess whether Smart Report should become a paid product for consulting and investment teams.",
+        depth="deep",
+    )
+    task_spec = build_task_spec(
+        request_spec,
+        answers={
+            "decision-context": "Choose the monetization path.",
+            "geography": "global",
+        },
+    )
+    plan = build_research_plan(task_spec)
+    entries = [
+        SourceLedgerEntry(
+            question_links=["q1"],
+            source_type=SourceType.RESEARCH_PAPER,
+            url="https://example.com/q1",
+            title="Market demand overview",
+            domain="example.com",
+            reliability_score=0.92,
+            selection_reason="q1",
+        ),
+        SourceLedgerEntry(
+            question_links=["q2"],
+            source_type=SourceType.RESEARCH_PAPER,
+            url="https://example.org/q2",
+            title="Alternative analysis methodology",
+            domain="example.org",
+            reliability_score=0.91,
+            selection_reason="q2",
+        ),
+        SourceLedgerEntry(
+            question_links=["q3"],
+            source_type=SourceType.HIGH_QUALITY_SECONDARY,
+            url="https://example.net/q3",
+            title="Pricing and positioning benchmark",
+            domain="example.net",
+            reliability_score=0.84,
+            selection_reason="q3",
+        ),
+        SourceLedgerEntry(
+            question_links=["q4"],
+            source_type=SourceType.VENDOR_PAGE,
+            url="https://low-signal.example/q4",
+            title="Operational rollout notes",
+            domain="low-signal.example",
+            reliability_score=0.62,
+            selection_reason="q4",
+        ),
+    ]
+
+    selected = _rank_live_sources(entries, task_spec, plan, limit=4)
+
+    selected_urls = {entry.url for entry in selected}
+    assert "https://low-signal.example/q4" in selected_urls
+    assert len(selected) == 4
+
+
+def test_rank_live_sources_prefers_q4_tradeoff_source_over_generic_q4_source() -> None:
+    request_spec = build_request_spec(
+        "Assess whether Smart Report should become a paid product for consulting and investment teams.",
+        depth="deep",
+    )
+    task_spec = build_task_spec(
+        request_spec,
+        answers={
+            "decision-context": "Choose the monetization path.",
+            "geography": "global",
+        },
+    )
+    plan = build_research_plan(task_spec)
+    entries = [
+        SourceLedgerEntry(
+            question_links=["q1"],
+            source_type=SourceType.RESEARCH_PAPER,
+            url="https://example.com/q1",
+            title="Market demand overview",
+            domain="example.com",
+            reliability_score=0.92,
+            selection_reason="q1",
+        ),
+        SourceLedgerEntry(
+            question_links=["q2"],
+            source_type=SourceType.RESEARCH_PAPER,
+            url="https://example.org/q2",
+            title="Alternative analysis methodology",
+            domain="example.org",
+            reliability_score=0.91,
+            selection_reason="q2",
+        ),
+        SourceLedgerEntry(
+            question_links=["q3"],
+            source_type=SourceType.HIGH_QUALITY_SECONDARY,
+            url="https://example.net/q3",
+            title="Pricing and positioning benchmark",
+            domain="example.net",
+            reliability_score=0.84,
+            selection_reason="q3",
+        ),
+        SourceLedgerEntry(
+            question_links=["q4"],
+            source_type=SourceType.HIGH_QUALITY_SECONDARY,
+            url="https://generic.example/q4",
+            title="Decision-Grade Data and Operational Excellence",
+            domain="generic.example",
+            reliability_score=0.86,
+            selection_reason="generic q4",
+        ),
+        SourceLedgerEntry(
+            question_links=["q4"],
+            source_type=SourceType.BENCHMARK,
+            url="https://specific.example/q4",
+            title="Enterprise AI pricing, procurement friction, ROI, and integration tradeoffs",
+            domain="specific.example",
+            reliability_score=0.8,
+            selection_reason="specific q4",
+        ),
+    ]
+
+    selected = _rank_live_sources(entries, task_spec, plan, limit=4)
+
+    selected_urls = [entry.url for entry in selected]
+    assert "https://specific.example/q4" in selected_urls
+    assert "https://generic.example/q4" not in selected_urls
+
+
+def test_build_live_evidence_filters_generic_q4_findings_and_keeps_tradeoff_evidence() -> None:
+    request_spec = build_request_spec(
+        "Assess whether Smart Report should become a paid product for consulting and investment teams.",
+        depth="deep",
+    )
+    task_spec = build_task_spec(
+        request_spec,
+        answers={
+            "decision-context": "Choose the monetization path.",
+            "geography": "global",
+        },
+    )
+    source_ledger = [
+        SourceLedgerEntry(
+            question_links=["q4"],
+            source_type=SourceType.HIGH_QUALITY_SECONDARY,
+            url="https://generic.example/q4",
+            title="Decision-Grade Data and Operational Excellence",
+            domain="generic.example",
+            reliability_score=0.86,
+            selection_reason="generic q4",
+        ),
+        SourceLedgerEntry(
+            question_links=["q4"],
+            source_type=SourceType.BENCHMARK,
+            url="https://specific.example/q4",
+            title="Enterprise AI pricing, procurement friction, ROI, and integration tradeoffs",
+            domain="specific.example",
+            reliability_score=0.82,
+            selection_reason="specific q4",
+        ),
+    ]
+    research_rows = [
+        {
+            "question_id": "q4",
+            "primary_question_id": "q4",
+            "query": "What are the strongest evidence-backed tradeoffs, risks, and decision triggers?",
+            "source_urls": ["https://generic.example/q4", "https://specific.example/q4"],
+            "findings": [
+                "Decision-Grade Data is the foundation of operational excellence in modern enterprises and matters for better decisions.",
+                "Enterprise buyers most often object on pricing, procurement friction, integration burden, and unclear ROI until switching conditions are explicit.",
+            ],
+        }
+    ]
+
+    evidence = _build_live_evidence(research_rows, source_ledger, task_spec)
+
+    assert len(evidence) == 1
+    assert "pricing" in evidence[0].claim.lower()
+    assert evidence[0].source_id == source_ledger[1].source_id
+
+
+def test_q4_queries_include_pricing_procurement_and_switch_signals() -> None:
+    request_spec = build_request_spec(
+        "Assess whether Smart Report should become a paid product for consulting and investment teams.",
+        depth="deep",
+    )
+    task_spec = build_task_spec(
+        request_spec,
+        answers={
+            "decision-context": "Choose the monetization path.",
+            "geography": "global",
+        },
+    )
+    plan = build_research_plan(task_spec)
+    live_queries = dict(_build_live_research_queries(task_spec, plan))
+    q4_question = next(question for question in plan.primary_questions if question.question_id == "q4")
+    fallback_queries = _build_question_fallback_queries(task_spec, q4_question)
+
+    q4_prompt = live_queries["q4"].lower()
+    assert "pricing" in q4_prompt
+    assert "procurement" in q4_prompt
+    assert "switch" in q4_prompt
+
+    joined_fallback = " ".join(fallback_queries).lower()
+    assert "ai saas monetization consulting investment teams pricing" in joined_fallback
+    assert "enterprise software pricing procurement objections consulting firms" in joined_fallback
+    assert "go to market packaging ai workflow software professional services" in joined_fallback
+
+
+def test_business_live_queries_disambiguate_smart_report_product_name() -> None:
+    request_spec = build_request_spec(
+        "Assess whether Smart Report should become a paid product for consulting and investment teams.",
+        depth="deep",
+    )
+    task_spec = build_task_spec(
+        request_spec,
+        answers={
+            "decision-context": "Choose the monetization path.",
+            "geography": "global",
+        },
+    )
+    plan = build_research_plan(task_spec)
+    live_queries = dict(_build_live_research_queries(task_spec, plan))
+
+    assert "Treat Smart Report as the name of the user's product" in live_queries["q1"]
+    assert "Exclude Oracle, BMC" in live_queries["q1"]
+    assert "Compare Perplexity, AlphaSense, PitchBook, CB Insights, Hebbia" in live_queries["q2"]
+    assert "Avoid generic reporting documentation" in live_queries["q2"]
+
+
+def test_business_backfill_queries_exist_for_monetization_topics() -> None:
+    request_spec = build_request_spec(
+        "Assess whether Smart Report should become a paid product for consulting and investment teams.",
+        depth="deep",
+    )
+    task_spec = build_task_spec(
+        request_spec,
+        answers={
+            "decision-context": "Choose the monetization path.",
+            "geography": "global",
+        },
+    )
+
+    query_specs = _build_business_backfill_queries(task_spec)
+
+    assert query_specs
+    assert any(question_id == "q1" for question_id, _ in query_specs)
+    assert any(question_id == "q3" for question_id, _ in query_specs)
+    assert any(question_id == "q4" for question_id, _ in query_specs)
+    assert any("monetization" in query.lower() for _, query in query_specs)
+    assert [question_id for question_id, _ in query_specs[:4]] == ["q3", "q3", "q4", "q4"]
+
+
+def test_business_backfill_queries_can_be_limited_to_uncovered_questions() -> None:
+    request_spec = build_request_spec(
+        "Assess whether Smart Report should become a paid product for consulting and investment teams.",
+        depth="deep",
+    )
+    task_spec = build_task_spec(
+        request_spec,
+        answers={
+            "decision-context": "Choose the monetization path.",
+            "geography": "global",
+        },
+    )
+
+    query_specs = _build_business_backfill_queries(task_spec, {"q4"})
+
+    assert query_specs
+    assert all(question_id == "q4" for question_id, _ in query_specs)
+    assert any("pricing objections" in query.lower() or "willingness to pay" in query.lower() for _, query in query_specs)
+
+
+def test_business_q2_fallback_queries_include_named_competitors() -> None:
+    request_spec = build_request_spec(
+        "Assess whether Smart Report should become a paid product for consulting and investment teams.",
+        depth="deep",
+    )
+    task_spec = build_task_spec(
+        request_spec,
+        answers={
+            "decision-context": "Choose the monetization path.",
+            "geography": "global",
+        },
+    )
+    question = build_research_plan(task_spec).primary_questions[1]
+
+    queries = _build_question_fallback_queries(task_spec, question)
+
+    assert any("AlphaSense" in query or "PitchBook" in query or "Hebbia" in query for query in queries)
+    assert any("manual workflow" in query.lower() for query in queries)
+
+
+def test_coverage_gap_question_ids_returns_only_uncovered_questions() -> None:
+    coverage = CoverageReport(
+        total_questions=4,
+        covered_questions=2,
+        coverage_ratio=0.5,
+        strong_source_ratio=0.5,
+        contradiction_count=0,
+        questions=[
+            CoverageQuestionStatus(question_id="q1", question="Demand", evidence_count=3, source_count=2, status="covered"),
+            CoverageQuestionStatus(question_id="q2", question="Alternatives", evidence_count=2, source_count=1, status="covered"),
+            CoverageQuestionStatus(question_id="q3", question="Packaging", evidence_count=1, source_count=1, status="gap"),
+            CoverageQuestionStatus(question_id="q4", question="Tradeoffs", evidence_count=0, source_count=0, status="gap"),
+        ],
+        gaps=["Packaging", "Tradeoffs"],
+    )
+
+    assert _coverage_gap_question_ids(coverage) == {"q3", "q4"}
+
+
+def test_validation_questions_prioritize_uncovered_core_gap_before_generic_critique() -> None:
+    request_spec = build_request_spec(
+        "Assess whether Smart Report should become a paid product for consulting and investment teams.",
+        depth="deep",
+    )
+    task_spec = build_task_spec(
+        request_spec,
+        answers={
+            "decision-context": "Choose the monetization path.",
+            "geography": "global",
+        },
+    )
+    coverage = CoverageReport(
+        total_questions=4,
+        covered_questions=3,
+        coverage_ratio=0.75,
+        strong_source_ratio=1.0,
+        contradiction_count=0,
+        questions=[
+            CoverageQuestionStatus(question_id="q1", question="Demand", evidence_count=2, source_count=2, status="covered"),
+            CoverageQuestionStatus(question_id="q2", question="Alternatives", evidence_count=2, source_count=2, status="covered"),
+            CoverageQuestionStatus(question_id="q3", question="Packaging", evidence_count=2, source_count=2, status="covered"),
+            CoverageQuestionStatus(question_id="q4", question="Tradeoffs", evidence_count=0, source_count=0, status="gap"),
+        ],
+        gaps=["Tradeoffs"],
+    )
+    critique_findings = [
+        CritiqueFinding(
+            kind=CritiqueKind.WEAK_EVIDENCE,
+            severity="high",
+            summary="Some recommendation bullets still rely on thin evidence.",
+        )
+    ]
+
+    questions = _build_validation_questions(task_spec, critique_findings, build_decision_triggers(task_spec), coverage)
+
+    assert questions
+    assert questions[0].question_id.startswith("vg")
+    assert questions[0].kind == QuestionKind.ADJACENT_BOUNDARY
+    assert "tradeoffs" in questions[0].question.lower()
+
+
+def test_rank_live_sources_prefers_business_monetization_source_over_unrelated_smart_reporting_doc() -> None:
+    request_spec = build_request_spec(
+        "Assess whether Smart Report should become a paid product for consulting and investment teams.",
+        depth="deep",
+    )
+    task_spec = build_task_spec(
+        request_spec,
+        answers={
+            "decision-context": "Choose the monetization path.",
+            "geography": "global",
+        },
+    )
+    plan = build_research_plan(task_spec)
+    entries = [
+        SourceLedgerEntry(
+            question_links=["q1"],
+            source_type=SourceType.OFFICIAL_DOCUMENTATION,
+            url="https://docs.oracle.com/cd/B40099_02/books/Reports/ReportsSmartReport3.html",
+            title="Bookshelf v8.0: Purpose of Smart Reports - Oracle",
+            domain="docs.oracle.com",
+            reliability_score=0.95,
+            selection_reason="oracle smart reports",
+        ),
+        SourceLedgerEntry(
+            question_links=["q1"],
+            source_type=SourceType.VENDOR_PAGE,
+            url="https://my.idc.com/getdoc.jsp?containerId=IDC_P7407",
+            title="AI Monetization, Pricing Strategies, and Business Models",
+            domain="my.idc.com",
+            reliability_score=0.78,
+            selection_reason="idc monetization",
+        ),
+        SourceLedgerEntry(
+            question_links=["q2"],
+            source_type=SourceType.RESEARCH_PAPER,
+            url="https://example.org/q2",
+            title="Alternative analysis methodology",
+            domain="example.org",
+            reliability_score=0.91,
+            selection_reason="q2",
+        ),
+        SourceLedgerEntry(
+            question_links=["q3"],
+            source_type=SourceType.BENCHMARK,
+            url="https://example.net/q3",
+            title="Pricing and packaging benchmark for professional software",
+            domain="example.net",
+            reliability_score=0.84,
+            selection_reason="q3",
+        ),
+        SourceLedgerEntry(
+            question_links=["q4"],
+            source_type=SourceType.RESEARCH_PAPER,
+            url="https://example.com/q4",
+            title="Tradeoffs and risk thresholds",
+            domain="example.com",
+            reliability_score=0.89,
+            selection_reason="q4",
+        ),
+    ]
+
+    selected = _rank_live_sources(entries, task_spec, plan, limit=4)
+    selected_urls = {entry.url for entry in selected}
+
+    assert "https://my.idc.com/getdoc.jsp?containerId=IDC_P7407" in selected_urls
+    assert "https://docs.oracle.com/cd/B40099_02/books/Reports/ReportsSmartReport3.html" not in selected_urls
+
+
+def test_rank_live_sources_prefers_competitor_landscape_for_business_q2_over_generic_cost_docs() -> None:
+    request_spec = build_request_spec(
+        "Assess whether Smart Report should become a paid product for consulting and investment teams.",
+        depth="deep",
+    )
+    task_spec = build_task_spec(
+        request_spec,
+        answers={
+            "decision-context": "Choose the monetization path.",
+            "geography": "global",
+        },
+    )
+    plan = build_research_plan(task_spec)
+    entries = [
+        SourceLedgerEntry(
+            question_links=["q2"],
+            source_type=SourceType.RESEARCH_PAPER,
+            url="https://www.gao.gov/assets/gao-20-195g.pdf",
+            title="Cost Estimating and Assessment Guide",
+            domain="www.gao.gov",
+            reliability_score=0.9,
+            selection_reason="generic",
+        ),
+        SourceLedgerEntry(
+            question_links=["q2"],
+            source_type=SourceType.HIGH_QUALITY_SECONDARY,
+            url="https://www.alphasense.com/blog/market-intelligence/what-is-market-intelligence/",
+            title="Market intelligence platform overview | AlphaSense",
+            domain="www.alphasense.com",
+            reliability_score=0.68,
+            selection_reason="competitor landscape",
+        ),
+        SourceLedgerEntry(
+            question_links=["q2"],
+            source_type=SourceType.OFFICIAL_DOCUMENTATION,
+            url="https://docs.oracle.com/cd/E05553_01/books/Reports/ReportsSmartReport3.html",
+            title="Bookshelf v7.7: Purpose of Smart Reports - Oracle",
+            domain="docs.oracle.com",
+            reliability_score=0.95,
+            selection_reason="oracle smart reports",
+        ),
+    ]
+
+    selected = _rank_live_sources(entries, task_spec, plan, limit=3)
+
+    assert selected[0].domain == "www.alphasense.com"
+    assert selected[-1].domain == "docs.oracle.com"
+
+
+def test_rank_live_sources_prefers_business_q4_tradeoff_source_over_generic_paper() -> None:
+    request_spec = build_request_spec(
+        "Assess whether Smart Report should become a paid product for consulting and investment teams.",
+        depth="deep",
+    )
+    task_spec = build_task_spec(
+        request_spec,
+        answers={
+            "decision-context": "Choose the monetization path.",
+            "geography": "global",
+        },
+    )
+    plan = build_research_plan(task_spec)
+    entries = [
+        SourceLedgerEntry(
+            question_links=["q4"],
+            source_type=SourceType.VENDOR_PAGE,
+            url="https://www.bvp.com/atlas/the-ai-pricing-and-monetization-playbook",
+            title="The AI Pricing and Monetization Playbook",
+            domain="www.bvp.com",
+            reliability_score=0.78,
+            selection_reason="pricing tradeoffs",
+        ),
+        SourceLedgerEntry(
+            question_links=["q4"],
+            source_type=SourceType.RESEARCH_PAPER,
+            url="https://www.sciencedirect.com/science/article/pii/S104450052300046X",
+            title="Employee benefits and company performance: Evidence from a high ...",
+            domain="www.sciencedirect.com",
+            reliability_score=0.9,
+            selection_reason="generic paper",
+        ),
+    ]
+
+    selected = _rank_live_sources(entries, task_spec, plan, limit=2)
+
+    assert selected[0].domain == "www.bvp.com"
+
+
+def test_rank_live_sources_dedupes_same_url_variants() -> None:
+    request_spec = build_request_spec(
+        "Assess whether Smart Report should become a paid product for consulting and investment teams.",
+        depth="deep",
+    )
+    task_spec = build_task_spec(
+        request_spec,
+        answers={"decision-context": "Choose the monetization path."},
+    )
+    plan = build_research_plan(task_spec)
+    entries = [
+        SourceLedgerEntry(
+            question_links=["q1"],
+            source_type=SourceType.VENDOR_PAGE,
+            url="https://example.com/monetization",
+            title="AI monetization guide",
+            domain="example.com",
+            reliability_score=0.8,
+            selection_reason="a",
+        ),
+        SourceLedgerEntry(
+            question_links=["q1"],
+            source_type=SourceType.VENDOR_PAGE,
+            url="https://example.com/monetization",
+            title="AI monetization guide duplicate",
+            domain="example.com",
+            reliability_score=0.8,
+            selection_reason="b",
+        ),
+        SourceLedgerEntry(
+            question_links=["q2"],
+            source_type=SourceType.RESEARCH_PAPER,
+            url="https://example.org/alt",
+            title="Alternatives",
+            domain="example.org",
+            reliability_score=0.9,
+            selection_reason="q2",
+        ),
+        SourceLedgerEntry(
+            question_links=["q3"],
+            source_type=SourceType.RESEARCH_PAPER,
+            url="https://example.net/gtm",
+            title="GTM benchmark",
+            domain="example.net",
+            reliability_score=0.88,
+            selection_reason="q3",
+        ),
+        SourceLedgerEntry(
+            question_links=["q4"],
+            source_type=SourceType.RESEARCH_PAPER,
+            url="https://example.edu/risk",
+            title="Risk benchmark",
+            domain="example.edu",
+            reliability_score=0.9,
+            selection_reason="q4",
+        ),
+    ]
+
+    selected = _rank_live_sources(entries, task_spec, plan, limit=5)
+    urls = [entry.url for entry in selected]
+    assert urls.count("https://example.com/monetization") == 1
+
+
+def test_aggregate_research_spend_preserves_direct_provider_metadata() -> None:
+    spend_entry = _aggregate_research_spend(
+        [
+            {
+                "provider": "perplexity",
+                "model": "sonar-pro",
+                "pricing_basis": "provider_usage",
+                "input_tokens": 120,
+                "output_tokens": 40,
+                "cost_usd": 0.012345,
+            },
+            {
+                "provider": "perplexity",
+                "model": "sonar-pro",
+                "pricing_basis": "provider_usage",
+                "input_tokens": 80,
+                "output_tokens": 20,
+                "cost_usd": 0.004321,
+            },
+        ],
+        category=SpendCategory.RESEARCH,
+        stage="initial_research",
+        fallback_provider="perplexity",
+        fallback_model="standard",
+        branch_count=2,
+        notes="Primary research pass",
+    )
+
+    assert spend_entry is not None
+    assert spend_entry.provider == "perplexity"
+    assert spend_entry.model == "sonar-pro"
+    assert spend_entry.pricing_basis == "provider_usage"
+    assert spend_entry.input_tokens == 200
+    assert spend_entry.output_tokens == 60
+    assert spend_entry.cost_usd == 0.016666
+    assert "providers=perplexity" in spend_entry.notes
+
+
+def test_aggregate_research_spend_marks_mixed_provider_fallbacks() -> None:
+    spend_entry = _aggregate_research_spend(
+        [
+            {
+                "provider": "perplexity",
+                "model": "sonar-pro",
+                "pricing_basis": "provider_usage",
+                "input_tokens": 120,
+                "output_tokens": 40,
+                "cost_usd": 0.012345,
+            },
+            {
+                "provider": "openrouter",
+                "model": "perplexity/sonar-pro",
+                "pricing_basis": "estimated_chars",
+                "input_tokens": 90,
+                "output_tokens": 30,
+                "cost_usd": 0.006789,
+            },
+        ],
+        category=SpendCategory.RESEARCH,
+        stage="initial_research",
+        fallback_provider="perplexity",
+        fallback_model="standard",
+        branch_count=2,
+        notes="Primary research pass",
+    )
+
+    assert spend_entry is not None
+    assert spend_entry.provider == "mixed"
+    assert spend_entry.pricing_basis == "mixed"
+    assert "openrouter" in spend_entry.notes
+    assert "perplexity" in spend_entry.notes

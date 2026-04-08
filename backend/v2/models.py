@@ -15,6 +15,7 @@ def utc_now() -> datetime:
 class RunStatus(str, Enum):
     DRAFT = "draft"
     AWAITING_SCOPE = "awaiting_scope"
+    AWAITING_HANDOFF = "awaiting_handoff"
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
@@ -42,6 +43,7 @@ class SourceType(str, Enum):
     GOVERNMENT = "government"
     RESEARCH_PAPER = "research_paper"
     BENCHMARK = "benchmark"
+    USER_MATERIAL = "user_material"
     HIGH_QUALITY_SECONDARY = "high_quality_secondary"
     WEAK_SECONDARY = "weak_secondary"
 
@@ -83,6 +85,22 @@ class CritiqueKind(str, Enum):
     MISSING_COMPARATOR = "missing_comparator"
     BOUNDARY_CONDITION = "boundary_condition"
     DECISION_RISK = "decision_risk"
+
+
+class SpendCategory(str, Enum):
+    RESEARCH = "research"
+    REVIEW = "review"
+    WRITER = "writer"
+    QUALITY_REVISION = "quality_revision"
+    COMPLIANCE_REVISION = "compliance_revision"
+    PRESENTATION = "presentation"
+    STORAGE = "storage"
+
+
+class MaterialKind(str, Enum):
+    USER_UPLOAD = "user_upload"
+    EXTERNAL_RESEARCH = "external_research"
+    NOTE = "note"
 
 
 class RunEvent(BaseModel):
@@ -137,6 +155,60 @@ class TaskSpec(BaseModel):
     output_package: list[ArtifactFormat] = Field(default_factory=list)
     max_budget_usd: float = 0.0
     answers: dict[str, str] = Field(default_factory=dict)
+    allow_perplexity_handoff: bool = False
+    material_ids: list[str] = Field(default_factory=list)
+
+
+class DepthProfile(BaseModel):
+    name: str
+    label: str
+    description: str
+    research_depth: str
+    initial_research_branches: int = 0
+    source_limit: int = 0
+    adjacent_question_limit: int = 0
+    adjacent_research_branches: int = 0
+    validation_research_branches: int = 0
+    stack_backfill_limit: int = 0
+    quality_revision_target: int = 0
+    quality_max_rounds: int = 0
+    prefer_perplexity_writer: bool = False
+
+
+class SpendEntry(BaseModel):
+    entry_id: str = Field(default_factory=lambda: str(uuid4()))
+    timestamp: datetime = Field(default_factory=utc_now)
+    category: SpendCategory
+    stage: str
+    provider: str
+    model: str
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost_usd: float = 0.0
+    pricing_basis: str = "estimated"
+    notes: str = ""
+
+
+class MaterialRecord(BaseModel):
+    material_id: str = Field(default_factory=lambda: str(uuid4()))
+    kind: MaterialKind = MaterialKind.USER_UPLOAD
+    title: str
+    filename: str
+    stored_filename: str = ""
+    text_filename: str = ""
+    media_type: str = "text/plain"
+    size_bytes: int = 0
+    text_length: int = 0
+    excerpt: str = ""
+    uploaded_at: datetime = Field(default_factory=utc_now)
+
+
+class PerplexityHandoffPrompt(BaseModel):
+    prompt_id: str = Field(default_factory=lambda: str(uuid4()))
+    stage: str
+    title: str
+    rationale: str = ""
+    prompt: str
 
 
 class ResearchQuestion(BaseModel):
@@ -328,7 +400,14 @@ class RunSummary(BaseModel):
     status: RunStatus = RunStatus.DRAFT
     budget_tier: BudgetTier = BudgetTier.STANDARD
     cost_usd: float = 0.0
+    tokens_used: int = 0
     report_url_map: dict[str, str] = Field(default_factory=dict)
+    requested_output_formats: list[ArtifactFormat] = Field(default_factory=list)
+    depth_profile: DepthProfile | None = None
+    spend_breakdown: list[SpendEntry] = Field(default_factory=list)
+    materials: list[MaterialRecord] = Field(default_factory=list)
+    handoff_prompts: list[PerplexityHandoffPrompt] = Field(default_factory=list)
+    allow_perplexity_handoff: bool = False
     request_spec: RequestSpec | None = None
     task_spec: TaskSpec | None = None
     analysis_brief: AnalysisBrief | None = None

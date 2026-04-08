@@ -68,3 +68,51 @@ def test_infer_subject_prefers_clean_head_clause_for_long_queries() -> None:
     )
 
     assert subject == "Design a decision-grade architecture for an evidence-first research product"
+
+
+def test_task_spec_preserves_requested_formats_and_handoff_flags() -> None:
+    spec = build_request_spec("Assess AI research tooling for a strategy team.", depth="deep")
+
+    task = build_task_spec(
+        spec,
+        answers={"decision-context": "Choose a default stack for client-facing analytical reports."},
+        output_formats=["pdf", "pptx"],
+        allow_perplexity_handoff=True,
+        material_ids=["mat-1", "mat-2"],
+    )
+
+    assert [item.value for item in task.output_package] == ["md", "pdf", "pptx", "json"]
+    assert task.allow_perplexity_handoff is True
+    assert task.material_ids == ["mat-1", "mat-2"]
+
+
+def test_business_query_uses_monetization_q3_instead_of_stack_language() -> None:
+    spec = build_request_spec(
+        "Assess whether Smart Report should become a paid product for consulting and investment teams.",
+        depth="deep",
+    )
+    task = build_task_spec(
+        spec,
+        answers={
+            "decision-context": "Choose the monetization path.",
+        },
+    )
+
+    assert any("monetization model" in question.lower() for question in task.must_cover_questions)
+    assert not any("option or stack" in question.lower() for question in task.must_cover_questions)
+
+
+def test_business_query_uses_explicit_q2_competitor_language() -> None:
+    spec = build_request_spec(
+        "Assess whether Smart Report should become a paid product for consulting and investment teams.",
+        depth="deep",
+    )
+    task = build_task_spec(
+        spec,
+        answers={
+            "decision-context": "Choose the monetization path.",
+        },
+    )
+
+    assert any("competing products" in question.lower() for question in task.must_cover_questions)
+    assert any("free substitutes" in question.lower() for question in task.must_cover_questions)
