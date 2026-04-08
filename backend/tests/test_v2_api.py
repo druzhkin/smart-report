@@ -7,6 +7,8 @@ from fastapi.testclient import TestClient
 
 from backend.main import app
 from backend.v2.intake import build_clarification_pack, build_request_spec
+from backend.v2.models import AuditSummary, RunStatus
+from backend.v2.pipeline import build_draft_run
 from backend.v2.repository import FileRunRepository
 
 
@@ -156,3 +158,42 @@ def test_handoff_mode_supports_materials_and_manual_resume(tmp_path: Path, monke
         resume_response = client.post(f"/api/reports/{run_id}/resume")
         assert resume_response.status_code == 200
         assert resume_response.json()["status"] == "running"
+
+
+def test_pricing_endpoint_reports_observed_run_stats(tmp_path: Path, monkeypatch) -> None:
+    from backend.api.routes import reports as reports_route
+
+    test_repo = FileRunRepository(root=str(tmp_path / "runs"), reports_root=str(tmp_path / "reports"))
+    monkeypatch.setattr(reports_route, "repo", test_repo)
+
+    released = build_draft_run("pricing-deep-1", "Evaluate strategy tooling.", depth="deep")
+    released.status = RunStatus.COMPLETED
+    released.cost_usd = 1.20
+    released.audit_summary = AuditSummary(release_status="released", checks_passed=5, checks_failed=0, failures=[], warnings=[])
+    test_repo.create_run(released)
+
+    blocked = build_draft_run("pricing-deep-2", "Evaluate strategy tooling.", depth="deep")
+    blocked.status = RunStatus.COMPLETED
+    blocked.cost_usd = 1.80
+    blocked.audit_summary = AuditSummary(release_status="blocked", checks_passed=4, checks_failed=1, failures=["x"], warnings=[])
+    test_repo.create_run(blocked)
+
+    failed = build_draft_run("pricing-deep-3", "Evaluate strategy tooling.", depth="deep")
+    failed.status = RunStatus.FAILED
+    failed.cost_usd = 0.60
+    test_repo.create_run(failed)
+
+    with TestClient(app) as client:
+        response = client.get("/api/reports/pricing")
+
+    assert response.status_code == 200
+    tiers = response.json()["tiers"]
+    deep = next(item for item in tiers if item["depth"] == "deep")
+    assert deep["public_price_usd"] == 5.0
+    assert deep["internal_budget_usd"] == 5.0
+    assert deep["observed_sample_size"] == 3
+    assert deep["observed_completed_runs"] == 2
+    assert deep["observed_released_runs"] == 1
+    assert deep["observed_median_cost_usd"] == 1.2
+    assert deep["observed_last_cost_usd"] == 0.6
+    assert deep["observed_release_rate"] == 0.5

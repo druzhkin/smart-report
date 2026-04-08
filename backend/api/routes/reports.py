@@ -326,7 +326,7 @@ async def upload_report_material(
 
 @router.get("/reports/pricing")
 async def get_report_pricing() -> dict[str, Any]:
-    return {"tiers": get_public_pricing()}
+    return {"tiers": get_public_pricing(repo=repo)}
 
 
 @router.get("/reports")

@@ -81,6 +81,13 @@ export interface PricingTier {
   adjacent_research_branches: number;
   validation_research_branches: number;
   quality_max_rounds: number;
+  observed_sample_size: number;
+  observed_completed_runs: number;
+  observed_released_runs: number;
+  observed_median_cost_usd: number | null;
+  observed_p90_cost_usd: number | null;
+  observed_last_cost_usd: number | null;
+  observed_release_rate: number | null;
 }
 
 export interface DepthProfile {

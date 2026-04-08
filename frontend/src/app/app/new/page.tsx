@@ -283,11 +283,35 @@ export default function NewReportPage() {
           {selectedTier ? (
             <Card className="border-primary/20 bg-primary/5">
               <CardContent className="flex flex-col gap-3 p-6 sm:flex-row sm:items-end sm:justify-between">
-                <div>
-                  <p className="text-2xl font-semibold tracking-tight">
-                    {formatCost(selectedTier.public_price_usd)}
-                  </p>
+                <div className="space-y-2">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">List price</p>
+                    <p className="text-2xl font-semibold tracking-tight">{formatCost(selectedTier.public_price_usd)}</p>
+                  </div>
                   <p className="mt-1 text-sm text-muted-foreground">{selectedTier.description}</p>
+                  <div className="space-y-1 text-xs text-muted-foreground">
+                    <p>Budget cap for this tier: {formatCost(selectedTier.internal_budget_usd)}</p>
+                    {selectedTier.observed_sample_size > 0 ? (
+                      <>
+                        <p>
+                          Observed median spend over the last 30 days:{" "}
+                          {selectedTier.observed_median_cost_usd !== null
+                            ? formatCost(selectedTier.observed_median_cost_usd)
+                            : "n/a"}{" "}
+                          from {selectedTier.observed_sample_size} finished runs
+                        </p>
+                        <p>
+                          Released run rate:{" "}
+                          {selectedTier.observed_release_rate !== null
+                            ? `${Math.round(selectedTier.observed_release_rate * 100)}%`
+                            : "n/a"}{" "}
+                          ({selectedTier.observed_released_runs}/{selectedTier.observed_completed_runs} completed runs)
+                        </p>
+                      </>
+                    ) : (
+                      <p>No recent observed run-cost data yet. The number above is a configured list price, not measured spend.</p>
+                    )}
+                  </div>
                   <p className="mt-2 text-xs text-muted-foreground">
                     {selectedTier.initial_research_branches} primary branches, {selectedTier.adjacent_research_branches} side branches,{" "}
                     {selectedTier.validation_research_branches} validation branches, up to {selectedTier.quality_max_rounds} revision rounds
