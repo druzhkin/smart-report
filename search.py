@@ -413,14 +413,26 @@ async def _core_search(query: str, k: int = 3) -> list[dict[str, Any]]:
     return items
 
 
-async def _academic_bundle(query: str) -> tuple[str, list[dict[str, str]]]:
-    """Parallel fanout across all free/keyless academic APIs with per-source graceful degradation.
+SOURCE_DB_MAP = {
+    "openalex.org": "openalex",
+    "doi.org": "crossref",
+    "semanticscholar.org": "semantic_scholar",
+    "arxiv.org": "arxiv",
+    "pubmed.ncbi.nlm.nih.gov": "pubmed",
+    "europepmc.org": "europe_pmc",
+    "doaj.org": "doaj",
+    "core.ac.uk": "core",
+}
 
-    Connected: OpenAlex, Crossref, Semantic Scholar, arXiv, PubMed, Europe PMC, DOAJ.
-    Conditional (requires key): CORE.
-    Skipped (no public REST API): SSRN, paper-search-mcp (MCP subprocess not spawned here).
-    Each source has its own timeout — one slow endpoint cannot stall the bundle.
-    """
+
+def _tag_source_db(items: list[dict[str, Any]], db: str) -> list[dict[str, Any]]:
+    for it in items:
+        it["source_db"] = db
+    return items
+
+
+async def _academic_fetch_all(query: str) -> list[dict[str, Any]]:
+    """Single fanout across all academic sources. Returns deduped, ranked list tagged with source_db."""
     results = await asyncio.gather(
         _openalex_search(query, k=5),
         _crossref_search(query, k=3),
@@ -432,11 +444,11 @@ async def _academic_bundle(query: str) -> tuple[str, list[dict[str, str]]]:
         _core_search(query, k=2),
         return_exceptions=True,
     )
+    db_labels = ["openalex", "crossref", "semantic_scholar", "arxiv", "pubmed", "europe_pmc", "doaj", "core"]
     papers: list[dict[str, Any]] = []
-    for res in results:
+    for res, label in zip(results, db_labels):
         if isinstance(res, list):
-            papers.extend(res)
-    # dedup by DOI/title
+            papers.extend(_tag_source_db(res, label))
     seen: set[str] = set()
     uniq: list[dict[str, Any]] = []
     for p in papers:
@@ -445,10 +457,18 @@ async def _academic_bundle(query: str) -> tuple[str, list[dict[str, str]]]:
             continue
         seen.add(key)
         uniq.append(p)
+    uniq.sort(key=lambda p: (0 if p.get("abstract") else 1, -int(p.get("citations") or 0)))
+    return uniq[:12]
+
+
+async def _academic_bundle(query: str) -> tuple[str, list[dict[str, str]]]:
+    items = await _academic_fetch_all(query)
+    return _academic_bundle_from_items(items)
+
+
+def _academic_bundle_from_items(uniq: list[dict[str, Any]]) -> tuple[str, list[dict[str, str]]]:
     if not uniq:
         return "", []
-    # Rank: papers with abstracts first, then by citation count desc.
-    uniq.sort(key=lambda p: (0 if p.get("abstract") else 1, -int(p.get("citations") or 0)))
     lines = ["=== ACADEMIC PRIMARY SOURCES (OpenAlex / Crossref / S2 / arXiv / PubMed / Europe PMC / DOAJ / CORE) ==="]
     citations: list[dict[str, str]] = []
     for i, p in enumerate(uniq[:12], 1):
@@ -590,8 +610,61 @@ async def _fallback(query: str) -> dict[str, Any]:
         return {"text": f"[search+fallback failed: {err}]", "citations": [], "query": query}
 
 
-async def search(query: str, focus: str = "general") -> dict[str, Any]:
-    """Run one search query. Returns {text, citations}."""
+async def _web_only(query: str) -> dict[str, Any]:
+    """Perplexity-only pipeline (no academic bundle). Same fallback chain."""
+    if not settings.perplexity_api_key:
+        return await _fallback(query)
+    payload = {
+        "model": perplexity_model_for(),
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "You are a research assistant. Answer the user's query with concrete facts, "
+                    "numbers and named sources. Prefer primary sources (official statistics, "
+                    "regulators, company filings). Keep it dense, no fluff."
+                ),
+            },
+            {"role": "user", "content": query},
+        ],
+        "temperature": 0.2,
+    }
+    headers = {
+        "Authorization": f"Bearer {settings.perplexity_api_key}",
+        "Content-Type": "application/json",
+    }
+    async with httpx.AsyncClient(timeout=90) as http:
+        for attempt in range(3):
+            try:
+                r = await http.post(PPLX_URL, json=payload, headers=headers)
+                r.raise_for_status()
+                data = r.json()
+                text = data["choices"][0]["message"]["content"]
+                citations = data.get("citations") or data.get("search_results") or []
+                return {"text": text, "citations": citations, "query": query, "academic_items": []}
+            except (httpx.HTTPError, KeyError):
+                if attempt == 2:
+                    break
+                await asyncio.sleep(1.5 * (attempt + 1))
+    tav = await _tavily_search(query)
+    if tav is not None:
+        tav["academic_items"] = []
+        return tav
+    fb = await _fallback(query)
+    fb["academic_items"] = []
+    return fb
+
+
+async def search(query: str, focus: str = "general", search_type: str = "both") -> dict[str, Any]:
+    """Run one search query. Routes by search_type: web | academic | both. Returns {text, citations, academic_items}."""
+    if search_type == "academic":
+        items = await _academic_fetch_all(query)
+        academic_text, academic_cites = _academic_bundle_from_items(items)
+        return {"text": academic_text or f"[no academic results for '{query}']",
+                "citations": academic_cites, "query": query, "academic_items": items}
+    if search_type == "web":
+        return await _web_only(query)
+    # both (default)
     if not settings.perplexity_api_key:
         raise RuntimeError("PERPLEXITY_API_KEY is not set — refusing to run without a real search backend.")
     payload = {
@@ -617,8 +690,9 @@ async def search(query: str, focus: str = "general") -> dict[str, Any]:
         for attempt in range(3):
             try:
                 pplx_task = http.post(PPLX_URL, json=payload, headers=headers)
-                academic_task = _academic_bundle(query)
-                r, (academic_text, academic_cites) = await asyncio.gather(pplx_task, academic_task)
+                academic_task = _academic_fetch_all(query)
+                r, academic_items = await asyncio.gather(pplx_task, academic_task)
+                academic_text, academic_cites = _academic_bundle_from_items(academic_items)
                 r.raise_for_status()
                 data = r.json()
                 text = data["choices"][0]["message"]["content"]
@@ -626,15 +700,21 @@ async def search(query: str, focus: str = "general") -> dict[str, Any]:
                 if academic_text:
                     text = f"{academic_text}\n\n=== WEB SYNTHESIS (Perplexity) ===\n{text}"
                     citations = list(academic_cites) + list(citations)
-                return {"text": text, "citations": citations, "query": query}
-            except (httpx.HTTPError, KeyError) as err:
+                return {"text": text, "citations": citations, "query": query, "academic_items": academic_items}
+            except (httpx.HTTPError, KeyError):
                 if attempt == 2:
                     tav = await _tavily_search(query)
                     if tav is not None:
+                        tav["academic_items"] = await _academic_fetch_all(query)
                         return tav
-                    return await _fallback(query)
+                    fb = await _fallback(query)
+                    fb["academic_items"] = await _academic_fetch_all(query)
+                    return fb
                 await asyncio.sleep(1.5 * (attempt + 1))
     tav = await _tavily_search(query)
     if tav is not None:
+        tav["academic_items"] = []
         return tav
-    return await _fallback(query)
+    fb = await _fallback(query)
+    fb["academic_items"] = []
+    return fb

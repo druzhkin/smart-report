@@ -102,6 +102,13 @@ def profile_int(key: str, default: int) -> int:
         return int(p[key])
     return default
 
+
+def profile_float(key: str, default: float) -> float:
+    p = _active_profile.get()
+    if p and key in p:
+        return float(p[key])
+    return default
+
 ROOT = Path(__file__).parent
 PROMPTS_DIR = ROOT / "prompts"
 OUTPUT_DIR = ROOT / "output"

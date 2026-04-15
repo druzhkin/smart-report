@@ -1,7 +1,18 @@
 """Pydantic contracts for every hand-off between agents."""
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
+
+SourceType = Literal[
+    "primary_academic",
+    "primary_official",
+    "primary_data",
+    "secondary",
+    "opinion",
+]
+SearchType = Literal["web", "academic", "both"]
 
 
 class Layer(BaseModel):
@@ -13,6 +24,10 @@ class ScoutTask(BaseModel):
     cell: str = Field(..., description="'Domain / Layer'")
     query_focus: str = Field(..., description="Concrete search assignment, not abstract")
     source_hints: str = Field(..., description="Preferred source types / organisations / years")
+    search_type: SearchType = Field(
+        default="both",
+        description="Where Scout should look: 'web' | 'academic' | 'both'",
+    )
 
 
 class CellPlan(BaseModel):
@@ -37,9 +52,24 @@ class Matrix(BaseModel):
 
 class Finding(BaseModel):
     claim: str
-    source: str = Field(..., description="URL or bibliographic ref")
-    source_type: str = Field(..., description="primary / secondary / opinion")
-    has_numbers: bool
+    source: str = Field(..., description="URL or DOI")
+    source_label: str = Field(
+        default="",
+        description="Human-readable label — «Nature, 2024» or «Росстат, 2025»",
+    )
+    source_type: SourceType = Field(
+        default="secondary",
+        description=(
+            "primary_academic | primary_official | primary_data | secondary | opinion"
+        ),
+    )
+    citation_count: int | None = None
+    year: int | None = None
+    source_db: str | None = Field(
+        default=None,
+        description="'openalex'|'crossref'|'semantic_scholar'|'arxiv'|'pubmed'|'europe_pmc'|'doaj'|'core'|'perplexity'|'firecrawl'|'ddg'",
+    )
+    has_numbers: bool = False
     entities: list[str] = Field(default_factory=list)
 
 
@@ -110,3 +140,5 @@ class Report(BaseModel):
     connections: list[Connection]
     exec_summary: ExecutiveSummary | None = None
     block_headers: list[BlockHeader] = Field(default_factory=list)
+    budget_exhausted: bool = False
+    budget_note: str | None = None

@@ -132,15 +132,23 @@ export default function ReportPage() {
   }
 
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-[1fr_420px] gap-6">
+    <div className="relative">
+      <div className="fixed top-[-20%] left-[-10%] w-[50%] h-[50%] rounded-full bg-blue-300/10 blur-[120px] pointer-events-none z-0" />
+      <div className="fixed bottom-[-20%] right-[-10%] w-[50%] h-[50%] rounded-full bg-indigo-300/10 blur-[120px] pointer-events-none z-0" />
+      <div className="relative z-10 grid grid-cols-1 xl:grid-cols-[1fr_420px] gap-6">
       <div className="space-y-6 min-w-0">
-        <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div className="sticky top-0 z-30 -mx-4 px-4 py-3 backdrop-blur-md bg-[var(--bg)]/70 border-b border-[var(--border)] flex items-center justify-between gap-4 flex-wrap">
           <div className="min-w-0">
-            <div className="text-xs muted">Отчёт · {id}</div>
-            <h1 className="text-xl font-semibold truncate">{report.goal}</h1>
+            <div className="text-xs muted">Отчёт · {id}{report.budget_exhausted ? " · ⚠️ бюджет исчерпан" : ""}</div>
+            <h1 className="text-xl font-semibold font-serif truncate">{report.goal}</h1>
           </div>
           <ExportButtons id={id} />
         </div>
+        {report.budget_exhausted && report.budget_note && (
+          <div className="card p-3 text-xs border-amber-400/60 bg-amber-50/40 dark:bg-amber-900/10">
+            ⚠️ {report.budget_note} — отчёт собран частично.
+          </div>
+        )}
 
         {running && <ProgressStream events={events} compact />}
 
@@ -248,6 +256,7 @@ export default function ReportPage() {
           <ProgressStream events={events} compact />
         </div>
       </aside>
+      </div>
     </div>
   );
 }
