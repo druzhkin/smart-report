@@ -72,10 +72,13 @@ class _Job:
         self.error: str | None = None
         self.task: asyncio.Task | None = None
         self.dismissed_cells: set[str] = set()
+        self.events: list[dict[str, Any]] = []
 
     def emit(self, event: str, message: str, **extra: Any) -> None:
         payload = {"event": event, "message": message, "ts": time.time(), **extra}
-        # thread/sync-safe: put_nowait in current event loop
+        self.events.append(payload)
+        if len(self.events) > 2000:
+            self.events = self.events[-1500:]
         try:
             self.queue.put_nowait(payload)
         except Exception:
@@ -285,6 +288,26 @@ async def start_research(payload: ResearchStartIn) -> dict[str, str]:
     _write_status(report_id, "pending", goal=payload.goal)
     job.task = asyncio.create_task(_run_job(job))
     return {"id": report_id, "status": "pending", "depth": payload.depth}
+
+
+@app.get("/api/research/{report_id}/events")
+async def list_events(report_id: str, since: int = 0) -> dict[str, Any]:
+    """Polling alternative to /stream — Railway's HTTP/2 proxy kills long-lived SSE."""
+    job = JOBS.get(report_id)
+    if job is None:
+        if _report_path(report_id).exists():
+            return {"events": [], "cursor": since, "status": "done"}
+        sidecar = _read_status(report_id)
+        if sidecar is None:
+            raise HTTPException(404, f"job {report_id} not found")
+        view = _sidecar_view(sidecar)
+        return {"events": [], "cursor": since, "status": view["status"]}
+    new_events = job.events[since:]
+    return {
+        "events": new_events,
+        "cursor": since + len(new_events),
+        "status": job.status,
+    }
 
 
 @app.get("/api/research/{report_id}/stream")
