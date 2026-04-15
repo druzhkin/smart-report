@@ -1,8 +1,9 @@
 import "./globals.css";
 import type { Metadata } from "next";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { ActivePipeline } from "@/components/ActivePipeline";
 import Link from "next/link";
-import { FileText, FolderOpen, PenSquare, Settings as SettingsIcon, Globe } from "lucide-react";
+import { FolderOpen, PenSquare, Settings as SettingsIcon, Globe } from "lucide-react";
 
 export const metadata: Metadata = {
   title: "Smart Report — Deep Research Studio",
@@ -27,18 +28,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           }}
         />
 
-        {/* Ambient background glows */}
         <div className="fixed top-[-20%] left-[-10%] w-[50%] h-[50%] rounded-full bg-blue-300/10 blur-[120px] pointer-events-none z-0" />
         <div className="fixed bottom-[-20%] right-[-10%] w-[50%] h-[50%] rounded-full bg-indigo-300/10 blur-[120px] pointer-events-none z-0" />
 
-        {/* Sidebar */}
         <aside
-          className="w-full md:w-64 flex-shrink-0 flex flex-col h-auto md:h-screen sticky top-0 z-20 backdrop-blur-xl"
-          style={{ background: "color-mix(in srgb, var(--card) 80%, transparent)", borderRight: "1px solid var(--border)" }}
+          className="w-full md:w-64 flex-shrink-0 flex flex-col h-auto md:h-screen sticky top-0 z-20 backdrop-blur-xl border-r"
+          style={{ background: "color-mix(in srgb, var(--card) 80%, transparent)", borderColor: "var(--border)" }}
         >
           <div className="p-6 pb-2">
             <Link href="/" className="text-sm font-semibold tracking-tighter uppercase flex items-center gap-2">
-              <Globe size={18} />
+              <Globe size={16} />
               Smart Report
             </Link>
           </div>
@@ -46,7 +45,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <nav className="flex-1 px-4 py-4 space-y-1">
             <NavLink href="/new" icon={<PenSquare size={18} />}>Новый запрос</NavLink>
             <NavLink href="/library" icon={<FolderOpen size={18} />}>Библиотека</NavLink>
+            <NavLink href="/settings" icon={<SettingsIcon size={18} />}>Настройки</NavLink>
           </nav>
+
+          <ActivePipeline />
 
           <div className="px-4 py-4 border-t flex items-center justify-between" style={{ borderColor: "var(--border)" }}>
             <span className="text-xs muted">Тема</span>
@@ -54,9 +56,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </div>
         </aside>
 
-        {/* Main */}
         <main className="flex-1 flex flex-col min-w-0 relative z-10">
-          <div className="max-w-7xl mx-auto w-full px-6 md:px-8 py-8">{children}</div>
+          {children}
         </main>
       </body>
     </html>
@@ -67,10 +68,9 @@ function NavLink({ href, icon, children }: { href: string; icon: React.ReactNode
   return (
     <Link
       href={href}
-      className="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md transition-colors hover:bg-black/5 dark:hover:bg-white/5"
-      style={{ color: "var(--fg)" }}
+      className="flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md transition-colors hover:bg-zinc-100/80 text-zinc-600 hover:text-zinc-900"
     >
-      <span className="muted">{icon}</span>
+      <span className="text-zinc-500">{icon}</span>
       {children}
     </Link>
   );

@@ -30,23 +30,25 @@ export function ConnectionsGraph({
   const [hover, setHover] = useState<Connection | null>(null);
 
   const { nodes, links } = useMemo(() => {
-    const nodes: Node[] = domains.map((d) => ({ id: d }));
-    const nodeSet = new Set(domains);
+    const nodeMap = new Map<string, Node>();
+    domains.forEach((d) => nodeMap.set(d, { id: d }));
     const links: Link[] = [];
     for (const c of connections) {
-      if (c.domains.length < 2) continue;
+      if (!c.domains || c.domains.length < 2) continue;
       const [a, b] = c.domains;
-      if (!nodeSet.has(a) || !nodeSet.has(b)) continue;
+      if (!a || !b || a === b) continue;
+      if (!nodeMap.has(a)) nodeMap.set(a, { id: a });
+      if (!nodeMap.has(b)) nodeMap.set(b, { id: b });
       links.push({ source: a, target: b, conn: c });
     }
-    return { nodes, links };
+    return { nodes: Array.from(nodeMap.values()), links };
   }, [domains, connections]);
 
   useEffect(() => {
     if (!ref.current) return;
     const svg = d3.select(ref.current);
-    const width = ref.current.clientWidth;
-    const height = 320;
+    const width = ref.current.clientWidth || 600;
+    const height = 420;
     svg.attr("viewBox", `0 0 ${width} ${height}`);
     svg.selectAll("*").remove();
 
@@ -100,20 +102,50 @@ export function ConnectionsGraph({
           }) as any
       );
 
+    const degree = new Map<string, number>();
+    links.forEach((l) => {
+      const s = typeof l.source === "string" ? l.source : (l.source as Node).id;
+      const t = typeof l.target === "string" ? l.target : (l.target as Node).id;
+      degree.set(s, (degree.get(s) || 0) + 1);
+      degree.set(t, (degree.get(t) || 0) + 1);
+    });
+
     node
       .append("circle")
-      .attr("r", 18)
+      .attr("r", (d) => 14 + Math.min(10, (degree.get(d.id) || 0) * 2))
       .attr("fill", "#1B3A5C")
       .attr("stroke", "#fff")
-      .attr("stroke-width", 1.5);
+      .attr("stroke-width", 2)
+      .attr("filter", "drop-shadow(0 2px 4px rgba(0,0,0,0.15))");
 
     node
       .append("text")
-      .text((d) => d.id)
+      .each(function (d) {
+        const sel = d3.select(this);
+        const words = d.id.split(/\s+/);
+        const lines: string[] = [];
+        let cur = "";
+        for (const w of words) {
+          if ((cur + " " + w).trim().length > 18) {
+            if (cur) lines.push(cur);
+            cur = w;
+          } else {
+            cur = (cur + " " + w).trim();
+          }
+        }
+        if (cur) lines.push(cur);
+        lines.slice(0, 2).forEach((ln, i) => {
+          sel
+            .append("tspan")
+            .attr("x", 0)
+            .attr("dy", i === 0 ? 38 : 13)
+            .text(ln);
+        });
+      })
       .attr("text-anchor", "middle")
-      .attr("dy", 32)
       .attr("font-size", 11)
-      .attr("fill", "currentColor");
+      .attr("font-weight", 500)
+      .attr("fill", "#18181b");
 
     sim.on("tick", () => {
       link
@@ -131,7 +163,7 @@ export function ConnectionsGraph({
 
   return (
     <div>
-      <svg ref={ref} width="100%" height={320} />
+      <svg ref={ref} width="100%" height={420} />
       <div className="min-h-[3em] text-xs mt-2">
         {hover ? (
           <div>

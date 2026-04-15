@@ -282,34 +282,19 @@ def _executive_summary(doc, report: Report, metrics_img: Path) -> None:
 
     # Top findings
     _heading(doc, "Топ-5 находок", level=2)
-    for f in es.top_findings:
-        p = doc.add_paragraph(style="List Bullet")
-        run = p.add_run(f"[{f.block_cell}] ")
-        run.font.name = FONT
-        run.font.bold = True
-        run.font.color.rgb = NAVY
-        run = p.add_run(f.headline)
-        run.font.name = FONT
+    for i, f in enumerate(es.top_findings, 1):
+        _numbered_finding(doc, i, f.block_cell, _strip_markdown(f.headline))
 
     # Top connections
     _heading(doc, "Топ-3 кросс-доменных связи", level=2)
     for c in es.top_connections:
-        p = doc.add_paragraph(style="List Bullet")
         doms = " ↔ ".join(c.domains) if c.domains else ""
-        if doms:
-            run = p.add_run(f"{doms} — ")
-            run.font.name = FONT
-            run.font.bold = True
-            run.font.color.rgb = NAVY
-        run = p.add_run(c.headline)
-        run.font.name = FONT
+        _numbered_finding(doc, None, doms, _strip_markdown(c.headline))
 
     # Critical gaps
     _heading(doc, "Критические пробелы", level=2)
     for g in es.key_gaps:
-        p = doc.add_paragraph(style="List Bullet")
-        run = p.add_run(g)
-        run.font.name = FONT
+        _numbered_finding(doc, None, "пробел", _strip_markdown(g), bar_hex=RED_HEX)
 
     doc.add_page_break()
 
@@ -419,6 +404,127 @@ def _block_header_card(doc, block: Block, header: BlockHeader | None) -> None:
     r.font.color.rgb = GREY_TXT
 
 
+_MD_URL_RE = __import__("re").compile(r"\[([^\]]+)\]\((https?://[^\s)]+)\)")
+_BARE_URL_RE = __import__("re").compile(r"(?:https?://|www\.)\S+")
+
+
+def _strip_markdown(text: str) -> str:
+    text = _MD_URL_RE.sub(r"\1", text)
+    text = _BARE_URL_RE.sub("", text)
+    text = text.replace("**", "").replace("__", "")
+    return text.strip()
+
+
+def _render_md_table(doc, lines: list[str]) -> None:
+    rows = [
+        [c.strip() for c in ln.strip().strip("|").split("|")]
+        for ln in lines
+        if ln.strip().startswith("|")
+    ]
+    rows = [r for r in rows if not all(set(c) <= {"-", ":", " "} for c in r)]
+    if len(rows) < 2:
+        return
+    cols = max(len(r) for r in rows)
+    table = doc.add_table(rows=len(rows), cols=cols)
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    for ri, row in enumerate(rows):
+        cells = table.rows[ri].cells
+        for ci in range(cols):
+            val = row[ci] if ci < len(row) else ""
+            cells[ci].text = _strip_markdown(val)
+            _set_cell_borders(cells[ci])
+            for p in cells[ci].paragraphs:
+                for r in p.runs:
+                    r.font.name = FONT
+                    r.font.size = Pt(10)
+                    if ri == 0:
+                        r.font.bold = True
+                        r.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+            if ri == 0:
+                _shade_cell(cells[ci], NAVY_HEX)
+
+
+def _render_summary(doc, summary: str) -> None:
+    lines = summary.split("\n")
+    buf: list[str] = []
+    tbl: list[str] = []
+    in_table = False
+
+    def flush_text():
+        text = "\n".join(buf).strip()
+        buf.clear()
+        if not text:
+            return
+        for para in text.split("\n\n"):
+            s = _strip_markdown(para)
+            if not s:
+                continue
+            p = doc.add_paragraph()
+            r = p.add_run(s)
+            r.font.name = FONT
+            r.font.size = Pt(11)
+
+    def flush_table():
+        if tbl:
+            _render_md_table(doc, tbl)
+            tbl.clear()
+
+    for ln in lines:
+        if ln.strip().startswith("|") and ln.strip().endswith("|"):
+            if not in_table:
+                flush_text()
+                in_table = True
+            tbl.append(ln)
+        else:
+            if in_table:
+                flush_table()
+                in_table = False
+            buf.append(ln)
+    if in_table:
+        flush_table()
+    else:
+        flush_text()
+
+
+def _numbered_finding(doc, num: int | None, tag: str, text: str, bar_hex: str = NAVY_HEX) -> None:
+    """Render a finding as a bordered card: [N] TAG — headline."""
+    table = doc.add_table(rows=1, cols=2)
+    table.autofit = False
+    table.columns[0].width = Cm(1.2)
+    table.columns[1].width = Cm(14.5)
+
+    lcell = table.rows[0].cells[0]
+    rcell = table.rows[0].cells[1]
+    lcell.width = Cm(1.2)
+    rcell.width = Cm(14.5)
+
+    _shade_cell(lcell, bar_hex)
+    lp = lcell.paragraphs[0]
+    lp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    lr = lp.add_run(str(num) if num is not None else "•")
+    lr.font.name = FONT
+    lr.font.bold = True
+    lr.font.size = Pt(12)
+    lr.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+
+    _shade_cell(rcell, GREY_BG_HEX)
+    rp = rcell.paragraphs[0]
+    if tag:
+        tr = rp.add_run(f"{tag}  ")
+        tr.font.name = FONT
+        tr.font.size = Pt(9)
+        tr.font.bold = True
+        tr.font.color.rgb = NAVY
+    tr = rp.add_run(text)
+    tr.font.name = FONT
+    tr.font.size = Pt(11)
+    rcell.paragraphs[0].paragraph_format.space_after = Pt(2)
+
+    # spacing after card
+    sp = doc.add_paragraph()
+    sp.paragraph_format.space_after = Pt(4)
+
+
 def _blocks_section(doc, report: Report) -> None:
     _heading(doc, "Блоки (по приоритету)", level=1)
     headers = {h.cell: h for h in report.block_headers}
@@ -427,12 +533,7 @@ def _blocks_section(doc, report: Report) -> None:
         _block_header_card(doc, b, h)
 
         # body
-        for para in b.summary.split("\n\n"):
-            if para.strip():
-                p = doc.add_paragraph()
-                r = p.add_run(para.strip())
-                r.font.name = FONT
-                r.font.size = Pt(11)
+        _render_summary(doc, b.summary or "")
 
         if b.findings:
             _heading(doc, "Источники", level=3)

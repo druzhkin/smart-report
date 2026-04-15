@@ -131,3 +131,6 @@ export const dismissCell = (id: string, cell: string) =>
 
 export const exportUrl = (id: string, fmt: "docx" | "pptx" | "md" | "json") =>
   `/api/research/${id}/export/${fmt}`;
+
+export const gammaExportUrl = (id: string, format: "pptx" | "pdf") =>
+  `/api/research/${id}/export/gamma?format=${format}`;

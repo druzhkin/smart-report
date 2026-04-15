@@ -1,14 +1,14 @@
 """Generate infographics (PNG) from a Report: matrix map, connections graph,
 metrics dashboard, priority heatmap. Reused by DOCX and PPTX exports.
 
-All outputs go to reports/images/ with deterministic filenames based on a slug.
+Titles are intentionally NOT rendered into the image — the host document
+(Word/PPTX) adds its own heading, so the image stays clean.
 """
 from __future__ import annotations
 
 import math
 import re
 from pathlib import Path
-from typing import Iterable
 
 import matplotlib
 matplotlib.use("Agg")
@@ -16,34 +16,44 @@ import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyBboxPatch
 
-from models import Block, BlockHeader, Connection, Report
+from models import BlockHeader, Report
 
-# ---------- palette (McKinsey-esque navy + accents) ----------
+# ---------- palette ----------
 
 NAVY = "#1B3A5C"
 NAVY_LIGHT = "#2E5984"
-GREY_BG = "#F5F5F5"
-GREY_MID = "#BDBDBD"
-RED = "#C0392B"
-YELLOW = "#F1C40F"
-GREEN = "#27AE60"
-BLUE = "#2E86C1"
+INK = "#1F2937"
+SOFT_BG = "#F8FAFC"
+CARD_BG = "#FFFFFF"
+BORDER = "#E2E8F0"
+MUTED = "#64748B"
+RED = "#DC2626"
+AMBER = "#F59E0B"
+GREEN = "#16A34A"
+BLUE = "#2563EB"
+VIOLET = "#7C3AED"
 WHITE = "#FFFFFF"
 
-PRIORITY_COLOR = {"high": RED, "medium": YELLOW, "low": GREEN}
-PRIORITY_FALLBACK = GREY_MID
+PRIORITY_COLOR = {"high": RED, "medium": AMBER, "low": GREEN}
+PRIORITY_FALLBACK = "#CBD5E1"
 
 NATURE_COLOR = {
     "paradox": RED,
     "causal_chain": BLUE,
     "unexpected_confirmation": GREEN,
-    "shared_variable": NAVY_LIGHT,
+    "shared_variable": VIOLET,
 }
 
-STRENGTH_WIDTH = {"strong": 3.2, "moderate": 2.0, "speculative": 1.0}
+STRENGTH_WIDTH = {"strong": 3.4, "moderate": 2.2, "speculative": 1.2}
 
 IMAGES_DIR = Path(__file__).parent / "reports" / "images"
 IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+
+plt.rcParams.update({
+    "font.family": "DejaVu Sans",
+    "axes.edgecolor": BORDER,
+    "axes.linewidth": 0.6,
+})
 
 
 # ---------- helpers ----------
@@ -59,7 +69,6 @@ def _headers_by_cell(report: Report) -> dict[str, BlockHeader]:
 
 
 def _domain_priority(report: Report, domain: str) -> str:
-    """Worst-case priority across cells of domain (high > medium > low)."""
     headers = _headers_by_cell(report)
     score = {"high": 3, "medium": 2, "low": 1}
     best = 0
@@ -71,48 +80,8 @@ def _domain_priority(report: Report, domain: str) -> str:
 
 
 def _cell_priority(report: Report, cell: str) -> str:
-    headers = _headers_by_cell(report)
-    h = headers.get(cell)
+    h = _headers_by_cell(report).get(cell)
     return h.priority if h else "low"
-
-
-def _extract_numbers_from_blocks(report: Report, limit: int = 8) -> list[tuple[str, str, str]]:
-    """Return list of (number, context, source). Prefers strongest_number from headers."""
-    out: list[tuple[str, str, str]] = []
-    headers = _headers_by_cell(report)
-    # Prefer strongest_number from headers (sorted by priority)
-    prio_order = {"high": 0, "medium": 1, "low": 2}
-    sorted_headers = sorted(
-        headers.values(), key=lambda h: prio_order.get(h.priority, 3)
-    )
-    num_re = re.compile(r"[-+]?\d[\d.,]*\s*%?")
-    for h in sorted_headers:
-        if not h.strongest_number:
-            continue
-        m = num_re.search(h.strongest_number)
-        if not m:
-            continue
-        num = m.group(0).strip()
-        context = h.strongest_number.replace(num, "").strip(" —-:,") or h.one_liner
-        out.append((num, context[:70], h.cell))
-        if len(out) >= limit:
-            return out
-
-    # Fallback: scan block findings
-    if len(out) < limit:
-        for b in report.blocks:
-            for f in b.findings:
-                if not f.has_numbers:
-                    continue
-                m = num_re.search(f.claim)
-                if not m:
-                    continue
-                num = m.group(0).strip()
-                context = f.claim[:70]
-                out.append((num, context, b.cell))
-                if len(out) >= limit:
-                    return out
-    return out
 
 
 def _wrap(text: str, width: int) -> str:
@@ -120,9 +89,9 @@ def _wrap(text: str, width: int) -> str:
     lines: list[str] = []
     cur = ""
     for w in words:
-        candidate = (cur + " " + w).strip() if cur else w
-        if len(candidate) <= width:
-            cur = candidate
+        cand = (cur + " " + w).strip() if cur else w
+        if len(cand) <= width:
+            cur = cand
         else:
             if cur:
                 lines.append(cur)
@@ -132,68 +101,130 @@ def _wrap(text: str, width: int) -> str:
     return "\n".join(lines)
 
 
+def _extract_numbers_from_blocks(report: Report, limit: int = 6) -> list[tuple[str, str, str]]:
+    out: list[tuple[str, str, str]] = []
+    headers = _headers_by_cell(report)
+    prio_order = {"high": 0, "medium": 1, "low": 2}
+    sorted_headers = sorted(headers.values(), key=lambda h: prio_order.get(h.priority, 3))
+    num_re = re.compile(r"[-+]?\d[\d.,]*\s*%?")
+    seen: set[str] = set()
+    for h in sorted_headers:
+        if not h.strongest_number:
+            continue
+        m = num_re.search(h.strongest_number)
+        if not m:
+            continue
+        num = m.group(0).strip()
+        if num in seen:
+            continue
+        seen.add(num)
+        context = h.strongest_number.replace(num, "").strip(" —-:,·")
+        if not context:
+            context = h.one_liner or ""
+        out.append((num, context[:80], h.cell))
+        if len(out) >= limit:
+            return out
+    if len(out) < limit:
+        for b in report.blocks:
+            for f in b.findings:
+                if not f.has_numbers:
+                    continue
+                m = num_re.search(f.claim)
+                if not m:
+                    continue
+                num = m.group(0).strip()
+                if num in seen:
+                    continue
+                seen.add(num)
+                out.append((num, f.claim[:80], b.cell))
+                if len(out) >= limit:
+                    return out
+    return out
+
+
 # ---------- 1. matrix map ----------
 
 def render_matrix_map(report: Report, out_path: Path | None = None) -> Path:
-    """Domains as coloured blocks (priority colour), layers listed inside."""
+    """Domain cards: navy title strip on top, white body with layer bullets."""
     domains = report.matrix.domains
     n = len(domains)
+    path = out_path or IMAGES_DIR / f"{_slugify(report.goal)}-matrix.png"
+
     if n == 0:
-        # empty placeholder
-        fig, ax = plt.subplots(figsize=(8, 4))
-        ax.text(0.5, 0.5, "Матрица пуста", ha="center", va="center", fontsize=14)
+        fig, ax = plt.subplots(figsize=(8, 3))
+        ax.text(0.5, 0.5, "Матрица пуста", ha="center", va="center", fontsize=14, color=MUTED)
         ax.axis("off")
-        path = out_path or IMAGES_DIR / f"{_slugify(report.goal)}-matrix.png"
-        fig.savefig(path, dpi=150, bbox_inches="tight")
+        fig.savefig(path, dpi=180, bbox_inches="tight", facecolor=WHITE)
         plt.close(fig)
         return path
 
     cols = min(3, n)
     rows = math.ceil(n / cols)
-    fig, ax = plt.subplots(figsize=(cols * 4.2, rows * 3.6))
+    fig, ax = plt.subplots(figsize=(cols * 4.6, rows * 4.2))
     ax.set_xlim(0, cols)
     ax.set_ylim(0, rows)
     ax.invert_yaxis()
     ax.axis("off")
-    ax.set_title("Карта матрицы доменов", fontsize=16, color=NAVY, weight="bold", pad=14)
+    fig.patch.set_facecolor(WHITE)
 
     for idx, d in enumerate(domains):
         r, c = divmod(idx, cols)
-        x = c + 0.05
-        y = r + 0.05
-        w = 0.9
-        h = 0.9
+        x, y, w, h = c + 0.08, r + 0.06, 0.84, 0.88
         prio = _domain_priority(report, d.name)
-        color = PRIORITY_COLOR.get(prio, PRIORITY_FALLBACK)
-        box = FancyBboxPatch(
+        accent = PRIORITY_COLOR.get(prio, PRIORITY_FALLBACK)
+
+        # card body
+        body = FancyBboxPatch(
             (x, y), w, h,
-            boxstyle="round,pad=0.02,rounding_size=0.04",
-            linewidth=1.5, edgecolor=NAVY, facecolor=color, alpha=0.85,
+            boxstyle="round,pad=0.01,rounding_size=0.035",
+            linewidth=0.8, edgecolor=BORDER, facecolor=CARD_BG, zorder=1,
         )
-        ax.add_patch(box)
-        ax.text(
-            x + w / 2, y + 0.12, _wrap(d.name, 28),
-            ha="center", va="top", fontsize=11, color=WHITE, weight="bold",
+        ax.add_patch(body)
+
+        # navy title strip
+        strip_h = 0.22
+        strip = FancyBboxPatch(
+            (x, y), w, strip_h,
+            boxstyle="round,pad=0.01,rounding_size=0.035",
+            linewidth=0, facecolor=NAVY, zorder=2,
         )
-        layer_txt = "\n".join(f"• {_wrap(l.name, 26)}" for l in d.layers[:5])
+        ax.add_patch(strip)
+        # mask bottom rounding of strip
+        ax.add_patch(plt.Rectangle(
+            (x, y + strip_h - 0.04), w, 0.04,
+            facecolor=NAVY, linewidth=0, zorder=2,
+        ))
+
+        # priority dot
+        ax.add_patch(plt.Circle(
+            (x + w - 0.07, y + strip_h / 2), 0.028,
+            facecolor=accent, edgecolor=WHITE, linewidth=1.2, zorder=4,
+        ))
+
+        # domain title
         ax.text(
-            x + 0.05, y + 0.32, layer_txt,
-            ha="left", va="top", fontsize=8.5, color=WHITE,
+            x + 0.04, y + strip_h / 2, _wrap(d.name, 26),
+            ha="left", va="center", fontsize=11.5, color=WHITE, weight="bold", zorder=3,
         )
 
-    # legend
-    legend_patches = [
+        # layers
+        layer_lines = [f"•  {_wrap(l.name, 32)}" for l in d.layers[:6]]
+        ax.text(
+            x + 0.05, y + strip_h + 0.06, "\n".join(layer_lines),
+            ha="left", va="top", fontsize=9.2, color=INK, zorder=3, linespacing=1.5,
+        )
+
+    legend = [
         mpatches.Patch(color=RED, label="Высокий приоритет"),
-        mpatches.Patch(color=YELLOW, label="Средний приоритет"),
-        mpatches.Patch(color=GREEN, label="Низкий приоритет"),
+        mpatches.Patch(color=AMBER, label="Средний"),
+        mpatches.Patch(color=GREEN, label="Низкий"),
     ]
     ax.legend(
-        handles=legend_patches, loc="lower center",
-        bbox_to_anchor=(0.5, -0.03), ncol=3, frameon=False, fontsize=9,
+        handles=legend, loc="lower center",
+        bbox_to_anchor=(0.5, -0.04), ncol=3, frameon=False, fontsize=10,
     )
 
-    path = out_path or IMAGES_DIR / f"{_slugify(report.goal)}-matrix.png"
-    fig.savefig(path, dpi=150, bbox_inches="tight", facecolor=WHITE)
+    fig.savefig(path, dpi=180, bbox_inches="tight", facecolor=WHITE)
     plt.close(fig)
     return path
 
@@ -201,71 +232,112 @@ def render_matrix_map(report: Report, out_path: Path | None = None) -> Path:
 # ---------- 2. connections graph ----------
 
 def render_connections_graph(report: Report, out_path: Path | None = None) -> Path:
-    """Nodes = domains; edges = connections. Width=strength, colour=nature."""
-    domains = [d.name for d in report.matrix.domains]
-    n = len(domains)
+    """Nodes = all domains that appear anywhere (matrix OR connections).
+    Edges curved slightly to disambiguate multi-links between same pair.
+    """
+    path = out_path or IMAGES_DIR / f"{_slugify(report.goal)}-graph.png"
 
-    fig, ax = plt.subplots(figsize=(10, 8))
-    ax.set_title("Граф кросс-доменных связей", fontsize=16, color=NAVY, weight="bold", pad=14)
+    # collect ALL domains referenced
+    domain_set: list[str] = []
+    seen: set[str] = set()
+    for d in report.matrix.domains:
+        if d.name not in seen:
+            seen.add(d.name)
+            domain_set.append(d.name)
+    for c in report.connections:
+        for dom in c.domains:
+            if dom and dom not in seen:
+                seen.add(dom)
+                domain_set.append(dom)
+
+    n = len(domain_set)
+    fig, ax = plt.subplots(figsize=(11, 8.5))
+    fig.patch.set_facecolor(WHITE)
     ax.set_aspect("equal")
     ax.axis("off")
 
     if n == 0:
         ax.text(0.5, 0.5, "Нет доменов", ha="center", va="center", fontsize=14,
-                transform=ax.transAxes)
-        path = out_path or IMAGES_DIR / f"{_slugify(report.goal)}-graph.png"
-        fig.savefig(path, dpi=150, bbox_inches="tight", facecolor=WHITE)
+                color=MUTED, transform=ax.transAxes)
+        fig.savefig(path, dpi=180, bbox_inches="tight", facecolor=WHITE)
         plt.close(fig)
         return path
 
-    # positions: circle layout
-    radius = 1.0
+    # positions: circle
+    radius = 1.0 if n > 1 else 0.0
     pos: dict[str, tuple[float, float]] = {}
-    for i, dom in enumerate(domains):
+    for i, dom in enumerate(domain_set):
         angle = 2 * math.pi * i / max(n, 1) - math.pi / 2
         pos[dom] = (radius * math.cos(angle), radius * math.sin(angle))
 
-    # draw edges
+    # count edges per pair for curvature offset
+    pair_count: dict[tuple[str, str], int] = {}
+
+    # edges
     for conn in report.connections:
         doms = [d for d in conn.domains if d in pos]
         if len(doms) < 2:
             continue
         color = NATURE_COLOR.get(conn.nature, NAVY_LIGHT)
-        lw = STRENGTH_WIDTH.get(conn.strength, 1.5)
+        lw = STRENGTH_WIDTH.get(conn.strength, 1.8)
         for i in range(len(doms)):
             for j in range(i + 1, len(doms)):
+                key = tuple(sorted([doms[i], doms[j]]))
+                k = pair_count.get(key, 0)
+                pair_count[key] = k + 1
                 x1, y1 = pos[doms[i]]
                 x2, y2 = pos[doms[j]]
-                ax.plot([x1, x2], [y1, y2], color=color, linewidth=lw, alpha=0.6, zorder=1)
+                rad = 0.08 * ((k % 4) - 1.5)
+                ax.annotate(
+                    "", xy=(x2, y2), xytext=(x1, y1),
+                    arrowprops=dict(
+                        arrowstyle="-", color=color, linewidth=lw, alpha=0.65,
+                        connectionstyle=f"arc3,rad={rad}",
+                    ),
+                    zorder=1,
+                )
 
-    # draw nodes
+    # nodes
+    node_r = 0.18 if n <= 6 else 0.14
     for dom, (x, y) in pos.items():
         prio = _domain_priority(report, dom)
         color = PRIORITY_COLOR.get(prio, PRIORITY_FALLBACK)
-        ax.scatter([x], [y], s=2200, color=color, edgecolors=NAVY, linewidths=2, zorder=2)
-        ax.text(x, y, _wrap(dom, 16), ha="center", va="center",
-                fontsize=9, color=WHITE, weight="bold", zorder=3)
+        circ = plt.Circle(
+            (x, y), node_r,
+            facecolor=color, edgecolor=WHITE, linewidth=2.5, zorder=3,
+        )
+        ax.add_patch(circ)
+        # shadow
+        ax.add_patch(plt.Circle(
+            (x, y - 0.008), node_r,
+            facecolor="#00000020", edgecolor="none", zorder=2,
+        ))
+        ax.text(
+            x, y - node_r - 0.12, _wrap(dom, 20),
+            ha="center", va="top", fontsize=9.5, color=INK, weight="bold", zorder=4,
+        )
 
-    ax.set_xlim(-1.6, 1.6)
-    ax.set_ylim(-1.6, 1.6)
+    margin = node_r + 0.55
+    ax.set_xlim(-1 - margin, 1 + margin)
+    ax.set_ylim(-1 - margin, 1 + margin)
 
-    # legend
-    legend_handles = [
+    legend = [
         mpatches.Patch(color=RED, label="Парадокс"),
         mpatches.Patch(color=BLUE, label="Причинная цепочка"),
         mpatches.Patch(color=GREEN, label="Подтверждение"),
-        mpatches.Patch(color=NAVY_LIGHT, label="Общая переменная"),
+        mpatches.Patch(color=VIOLET, label="Общая переменная"),
     ]
-    ax.legend(handles=legend_handles, loc="lower center",
-              bbox_to_anchor=(0.5, -0.05), ncol=4, frameon=False, fontsize=9)
+    ax.legend(
+        handles=legend, loc="lower center",
+        bbox_to_anchor=(0.5, -0.02), ncol=4, frameon=False, fontsize=10,
+    )
+    ax.text(
+        0, 1 + margin - 0.12,
+        f"{n} доменов · {len(report.connections)} связей · толщина = сила",
+        ha="center", fontsize=9.5, color=MUTED, style="italic",
+    )
 
-    # subtitle
-    ax.text(0, 1.45,
-            f"Узел = домен · цвет = приоритет · толщина линии = сила связи ({len(report.connections)} связей)",
-            ha="center", fontsize=9, color=NAVY, style="italic")
-
-    path = out_path or IMAGES_DIR / f"{_slugify(report.goal)}-graph.png"
-    fig.savefig(path, dpi=150, bbox_inches="tight", facecolor=WHITE)
+    fig.savefig(path, dpi=180, bbox_inches="tight", facecolor=WHITE)
     plt.close(fig)
     return path
 
@@ -273,50 +345,72 @@ def render_connections_graph(report: Report, out_path: Path | None = None) -> Pa
 # ---------- 3. metrics dashboard ----------
 
 def render_metrics_dashboard(report: Report, out_path: Path | None = None) -> Path:
-    """6-8 key numbers laid out as large-font tiles, McKinsey style."""
-    metrics = _extract_numbers_from_blocks(report, limit=8)
-
-    fig, ax = plt.subplots(figsize=(12, 7))
-    ax.set_xlim(0, 4)
-    ax.set_ylim(0, 2)
-    ax.invert_yaxis()
-    ax.axis("off")
-    ax.set_title("Key Metrics Dashboard", fontsize=18, color=NAVY, weight="bold", pad=14)
+    """Max 6 metric tiles, large number, subtle shadow, clear hierarchy."""
+    path = out_path or IMAGES_DIR / f"{_slugify(report.goal)}-metrics.png"
+    metrics = _extract_numbers_from_blocks(report, limit=6)
 
     if not metrics:
-        ax.text(2, 1, "Недостаточно количественных данных в отчёте",
-                ha="center", va="center", fontsize=14, color=GREY_MID)
-        path = out_path or IMAGES_DIR / f"{_slugify(report.goal)}-metrics.png"
-        fig.savefig(path, dpi=150, bbox_inches="tight", facecolor=WHITE)
+        fig, ax = plt.subplots(figsize=(10, 3))
+        ax.text(0.5, 0.5, "Недостаточно количественных данных",
+                ha="center", va="center", fontsize=13, color=MUTED)
+        ax.axis("off")
+        fig.savefig(path, dpi=180, bbox_inches="tight", facecolor=WHITE)
         plt.close(fig)
         return path
 
-    # grid 4x2
-    cols = 4
-    for idx, (num, context, source) in enumerate(metrics[:8]):
-        r, c = divmod(idx, cols)
-        x = c + 0.03
-        y = r + 0.03
-        w = 0.94
-        h = 0.94
-        box = FancyBboxPatch(
-            (x, y), w, h,
-            boxstyle="round,pad=0.02,rounding_size=0.03",
-            linewidth=1.0, edgecolor=NAVY, facecolor=GREY_BG,
-        )
-        ax.add_patch(box)
-        # big number
-        ax.text(x + w / 2, y + 0.35, num,
-                ha="center", va="center", fontsize=28, color=NAVY, weight="bold")
-        # context
-        ax.text(x + w / 2, y + 0.62, _wrap(context, 32),
-                ha="center", va="center", fontsize=9, color="#333333")
-        # source
-        ax.text(x + w / 2, y + 0.88, f"[{_wrap(source, 36)}]",
-                ha="center", va="center", fontsize=7.5, color=GREY_MID, style="italic")
+    k = len(metrics)
+    cols = 3 if k >= 3 else k
+    rows = math.ceil(k / cols)
 
-    path = out_path or IMAGES_DIR / f"{_slugify(report.goal)}-metrics.png"
-    fig.savefig(path, dpi=150, bbox_inches="tight", facecolor=WHITE)
+    fig, ax = plt.subplots(figsize=(cols * 4.2, rows * 3.4))
+    ax.set_xlim(0, cols)
+    ax.set_ylim(0, rows)
+    ax.invert_yaxis()
+    ax.axis("off")
+    fig.patch.set_facecolor(WHITE)
+
+    accents = [BLUE, NAVY, VIOLET, GREEN, AMBER, RED]
+
+    for idx, (num, context, source) in enumerate(metrics):
+        r, c = divmod(idx, cols)
+        x, y, w, h = c + 0.06, r + 0.06, 0.88, 0.88
+        accent = accents[idx % len(accents)]
+
+        # soft shadow
+        ax.add_patch(FancyBboxPatch(
+            (x + 0.015, y + 0.025), w, h,
+            boxstyle="round,pad=0.01,rounding_size=0.035",
+            linewidth=0, facecolor="#0F172A10", zorder=1,
+        ))
+        # card
+        ax.add_patch(FancyBboxPatch(
+            (x, y), w, h,
+            boxstyle="round,pad=0.01,rounding_size=0.035",
+            linewidth=0.8, edgecolor=BORDER, facecolor=CARD_BG, zorder=2,
+        ))
+        # accent top bar
+        ax.add_patch(plt.Rectangle(
+            (x + 0.02, y + 0.04), w - 0.04, 0.03,
+            facecolor=accent, linewidth=0, zorder=3,
+        ))
+
+        # big number
+        ax.text(
+            x + w / 2, y + 0.32, num,
+            ha="center", va="center", fontsize=34, color=NAVY, weight="bold", zorder=4,
+        )
+        # context
+        ax.text(
+            x + w / 2, y + 0.62, _wrap(context, 34),
+            ha="center", va="center", fontsize=10, color=INK, zorder=4, linespacing=1.4,
+        )
+        # source
+        ax.text(
+            x + w / 2, y + h - 0.06, _wrap(source, 40),
+            ha="center", va="center", fontsize=8, color=MUTED, style="italic", zorder=4,
+        )
+
+    fig.savefig(path, dpi=180, bbox_inches="tight", facecolor=WHITE)
     plt.close(fig)
     return path
 
@@ -324,14 +418,15 @@ def render_metrics_dashboard(report: Report, out_path: Path | None = None) -> Pa
 # ---------- 4. priority heatmap ----------
 
 def render_priority_heatmap(report: Report, out_path: Path | None = None) -> Path:
-    """Matrix: domains (rows) × layers (cols), cell colour = priority."""
+    """Domains × layers; cells coloured by priority with readable labels."""
+    path = out_path or IMAGES_DIR / f"{_slugify(report.goal)}-heatmap.png"
     domains = report.matrix.domains
+
     if not domains:
         fig, ax = plt.subplots(figsize=(8, 3))
-        ax.text(0.5, 0.5, "Матрица пуста", ha="center", va="center", fontsize=14)
+        ax.text(0.5, 0.5, "Матрица пуста", ha="center", va="center", fontsize=14, color=MUTED)
         ax.axis("off")
-        path = out_path or IMAGES_DIR / f"{_slugify(report.goal)}-heatmap.png"
-        fig.savefig(path, dpi=150, bbox_inches="tight")
+        fig.savefig(path, dpi=180, bbox_inches="tight", facecolor=WHITE)
         plt.close(fig)
         return path
 
@@ -339,49 +434,61 @@ def render_priority_heatmap(report: Report, out_path: Path | None = None) -> Pat
     n_domains = len(domains)
 
     score = {"high": 3, "medium": 2, "low": 1}
-    color_map = {3: RED, 2: YELLOW, 1: GREEN, 0: GREY_BG}
+    color_map = {3: RED, 2: AMBER, 1: GREEN, 0: "#F1F5F9"}
 
-    fig_w = max(8, 1.6 * max_layers + 4)
-    fig_h = max(3, 0.7 * n_domains + 2)
+    fig_w = max(10, 2.3 * max_layers + 3.5)
+    fig_h = max(4, 1.1 * n_domains + 1.8)
     fig, ax = plt.subplots(figsize=(fig_w, fig_h))
+    fig.patch.set_facecolor(WHITE)
     ax.set_xlim(0, max_layers)
     ax.set_ylim(0, n_domains)
     ax.invert_yaxis()
-    ax.set_title("Тепловая карта приоритетов: где золото, где пусто",
-                 fontsize=15, color=NAVY, weight="bold", pad=14)
 
     for r, d in enumerate(domains):
-        for c, layer in enumerate(d.layers[:max_layers]):
-            cell_key = f"{d.name} / {layer.name}"
-            prio = _cell_priority(report, cell_key)
-            val = score.get(prio, 0)
-            color = color_map.get(val, GREY_BG)
-            rect = plt.Rectangle((c, r), 1, 1, facecolor=color, edgecolor=NAVY, linewidth=0.8)
-            ax.add_patch(rect)
-            label = _wrap(layer.name, 14)
-            ax.text(c + 0.5, r + 0.5, label, ha="center", va="center",
-                    fontsize=8, color=WHITE if val >= 2 else "#222222", weight="bold")
+        for c in range(max_layers):
+            layer = d.layers[c] if c < len(d.layers) else None
+            if layer is None:
+                color = color_map[0]
+                label = ""
+                val = 0
+            else:
+                prio = _cell_priority(report, f"{d.name} / {layer.name}")
+                val = score.get(prio, 0)
+                color = color_map.get(val, color_map[0])
+                label = _wrap(layer.name, 16)
+            # cell with subtle inset
+            ax.add_patch(plt.Rectangle(
+                (c + 0.04, r + 0.04), 0.92, 0.92,
+                facecolor=color, edgecolor="none",
+            ))
+            if label:
+                ax.text(
+                    c + 0.5, r + 0.5, label,
+                    ha="center", va="center",
+                    fontsize=9.5 if len(label) < 30 else 8.5,
+                    color=WHITE if val >= 2 else INK, weight="bold",
+                )
 
-    # row labels (domain names) on the left outside the grid
     ax.set_yticks([r + 0.5 for r in range(n_domains)])
-    ax.set_yticklabels([_wrap(d.name, 22) for d in domains], fontsize=9, color=NAVY)
+    ax.set_yticklabels([_wrap(d.name, 24) for d in domains], fontsize=10, color=INK)
     ax.set_xticks([c + 0.5 for c in range(max_layers)])
-    ax.set_xticklabels([f"Слой {c+1}" for c in range(max_layers)], fontsize=9, color=NAVY)
+    ax.set_xticklabels([f"Слой {c+1}" for c in range(max_layers)], fontsize=10, color=MUTED)
     for spine in ax.spines.values():
         spine.set_visible(False)
     ax.tick_params(left=False, bottom=False)
 
-    legend_patches = [
+    legend = [
         mpatches.Patch(color=RED, label="Высокий"),
-        mpatches.Patch(color=YELLOW, label="Средний"),
+        mpatches.Patch(color=AMBER, label="Средний"),
         mpatches.Patch(color=GREEN, label="Низкий"),
-        mpatches.Patch(color=GREY_BG, label="Нет данных"),
+        mpatches.Patch(color=color_map[0], label="Нет данных"),
     ]
-    ax.legend(handles=legend_patches, loc="lower center",
-              bbox_to_anchor=(0.5, -0.2), ncol=4, frameon=False, fontsize=9)
+    ax.legend(
+        handles=legend, loc="lower center",
+        bbox_to_anchor=(0.5, -0.16), ncol=4, frameon=False, fontsize=10,
+    )
 
-    path = out_path or IMAGES_DIR / f"{_slugify(report.goal)}-heatmap.png"
-    fig.savefig(path, dpi=150, bbox_inches="tight", facecolor=WHITE)
+    fig.savefig(path, dpi=180, bbox_inches="tight", facecolor=WHITE)
     plt.close(fig)
     return path
 

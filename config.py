@@ -124,6 +124,8 @@ class Settings:
     core_api_key: str = os.getenv("CORE_API_KEY", "")
     semantic_scholar_api_key: str = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "")
     pubmed_api_key: str = os.getenv("PUBMED_API_KEY", "")
+    gamma_api_key: str = os.getenv("GAMMA_API_KEY", "")
+    gamma_theme_id: str = os.getenv("GAMMA_THEME_ID", "")
 
     planner_model: str = os.getenv("PLANNER_MODEL", "anthropic/claude-opus-4.5")
     scout_model: str = os.getenv("SCOUT_MODEL", "anthropic/claude-haiku-4.5")

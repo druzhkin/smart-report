@@ -452,15 +452,14 @@ async def export_docx(report_id: str) -> FileResponse:
     # Prefer a pre-baked McKinsey-grade docx if Core agent produced one,
     # otherwise fall back to the baseline python-docx export.
     nice = REPORTS_DIR / f"{report_id}.docx"
-    if not nice.exists():
-        # try to use advanced exporter if available
-        try:
-            from export_docx import export as export_docx_mckinsey  # type: ignore
-            export_docx_mckinsey(report, nice)
-        except Exception:
-            # fall back to baseline export
-            paths = save_all(report, REPORTS_DIR, stem=report_id)
-            nice = paths["docx"]
+    try:
+        from export_docx import export_mckinsey_docx
+        export_mckinsey_docx(report, nice)
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        paths = save_all(report, REPORTS_DIR, stem=report_id)
+        nice = paths["docx"]
     if not nice.exists():
         raise HTTPException(
             status_code=404,
@@ -496,7 +495,122 @@ async def export_pptx(report_id: str) -> FileResponse:
     )
 
 
+def _gamma_cache_path(report_id: str, fmt: str) -> Path:
+    return REPORTS_DIR / f"{report_id}.gamma.{fmt}.json"
+
+
+@app.get("/api/research/{report_id}/export/gamma")
+async def export_gamma(report_id: str, format: str = "pptx", force: bool = False) -> Any:
+    try:
+        from config import settings  # local import to avoid circular issues at module load
+
+        report = _load(report_id)
+        fmt = format.lower()
+        if fmt not in ("pptx", "pdf"):
+            raise HTTPException(400, "format must be 'pptx' or 'pdf'")
+
+        cache_path = _gamma_cache_path(report_id, fmt)
+        if cache_path.exists() and not force:
+            try:
+                cached = json.loads(cache_path.read_text(encoding="utf-8"))
+                if cached.get("gamma_url"):
+                    # If we don't yet have the export_url, try to refresh it.
+                    if not cached.get("export_url") and cached.get("generation_id"):
+                        try:
+                            from export_gamma import poll_gamma_generation
+                            fresh = await poll_gamma_generation(cached["generation_id"])
+                            if fresh.get("export_url"):
+                                cached["export_url"] = fresh["export_url"]
+                                cache_path.write_text(json.dumps(cached), encoding="utf-8")
+                        except Exception:
+                            pass
+                    return JSONResponse(
+                        {**cached, "status": "cached", "cached": True},
+                        status_code=200,
+                    )
+            except Exception:
+                pass
+
+        if not settings.gamma_api_key:
+            if fmt == "pptx":
+                return await export_pptx(report_id)
+            return JSONResponse(
+                {"detail": "Gamma API key не настроен. PDF через Gamma недоступен — используйте .pptx экспорт."},
+                status_code=501,
+            )
+
+        try:
+            from export_gamma import export_via_gamma
+            result = await export_via_gamma(
+                report,
+                export_as=fmt,
+                theme_id=settings.gamma_theme_id or None,
+            )
+        except Exception as err:
+            if fmt == "pptx":
+                return await export_pptx(report_id)
+            return JSONResponse({"detail": f"Gamma export failed: {err}"}, status_code=502)
+
+        payload = {
+            "gamma_url": result.get("gamma_url"),
+            "generation_id": result.get("generation_id"),
+            "export_url": result.get("export_url"),
+        }
+        try:
+            cache_path.write_text(json.dumps(payload), encoding="utf-8")
+        except Exception:
+            pass
+
+        return JSONResponse(
+            {
+                **payload,
+                "status": "generating" if not result.get("export_url") else "completed",
+            },
+            status_code=202 if not result.get("export_url") else 200,
+        )
+    except HTTPException:
+        raise
+    except Exception as err:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"detail": f"Export error: {err}"}, status_code=500)
+
+
+@app.get("/api/research/{report_id}/export/gamma/status/{generation_id}")
+async def export_gamma_status(report_id: str, generation_id: str) -> Any:
+    try:
+        from export_gamma import poll_gamma_generation
+        data = await poll_gamma_generation(generation_id)
+        if data.get("export_url"):
+            for fmt in ("pptx", "pdf"):
+                cp = _gamma_cache_path(report_id, fmt)
+                if cp.exists():
+                    try:
+                        cached = json.loads(cp.read_text(encoding="utf-8"))
+                        if cached.get("generation_id") == generation_id:
+                            cached["export_url"] = data["export_url"]
+                            if data.get("gamma_url"):
+                                cached["gamma_url"] = data["gamma_url"]
+                            cp.write_text(json.dumps(cached), encoding="utf-8")
+                    except Exception:
+                        pass
+        return JSONResponse(data)
+    except Exception as err:
+        return JSONResponse({"status": "pending", "detail": str(err)}, status_code=200)
+
+
 # ---------- library ----------
+
+
+@app.get("/api/research/{report_id}/status")
+async def get_status(report_id: str) -> dict[str, Any]:
+    sp = _status_path(report_id)
+    if not sp.exists():
+        return {"status": "unknown"}
+    try:
+        return json.loads(sp.read_text(encoding="utf-8"))
+    except Exception:
+        return {"status": "unknown"}
 
 
 @app.get("/api/reports")
@@ -506,6 +620,10 @@ async def list_reports() -> list[dict[str, Any]]:
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
         except Exception:
+            continue
+        if not isinstance(data, dict) or "goal" not in data or "blocks" not in data:
+            continue
+        if path.stem.startswith("_") or path.stem.endswith(".status"):
             continue
         rid = path.stem
         blocks = data.get("blocks", []) or []
