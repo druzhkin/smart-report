@@ -18,6 +18,8 @@ PPLX_URL = "https://api.perplexity.ai/chat/completions"
 TAVILY_URL = "https://api.tavily.com/search"
 FIRECRAWL_SEARCH_URL = "https://api.firecrawl.dev/v1/search"
 DDG_HTML_URL = "https://html.duckduckgo.com/html/"
+OPENALEX_URL = "https://api.openalex.org/works"
+CROSSREF_URL = "https://api.crossref.org/works"
 UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
@@ -74,6 +76,132 @@ async def _fetch_page(http: httpx.AsyncClient, url: str, max_chars: int = 6000) 
         return _strip_html(r.text)[:max_chars]
     except Exception:
         return ""
+
+
+async def _openalex_search(query: str, k: int = 5) -> list[dict[str, Any]]:
+    """OpenAlex: free peer-reviewed works API, no key required. Returns primary academic sources."""
+    try:
+        async with httpx.AsyncClient(timeout=25) as http:
+            r = await http.get(
+                OPENALEX_URL,
+                params={
+                    "search": query,
+                    "per-page": k,
+                    "select": "id,doi,title,publication_year,cited_by_count,abstract_inverted_index,primary_location,authorships",
+                    "sort": "relevance_score:desc",
+                },
+                headers={"User-Agent": "smart-report-mvp/1.0 (mailto:research@smart-report.local)"},
+            )
+            r.raise_for_status()
+            data = r.json()
+    except Exception:
+        return []
+    items = []
+    for w in (data.get("results") or [])[:k]:
+        doi = w.get("doi") or w.get("id") or ""
+        title = w.get("title") or ""
+        year = w.get("publication_year")
+        cites = w.get("cited_by_count", 0)
+        # reconstruct abstract from inverted index
+        inv = w.get("abstract_inverted_index") or {}
+        abs_text = ""
+        if inv:
+            pos_word = [(p, w_) for w_, ps in inv.items() for p in ps]
+            pos_word.sort()
+            abs_text = " ".join(w_ for _, w_ in pos_word)[:1500]
+        loc = (w.get("primary_location") or {}).get("source") or {}
+        venue = loc.get("display_name", "")
+        authors = [a.get("author", {}).get("display_name", "") for a in (w.get("authorships") or [])[:3]]
+        items.append({
+            "url": doi,
+            "title": title,
+            "year": year,
+            "venue": venue,
+            "citations": cites,
+            "authors": authors,
+            "abstract": abs_text,
+        })
+    return items
+
+
+async def _crossref_search(query: str, k: int = 3) -> list[dict[str, Any]]:
+    """Crossref REST API: free, DOI-backed primary metadata."""
+    try:
+        async with httpx.AsyncClient(timeout=25) as http:
+            r = await http.get(
+                CROSSREF_URL,
+                params={"query": query, "rows": k, "select": "DOI,title,issued,is-referenced-by-count,container-title,author"},
+                headers={"User-Agent": "smart-report-mvp/1.0 (mailto:research@smart-report.local)"},
+            )
+            r.raise_for_status()
+            data = r.json()
+    except Exception:
+        return []
+    items = []
+    for w in (data.get("message", {}).get("items") or [])[:k]:
+        doi = w.get("DOI") or ""
+        url = f"https://doi.org/{doi}" if doi else ""
+        title_list = w.get("title") or []
+        title = title_list[0] if title_list else ""
+        issued_parts = (w.get("issued") or {}).get("date-parts") or [[None]]
+        year = issued_parts[0][0] if issued_parts and issued_parts[0] else None
+        cites = w.get("is-referenced-by-count", 0)
+        container = (w.get("container-title") or [""])[0]
+        authors = [
+            f"{a.get('given','')} {a.get('family','')}".strip()
+            for a in (w.get("author") or [])[:3]
+        ]
+        items.append({
+            "url": url,
+            "title": title,
+            "year": year,
+            "venue": container,
+            "citations": cites,
+            "authors": authors,
+            "abstract": "",
+        })
+    return items
+
+
+async def _academic_bundle(query: str) -> tuple[str, list[dict[str, str]]]:
+    """Parallel OpenAlex + Crossref → compact primary-source blurb + citations list."""
+    oa, cr = await asyncio.gather(
+        _openalex_search(query, k=5),
+        _crossref_search(query, k=3),
+        return_exceptions=True,
+    )
+    papers: list[dict[str, Any]] = []
+    if isinstance(oa, list):
+        papers.extend(oa)
+    if isinstance(cr, list):
+        papers.extend(cr)
+    # dedup by DOI/title
+    seen: set[str] = set()
+    uniq: list[dict[str, Any]] = []
+    for p in papers:
+        key = (p.get("url") or p.get("title") or "").lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        uniq.append(p)
+    if not uniq:
+        return "", []
+    lines = ["=== ACADEMIC PRIMARY SOURCES (OpenAlex / Crossref) ==="]
+    citations: list[dict[str, str]] = []
+    for i, p in enumerate(uniq[:8], 1):
+        auth = ", ".join(p.get("authors") or []) or "—"
+        venue = p.get("venue") or "—"
+        year = p.get("year") or "n/a"
+        cites = p.get("citations", 0)
+        url = p.get("url", "")
+        title = p.get("title", "")
+        abs_ = p.get("abstract", "")
+        lines.append(
+            f"[A{i}] {title} — {auth} ({venue}, {year}, cited {cites}×) {url}"
+            + (f"\n    {abs_[:600]}" if abs_ else "")
+        )
+        citations.append({"url": url, "title": f"{title} ({year})"})
+    return "\n".join(lines), citations
 
 
 async def _tavily_search(query: str, k: int = 6) -> dict[str, Any] | None:
@@ -225,11 +353,16 @@ async def search(query: str, focus: str = "general") -> dict[str, Any]:
     async with httpx.AsyncClient(timeout=90) as http:
         for attempt in range(3):
             try:
-                r = await http.post(PPLX_URL, json=payload, headers=headers)
+                pplx_task = http.post(PPLX_URL, json=payload, headers=headers)
+                academic_task = _academic_bundle(query)
+                r, (academic_text, academic_cites) = await asyncio.gather(pplx_task, academic_task)
                 r.raise_for_status()
                 data = r.json()
                 text = data["choices"][0]["message"]["content"]
                 citations = data.get("citations") or data.get("search_results") or []
+                if academic_text:
+                    text = f"{academic_text}\n\n=== WEB SYNTHESIS (Perplexity) ===\n{text}"
+                    citations = list(academic_cites) + list(citations)
                 return {"text": text, "citations": citations, "query": query}
             except (httpx.HTTPError, KeyError) as err:
                 if attempt == 2:
