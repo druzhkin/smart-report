@@ -102,15 +102,31 @@ def _status_path(report_id: str) -> Path:
     return REPORTS_DIR / f"{report_id}.status.json"
 
 
-def _write_status(report_id: str, status: str, goal: str = "", error: str | None = None) -> None:
+STALE_RUNNING_SECONDS = 600  # running jobs silent >10min are assumed dead (container killed on redeploy)
+
+
+def _write_status(
+    report_id: str,
+    status: str,
+    goal: str = "",
+    error: str | None = None,
+    phase: str | None = None,
+) -> None:
+    """Merge-write sidecar: preserves started_at, bumps updated_at on every call."""
+    now = time.time()
+    existing = _read_status(report_id) or {}
+    payload = {
+        "id": report_id,
+        "status": status,
+        "goal": goal or existing.get("goal", ""),
+        "error": error if error is not None else existing.get("error"),
+        "phase": phase if phase is not None else existing.get("phase"),
+        "started_at": existing.get("started_at") or now,
+        "updated_at": now,
+        "ts": now,
+    }
     try:
-        _status_path(report_id).write_text(
-            json.dumps(
-                {"id": report_id, "status": status, "goal": goal, "error": error, "ts": time.time()},
-                ensure_ascii=False,
-            ),
-            encoding="utf-8",
-        )
+        _status_path(report_id).write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
     except Exception:
         pass
 
@@ -123,6 +139,20 @@ def _read_status(report_id: str) -> dict[str, Any] | None:
         return json.loads(p.read_text(encoding="utf-8"))
     except Exception:
         return None
+
+
+def _sidecar_view(sidecar: dict[str, Any]) -> dict[str, Any]:
+    """Apply stale-running detection, return API-shaped status block."""
+    status = sidecar.get("status", "unknown")
+    error = sidecar.get("error")
+    if status == "running":
+        updated = float(sidecar.get("updated_at") or sidecar.get("ts") or 0)
+        if updated and (time.time() - updated) > STALE_RUNNING_SECONDS:
+            status = "abandoned"
+            error = error or (
+                f"worker went silent for >{STALE_RUNNING_SECONDS}s (likely container redeploy killed the job)"
+            )
+    return {"status": status, "error": error, "phase": sidecar.get("phase")}
 
 
 def _persist(report_id: str, report: Report) -> None:
@@ -177,6 +207,8 @@ async def _run_job(job: _Job) -> None:
             })
         except RuntimeError:
             job.queue.put_nowait({"event": event, "message": message, "ts": time.time()})
+        # Heartbeat: bump sidecar updated_at + current phase on every progress tick.
+        _write_status(job.id, "running", goal=job.goal, phase=event)
 
     job.status = "running"
     _write_status(job.id, "running", goal=job.goal)
@@ -291,10 +323,12 @@ async def get_report(report_id: str) -> dict[str, Any]:
             sidecar = _read_status(report_id)
             if sidecar is None:
                 raise HTTPException(404, f"report {report_id} not found")
+            view = _sidecar_view(sidecar)
             return {
                 "id": report_id,
-                "status": sidecar.get("status", "unknown"),
-                "error": sidecar.get("error"),
+                "status": view["status"],
+                "error": view["error"],
+                "phase": view["phase"],
                 "report": None,
                 "dismissed": [],
             }
