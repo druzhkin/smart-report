@@ -22,8 +22,8 @@ DEPTH_PROFILES: dict[str, dict] = {
         "max_parallel_analysts": 4,
         "planner_model": "anthropic/claude-haiku-4.5",
         "scout_model": "anthropic/claude-haiku-4.5",
-        "analyst_model": "anthropic/claude-sonnet-4.5",
-        "bisociator_model": "anthropic/claude-sonnet-4.5",
+        "analyst_model": "anthropic/claude-sonnet-4.6",
+        "bisociator_model": "anthropic/claude-sonnet-4.6",
         "cost_cap_usd": 0.50,
         "perplexity_model": "sonar",
     },
@@ -33,10 +33,10 @@ DEPTH_PROFILES: dict[str, dict] = {
         "scouts_per_cell": 3,
         "max_parallel_scouts": 8,
         "max_parallel_analysts": 4,
-        "planner_model": "anthropic/claude-sonnet-4.5",
+        "planner_model": "anthropic/claude-sonnet-4.6",
         "scout_model": "anthropic/claude-haiku-4.5",
-        "analyst_model": "anthropic/claude-sonnet-4.5",
-        "bisociator_model": "anthropic/claude-sonnet-4.5",
+        "analyst_model": "anthropic/claude-opus-4.6",
+        "bisociator_model": "anthropic/claude-opus-4.6",
         "cost_cap_usd": 2.00,
         "perplexity_model": "sonar-pro",
     },
@@ -126,6 +126,10 @@ class Settings:
     pubmed_api_key: str = os.getenv("PUBMED_API_KEY", "")
     gamma_api_key: str = os.getenv("GAMMA_API_KEY", "")
     gamma_theme_id: str = os.getenv("GAMMA_THEME_ID", "")
+    brave_api_key: str = os.getenv("BRAVE_API_KEY", "")
+    # Economy switches: defaults favor free fetchers over paid search.
+    use_perplexity: bool = os.getenv("USE_PERPLEXITY", "false").lower() in ("1", "true", "yes")
+    use_jina_reader: bool = os.getenv("USE_JINA_READER", "true").lower() in ("1", "true", "yes")
 
     planner_model: str = os.getenv("PLANNER_MODEL", "anthropic/claude-opus-4.5")
     scout_model: str = os.getenv("SCOUT_MODEL", "anthropic/claude-haiku-4.5")

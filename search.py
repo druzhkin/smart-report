@@ -25,6 +25,8 @@ PPLX_URL = "https://api.perplexity.ai/chat/completions"
 TAVILY_URL = "https://api.tavily.com/search"
 FIRECRAWL_SEARCH_URL = "https://api.firecrawl.dev/v1/search"
 DDG_HTML_URL = "https://html.duckduckgo.com/html/"
+BRAVE_SEARCH_URL = "https://api.search.brave.com/res/v1/web/search"
+JINA_READER_BASE = "https://r.jina.ai/"
 OPENALEX_URL = "https://api.openalex.org/works"
 CROSSREF_URL = "https://api.crossref.org/works"
 S2_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
@@ -85,6 +87,18 @@ async def _ddg_search(http: httpx.AsyncClient, query: str, k: int = 6) -> list[d
 
 
 async def _fetch_page(http: httpx.AsyncClient, url: str, max_chars: int = 6000) -> str:
+    if settings.use_jina_reader:
+        try:
+            r = await http.get(
+                JINA_READER_BASE + url,
+                headers={"User-Agent": UA, "Accept": "text/plain"},
+                follow_redirects=True,
+                timeout=25,
+            )
+            if r.status_code < 400 and r.text:
+                return r.text[:max_chars]
+        except Exception:
+            pass
     try:
         r = await http.get(url, headers={"User-Agent": UA}, follow_redirects=True, timeout=20)
         if r.status_code >= 400 or "text" not in r.headers.get("content-type", ""):
@@ -92,6 +106,38 @@ async def _fetch_page(http: httpx.AsyncClient, url: str, max_chars: int = 6000) 
         return _strip_html(r.text)[:max_chars]
     except Exception:
         return ""
+
+
+async def _brave_search(http: httpx.AsyncClient, query: str, k: int = 8) -> list[dict[str, str]]:
+    if not settings.brave_api_key:
+        return []
+    try:
+        r = await http.get(
+            BRAVE_SEARCH_URL,
+            params={"q": query, "count": k, "safesearch": "moderate"},
+            headers={
+                "X-Subscription-Token": settings.brave_api_key,
+                "Accept": "application/json",
+            },
+            timeout=15,
+        )
+        r.raise_for_status()
+        data = r.json()
+    except Exception:
+        return []
+    out: list[dict[str, str]] = []
+    for item in ((data.get("web") or {}).get("results") or [])[:k]:
+        url = item.get("url") or ""
+        if not url.startswith("http"):
+            continue
+        out.append({
+            "url": url,
+            "title": item.get("title") or url,
+            "snippet": item.get("description") or "",
+        })
+    if out:
+        account_provider("brave", 0.003 * settings.usd_to_credits)
+    return out
 
 
 async def _openalex_search(query: str, k: int = 5) -> list[dict[str, Any]]:
@@ -579,18 +625,24 @@ async def _fallback(query: str) -> dict[str, Any]:
 
     try:
         async with httpx.AsyncClient(timeout=90) as http:
-            fc = await _firecrawl_search(http, query, k=6)
-            if fc:
-                results = fc
-                pages = [r.get("body", "") for r in fc]
-                source_tag = "firecrawl+claude"
-            else:
-                results = await _ddg_search(http, query, k=6)
-                if not results:
-                    return {"text": f"[fallback: no results for '{query}']",
-                            "citations": [], "query": query, "fallback": True}
+            brave = await _brave_search(http, query, k=6)
+            if brave:
+                results = brave
                 pages = await asyncio.gather(*[_fetch_page(http, r["url"]) for r in results[:5]])
-                source_tag = "ddg+claude"
+                source_tag = "brave+jina+claude"
+            else:
+                fc = await _firecrawl_search(http, query, k=6)
+                if fc:
+                    results = fc
+                    pages = [r.get("body", "") for r in fc]
+                    source_tag = "firecrawl+claude"
+                else:
+                    results = await _ddg_search(http, query, k=6)
+                    if not results:
+                        return {"text": f"[fallback: no results for '{query}']",
+                                "citations": [], "query": query, "fallback": True}
+                    pages = await asyncio.gather(*[_fetch_page(http, r["url"]) for r in results[:5]])
+                    source_tag = "ddg+jina+claude"
 
         corpus_parts: list[str] = []
         citations: list[dict[str, str]] = []
@@ -678,10 +730,21 @@ async def search(query: str, focus: str = "general", search_type: str = "both") 
         return {"text": academic_text or f"[no academic results for '{query}']",
                 "citations": academic_cites, "query": query, "academic_items": items}
     if search_type == "web":
-        return await _web_only(query)
-    # both (default)
-    if not settings.perplexity_api_key:
-        raise RuntimeError("PERPLEXITY_API_KEY is not set — refusing to run without a real search backend.")
+        if settings.use_perplexity and settings.perplexity_api_key:
+            return await _web_only(query)
+        fb = await _fallback(query)
+        fb["academic_items"] = []
+        return fb
+    # both (default): free academic + free web fallback, unless user opts into Perplexity
+    if not (settings.use_perplexity and settings.perplexity_api_key):
+        academic_items = await _academic_fetch_all(query)
+        academic_text, academic_cites = _academic_bundle_from_items(academic_items)
+        fb = await _fallback(query)
+        if academic_text:
+            fb["text"] = f"{academic_text}\n\n=== WEB SYNTHESIS (free) ===\n{fb.get('text','')}"
+            fb["citations"] = list(academic_cites) + list(fb.get("citations") or [])
+        fb["academic_items"] = academic_items
+        return fb
     payload = {
         "model": perplexity_model_for(),
         "messages": [
