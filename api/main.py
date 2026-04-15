@@ -253,8 +253,19 @@ async def stream(report_id: str, request: Request) -> StreamingResponse:
 
 @app.get("/api/research/{report_id}")
 async def get_report(report_id: str) -> dict[str, Any]:
-    report = _load(report_id)
     job = JOBS.get(report_id)
+    path = _report_path(report_id)
+    if not path.exists():
+        if job is None:
+            raise HTTPException(404, f"report {report_id} not found")
+        return {
+            "id": report_id,
+            "status": job.status,
+            "error": job.error,
+            "report": None,
+            "dismissed": sorted(job.dismissed_cells),
+        }
+    report = load_report(path)
     return {
         "id": report_id,
         "status": job.status if job else "done",
