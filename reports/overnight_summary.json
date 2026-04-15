@@ -1,0 +1,29 @@
+[
+  {
+    "slug": "world-trends-housing",
+    "query": "Какие мировые тренды 2025–2030 повлияют на жилое строительство в России — технологические, демографические, экономические, культурные, экологические",
+    "stem": "20260415-world-trends-housing",
+    "status": "ok",
+    "eval_total": 5,
+    "eval_scores": {
+      "exec_summary": 0,
+      "concreteness": 0,
+      "depth": 0,
+      "bisociation": 0,
+      "gaps": 3,
+      "assumptions": 0,
+      "banality": 2
+    },
+    "json": "C:\\Users\\rodina-adm\\Documents\\dev\\smart-report-mvp\\reports\\20260415-world-trends-housing.json",
+    "md": "C:\\Users\\rodina-adm\\Documents\\dev\\smart-report-mvp\\reports\\20260415-world-trends-housing.md",
+    "images": {
+      "matrix": "C:\\Users\\rodina-adm\\Documents\\dev\\smart-report-mvp\\reports\\images\\20260415-world-trends-housing-matrix.png",
+      "graph": "C:\\Users\\rodina-adm\\Documents\\dev\\smart-report-mvp\\reports\\images\\20260415-world-trends-housing-graph.png",
+      "metrics": "C:\\Users\\rodina-adm\\Documents\\dev\\smart-report-mvp\\reports\\images\\20260415-world-trends-housing-metrics.png",
+      "heatmap": "C:\\Users\\rodina-adm\\Documents\\dev\\smart-report-mvp\\reports\\images\\20260415-world-trends-housing-heatmap.png"
+    },
+    "docx": "C:\\Users\\rodina-adm\\Documents\\dev\\smart-report-mvp\\reports\\20260415-world-trends-housing.docx",
+    "pptx": "C:\\Users\\rodina-adm\\Documents\\dev\\smart-report-mvp\\reports\\20260415-world-trends-housing.pptx",
+    "elapsed_sec": 2010.5
+  }
+]
