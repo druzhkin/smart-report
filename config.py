@@ -20,10 +20,10 @@ class Settings:
     openrouter_api_key: str = os.getenv("OPENROUTER_API_KEY", "")
     perplexity_api_key: str = os.getenv("PERPLEXITY_API_KEY", "")
 
-    planner_model: str = os.getenv("PLANNER_MODEL", "anthropic/claude-opus-4.1")
+    planner_model: str = os.getenv("PLANNER_MODEL", "anthropic/claude-opus-4.5")
     scout_model: str = os.getenv("SCOUT_MODEL", "anthropic/claude-haiku-4.5")
     analyst_model: str = os.getenv("ANALYST_MODEL", "anthropic/claude-sonnet-4.5")
-    bisociator_model: str = os.getenv("BISOCIATOR_MODEL", "anthropic/claude-opus-4.1")
+    bisociator_model: str = os.getenv("BISOCIATOR_MODEL", "anthropic/claude-opus-4.5")
 
     perplexity_model: str = os.getenv("PERPLEXITY_MODEL", "sonar-pro")
 
