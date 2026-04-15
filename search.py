@@ -20,6 +20,15 @@ FIRECRAWL_SEARCH_URL = "https://api.firecrawl.dev/v1/search"
 DDG_HTML_URL = "https://html.duckduckgo.com/html/"
 OPENALEX_URL = "https://api.openalex.org/works"
 CROSSREF_URL = "https://api.crossref.org/works"
+S2_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
+ARXIV_URL = "https://export.arxiv.org/api/query"
+PUBMED_ESEARCH = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
+PUBMED_ESUMMARY = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi"
+EUROPEPMC_URL = "https://www.ebi.ac.uk/europepmc/webservices/rest/search"
+DOAJ_URL = "https://doaj.org/api/search/articles"
+CORE_URL = "https://api.core.ac.uk/v3/search/works"
+ACADEMIC_UA = "smart-report-mvp/1.0 (mailto:research@smart-report.local)"
+ACADEMIC_TIMEOUT = 15.0
 UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
@@ -81,7 +90,7 @@ async def _fetch_page(http: httpx.AsyncClient, url: str, max_chars: int = 6000) 
 async def _openalex_search(query: str, k: int = 5) -> list[dict[str, Any]]:
     """OpenAlex: free peer-reviewed works API, no key required. Returns primary academic sources."""
     try:
-        async with httpx.AsyncClient(timeout=25) as http:
+        async with httpx.AsyncClient(timeout=ACADEMIC_TIMEOUT) as http:
             r = await http.get(
                 OPENALEX_URL,
                 params={
@@ -127,7 +136,7 @@ async def _openalex_search(query: str, k: int = 5) -> list[dict[str, Any]]:
 async def _crossref_search(query: str, k: int = 3) -> list[dict[str, Any]]:
     """Crossref REST API: free, DOI-backed primary metadata."""
     try:
-        async with httpx.AsyncClient(timeout=25) as http:
+        async with httpx.AsyncClient(timeout=ACADEMIC_TIMEOUT) as http:
             r = await http.get(
                 CROSSREF_URL,
                 params={"query": query, "rows": k, "select": "DOI,title,issued,is-referenced-by-count,container-title,author"},
@@ -163,18 +172,270 @@ async def _crossref_search(query: str, k: int = 3) -> list[dict[str, Any]]:
     return items
 
 
+async def _semantic_scholar_search(query: str, k: int = 3) -> list[dict[str, Any]]:
+    """Semantic Scholar Graph API: free, optional key bumps rate limit."""
+    headers = {"User-Agent": ACADEMIC_UA}
+    if settings.semantic_scholar_api_key:
+        headers["x-api-key"] = settings.semantic_scholar_api_key
+    try:
+        async with httpx.AsyncClient(timeout=ACADEMIC_TIMEOUT) as http:
+            r = await http.get(
+                S2_URL,
+                params={
+                    "query": query,
+                    "limit": k,
+                    "fields": "title,year,citationCount,authors,abstract,externalIds,venue",
+                },
+                headers=headers,
+            )
+            r.raise_for_status()
+            data = r.json()
+    except Exception:
+        return []
+    items = []
+    for w in (data.get("data") or [])[:k]:
+        ext = w.get("externalIds") or {}
+        doi = ext.get("DOI", "")
+        url = f"https://doi.org/{doi}" if doi else (f"https://www.semanticscholar.org/paper/{w.get('paperId','')}" if w.get("paperId") else "")
+        items.append({
+            "url": url,
+            "title": w.get("title") or "",
+            "year": w.get("year"),
+            "venue": w.get("venue") or "",
+            "citations": w.get("citationCount", 0),
+            "authors": [a.get("name", "") for a in (w.get("authors") or [])[:3]],
+            "abstract": (w.get("abstract") or "")[:1500],
+        })
+    return items
+
+
+async def _arxiv_search(query: str, k: int = 3) -> list[dict[str, Any]]:
+    """arXiv native Atom API: preprints across STEM."""
+    try:
+        async with httpx.AsyncClient(timeout=ACADEMIC_TIMEOUT) as http:
+            r = await http.get(
+                ARXIV_URL,
+                params={"search_query": f"all:{query}", "max_results": k, "sortBy": "relevance"},
+                headers={"User-Agent": ACADEMIC_UA},
+            )
+            r.raise_for_status()
+            body = r.text
+    except Exception:
+        return []
+    items = []
+    entry_re = re.compile(r"<entry>(.*?)</entry>", re.DOTALL)
+    tag_re = lambda t: re.compile(rf"<{t}[^>]*>(.*?)</{t}>", re.DOTALL)
+    for m in entry_re.finditer(body):
+        chunk = m.group(1)
+        t = tag_re("title").search(chunk)
+        s = tag_re("summary").search(chunk)
+        p = tag_re("published").search(chunk)
+        id_m = tag_re("id").search(chunk)
+        authors = [a.group(1).strip() for a in tag_re("name").finditer(chunk)][:3]
+        year = None
+        if p:
+            y = re.match(r"(\d{4})", p.group(1).strip())
+            if y:
+                year = int(y.group(1))
+        items.append({
+            "url": (id_m.group(1).strip() if id_m else ""),
+            "title": _WS_RE.sub(" ", (t.group(1) if t else "")).strip(),
+            "year": year,
+            "venue": "arXiv",
+            "citations": 0,
+            "authors": authors,
+            "abstract": _WS_RE.sub(" ", (s.group(1) if s else "")).strip()[:1500],
+        })
+        if len(items) >= k:
+            break
+    return items
+
+
+async def _pubmed_search(query: str, k: int = 3) -> list[dict[str, Any]]:
+    """PubMed E-utilities: esearch → esummary. Biomedical primary sources."""
+    try:
+        async with httpx.AsyncClient(timeout=ACADEMIC_TIMEOUT) as http:
+            params_s: dict[str, Any] = {"db": "pubmed", "term": query, "retmax": k, "retmode": "json"}
+            if settings.pubmed_api_key:
+                params_s["api_key"] = settings.pubmed_api_key
+            r = await http.get(PUBMED_ESEARCH, params=params_s, headers={"User-Agent": ACADEMIC_UA})
+            r.raise_for_status()
+            ids = ((r.json().get("esearchresult") or {}).get("idlist")) or []
+            if not ids:
+                return []
+            params_u: dict[str, Any] = {"db": "pubmed", "id": ",".join(ids), "retmode": "json"}
+            if settings.pubmed_api_key:
+                params_u["api_key"] = settings.pubmed_api_key
+            r2 = await http.get(PUBMED_ESUMMARY, params=params_u, headers={"User-Agent": ACADEMIC_UA})
+            r2.raise_for_status()
+            result = (r2.json().get("result") or {})
+    except Exception:
+        return []
+    items = []
+    for pid in ids:
+        w = result.get(pid) or {}
+        if not w:
+            continue
+        pubdate = w.get("pubdate") or ""
+        y = re.match(r"(\d{4})", pubdate)
+        year = int(y.group(1)) if y else None
+        items.append({
+            "url": f"https://pubmed.ncbi.nlm.nih.gov/{pid}/",
+            "title": w.get("title") or "",
+            "year": year,
+            "venue": w.get("fulljournalname") or w.get("source") or "PubMed",
+            "citations": 0,
+            "authors": [a.get("name", "") for a in (w.get("authors") or [])[:3]],
+            "abstract": "",
+        })
+    return items
+
+
+async def _europe_pmc_search(query: str, k: int = 3) -> list[dict[str, Any]]:
+    """Europe PMC REST API: free, includes preprints + biomedical literature."""
+    try:
+        async with httpx.AsyncClient(timeout=ACADEMIC_TIMEOUT) as http:
+            r = await http.get(
+                EUROPEPMC_URL,
+                params={"query": query, "format": "json", "pageSize": k, "resultType": "core"},
+                headers={"User-Agent": ACADEMIC_UA},
+            )
+            r.raise_for_status()
+            data = r.json()
+    except Exception:
+        return []
+    items = []
+    for w in ((data.get("resultList") or {}).get("result") or [])[:k]:
+        doi = w.get("doi") or ""
+        pmid = w.get("pmid") or ""
+        url = f"https://doi.org/{doi}" if doi else (f"https://europepmc.org/article/MED/{pmid}" if pmid else "")
+        year = None
+        pub_year = w.get("pubYear")
+        if pub_year:
+            try:
+                year = int(pub_year)
+            except Exception:
+                pass
+        author_str = w.get("authorString") or ""
+        authors = [a.strip() for a in author_str.split(",")[:3] if a.strip()]
+        items.append({
+            "url": url,
+            "title": w.get("title") or "",
+            "year": year,
+            "venue": w.get("journalTitle") or w.get("source") or "Europe PMC",
+            "citations": w.get("citedByCount", 0),
+            "authors": authors,
+            "abstract": (w.get("abstractText") or "")[:1500],
+        })
+    return items
+
+
+async def _doaj_search(query: str, k: int = 3) -> list[dict[str, Any]]:
+    """DOAJ: Directory of Open Access Journals, free API."""
+    try:
+        from urllib.parse import quote
+        async with httpx.AsyncClient(timeout=ACADEMIC_TIMEOUT) as http:
+            r = await http.get(
+                f"{DOAJ_URL}/{quote(query)}",
+                params={"pageSize": k},
+                headers={"User-Agent": ACADEMIC_UA},
+            )
+            r.raise_for_status()
+            data = r.json()
+    except Exception:
+        return []
+    items = []
+    for hit in (data.get("results") or [])[:k]:
+        bib = hit.get("bibjson") or {}
+        doi_link = ""
+        for ident in (bib.get("identifier") or []):
+            if ident.get("type", "").lower() == "doi" and ident.get("id"):
+                doi_link = f"https://doi.org/{ident['id']}"
+                break
+        if not doi_link:
+            for link in (bib.get("link") or []):
+                if link.get("url"):
+                    doi_link = link["url"]
+                    break
+        year_raw = bib.get("year")
+        try:
+            year = int(year_raw) if year_raw else None
+        except Exception:
+            year = None
+        authors = [a.get("name", "") for a in (bib.get("author") or [])[:3]]
+        journal = (bib.get("journal") or {}).get("title", "DOAJ")
+        items.append({
+            "url": doi_link,
+            "title": bib.get("title") or "",
+            "year": year,
+            "venue": journal,
+            "citations": 0,
+            "authors": authors,
+            "abstract": (bib.get("abstract") or "")[:1500],
+        })
+    return items
+
+
+async def _core_search(query: str, k: int = 3) -> list[dict[str, Any]]:
+    """CORE API: aggregates open-access research. Requires CORE_API_KEY."""
+    if not settings.core_api_key:
+        return []
+    try:
+        async with httpx.AsyncClient(timeout=ACADEMIC_TIMEOUT) as http:
+            r = await http.get(
+                CORE_URL,
+                params={"q": query, "limit": k},
+                headers={"Authorization": f"Bearer {settings.core_api_key}", "User-Agent": ACADEMIC_UA},
+            )
+            r.raise_for_status()
+            data = r.json()
+    except Exception:
+        return []
+    items = []
+    for w in (data.get("results") or [])[:k]:
+        doi = w.get("doi") or ""
+        url = f"https://doi.org/{doi}" if doi else (w.get("downloadUrl") or "")
+        year = w.get("yearPublished")
+        try:
+            year = int(year) if year else None
+        except Exception:
+            year = None
+        authors = [a.get("name", "") for a in (w.get("authors") or [])[:3]]
+        items.append({
+            "url": url,
+            "title": w.get("title") or "",
+            "year": year,
+            "venue": w.get("publisher") or "CORE",
+            "citations": 0,
+            "authors": authors,
+            "abstract": (w.get("abstract") or "")[:1500],
+        })
+    return items
+
+
 async def _academic_bundle(query: str) -> tuple[str, list[dict[str, str]]]:
-    """Parallel OpenAlex + Crossref → compact primary-source blurb + citations list."""
-    oa, cr = await asyncio.gather(
+    """Parallel fanout across all free/keyless academic APIs with per-source graceful degradation.
+
+    Connected: OpenAlex, Crossref, Semantic Scholar, arXiv, PubMed, Europe PMC, DOAJ.
+    Conditional (requires key): CORE.
+    Skipped (no public REST API): SSRN, paper-search-mcp (MCP subprocess not spawned here).
+    Each source has its own timeout — one slow endpoint cannot stall the bundle.
+    """
+    results = await asyncio.gather(
         _openalex_search(query, k=5),
         _crossref_search(query, k=3),
+        _semantic_scholar_search(query, k=3),
+        _arxiv_search(query, k=3),
+        _pubmed_search(query, k=3),
+        _europe_pmc_search(query, k=3),
+        _doaj_search(query, k=2),
+        _core_search(query, k=2),
         return_exceptions=True,
     )
     papers: list[dict[str, Any]] = []
-    if isinstance(oa, list):
-        papers.extend(oa)
-    if isinstance(cr, list):
-        papers.extend(cr)
+    for res in results:
+        if isinstance(res, list):
+            papers.extend(res)
     # dedup by DOI/title
     seen: set[str] = set()
     uniq: list[dict[str, Any]] = []
@@ -186,9 +447,11 @@ async def _academic_bundle(query: str) -> tuple[str, list[dict[str, str]]]:
         uniq.append(p)
     if not uniq:
         return "", []
-    lines = ["=== ACADEMIC PRIMARY SOURCES (OpenAlex / Crossref) ==="]
+    # Rank: papers with abstracts first, then by citation count desc.
+    uniq.sort(key=lambda p: (0 if p.get("abstract") else 1, -int(p.get("citations") or 0)))
+    lines = ["=== ACADEMIC PRIMARY SOURCES (OpenAlex / Crossref / S2 / arXiv / PubMed / Europe PMC / DOAJ / CORE) ==="]
     citations: list[dict[str, str]] = []
-    for i, p in enumerate(uniq[:8], 1):
+    for i, p in enumerate(uniq[:12], 1):
         auth = ", ".join(p.get("authors") or []) or "—"
         venue = p.get("venue") or "—"
         year = p.get("year") or "n/a"

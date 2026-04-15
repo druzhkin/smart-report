@@ -114,6 +114,9 @@ class Settings:
     perplexity_api_key: str = os.getenv("PERPLEXITY_API_KEY", "")
     firecrawl_api_key: str = os.getenv("FIRECRAWL_API_KEY", "")
     tavily_api_key: str = os.getenv("TAVILY_API_KEY", "")
+    core_api_key: str = os.getenv("CORE_API_KEY", "")
+    semantic_scholar_api_key: str = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "")
+    pubmed_api_key: str = os.getenv("PUBMED_API_KEY", "")
 
     planner_model: str = os.getenv("PLANNER_MODEL", "anthropic/claude-opus-4.5")
     scout_model: str = os.getenv("SCOUT_MODEL", "anthropic/claude-haiku-4.5")
