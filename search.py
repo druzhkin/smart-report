@@ -1,4 +1,7 @@
-"""Perplexity primary search; live-web fallback (DuckDuckGo + page fetch + Claude synth)."""
+"""Perplexity primary search; Firecrawl fallback (live web + markdown + Claude synth).
+
+Fallback chain: Firecrawl /v1/search (preferred) → DuckDuckGo HTML SERP (last resort).
+Firecrawl returns already-scraped markdown so no second fetch round-trip is needed."""
 from __future__ import annotations
 
 import asyncio
@@ -12,6 +15,7 @@ import httpx
 from config import settings
 
 PPLX_URL = "https://api.perplexity.ai/chat/completions"
+FIRECRAWL_SEARCH_URL = "https://api.firecrawl.dev/v1/search"
 DDG_HTML_URL = "https://html.duckduckgo.com/html/"
 UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -71,23 +75,67 @@ async def _fetch_page(http: httpx.AsyncClient, url: str, max_chars: int = 6000) 
         return ""
 
 
+async def _firecrawl_search(http: httpx.AsyncClient, query: str, k: int = 6) -> list[dict[str, str]]:
+    """Firecrawl /v1/search: returns SERP with pre-scraped markdown (no second fetch needed)."""
+    if not settings.firecrawl_api_key:
+        return []
+    try:
+        r = await http.post(
+            FIRECRAWL_SEARCH_URL,
+            json={
+                "query": query,
+                "limit": k,
+                "scrapeOptions": {"formats": ["markdown"], "onlyMainContent": True},
+            },
+            headers={
+                "Authorization": f"Bearer {settings.firecrawl_api_key}",
+                "Content-Type": "application/json",
+            },
+            timeout=60,
+        )
+        r.raise_for_status()
+        data = r.json()
+        out: list[dict[str, str]] = []
+        for item in (data.get("data") or [])[:k]:
+            url = item.get("url") or ""
+            if not url.startswith("http"):
+                continue
+            md = item.get("markdown") or ""
+            out.append({
+                "url": url,
+                "title": item.get("title") or url,
+                "snippet": item.get("description") or "",
+                "body": md[:6000],
+            })
+        return out
+    except Exception:
+        return []
+
+
 async def _fallback(query: str) -> dict[str, Any]:
-    """Real live-web fallback: DuckDuckGo SERP → fetch top pages → Claude synth."""
+    """Live-web fallback: Firecrawl search+scrape → DDG SERP + fetch → Claude synth."""
     from llm import call_text
 
     try:
-        async with httpx.AsyncClient(timeout=30) as http:
-            results = await _ddg_search(http, query, k=6)
-            if not results:
-                return {"text": f"[fallback: ddg returned 0 results for '{query}']",
-                        "citations": [], "query": query, "fallback": True}
-            pages = await asyncio.gather(*[_fetch_page(http, r["url"]) for r in results[:5]])
+        async with httpx.AsyncClient(timeout=90) as http:
+            fc = await _firecrawl_search(http, query, k=6)
+            if fc:
+                results = fc
+                pages = [r.get("body", "") for r in fc]
+                source_tag = "firecrawl+claude"
+            else:
+                results = await _ddg_search(http, query, k=6)
+                if not results:
+                    return {"text": f"[fallback: no results for '{query}']",
+                            "citations": [], "query": query, "fallback": True}
+                pages = await asyncio.gather(*[_fetch_page(http, r["url"]) for r in results[:5]])
+                source_tag = "ddg+claude"
 
         corpus_parts: list[str] = []
         citations: list[dict[str, str]] = []
-        for i, (r, body) in enumerate(zip(results, pages + [""] * (len(results) - len(pages))), 1):
+        for i, (r, body) in enumerate(zip(results, list(pages) + [""] * (len(results) - len(pages))), 1):
             citations.append({"url": r["url"], "title": r["title"]})
-            chunk = body or r["snippet"]
+            chunk = body or r.get("snippet", "")
             corpus_parts.append(f"[{i}] {r['title']} — {r['url']}\n{chunk}")
         corpus = "\n\n---\n\n".join(corpus_parts)[:30000]
 
@@ -109,7 +157,7 @@ async def _fallback(query: str) -> dict[str, Any]:
             "text": text,
             "citations": citations,
             "query": query,
-            "fallback": "ddg+claude",
+            "fallback": source_tag,
         }
     except Exception as err:
         return {"text": f"[search+fallback failed: {err}]", "citations": [], "query": query}

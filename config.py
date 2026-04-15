@@ -19,6 +19,7 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 class Settings:
     openrouter_api_key: str = os.getenv("OPENROUTER_API_KEY", "")
     perplexity_api_key: str = os.getenv("PERPLEXITY_API_KEY", "")
+    firecrawl_api_key: str = os.getenv("FIRECRAWL_API_KEY", "")
 
     planner_model: str = os.getenv("PLANNER_MODEL", "anthropic/claude-opus-4.5")
     scout_model: str = os.getenv("SCOUT_MODEL", "anthropic/claude-haiku-4.5")
