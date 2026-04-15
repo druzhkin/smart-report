@@ -15,6 +15,7 @@ import httpx
 from config import settings
 
 PPLX_URL = "https://api.perplexity.ai/chat/completions"
+TAVILY_URL = "https://api.tavily.com/search"
 FIRECRAWL_SEARCH_URL = "https://api.firecrawl.dev/v1/search"
 DDG_HTML_URL = "https://html.duckduckgo.com/html/"
 UA = (
@@ -73,6 +74,41 @@ async def _fetch_page(http: httpx.AsyncClient, url: str, max_chars: int = 6000) 
         return _strip_html(r.text)[:max_chars]
     except Exception:
         return ""
+
+
+async def _tavily_search(query: str, k: int = 6) -> dict[str, Any] | None:
+    """Tavily /search: returns LLM answer + raw content of top-k results. Fast + cheap."""
+    if not settings.tavily_api_key:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=45) as http:
+            r = await http.post(
+                TAVILY_URL,
+                json={
+                    "api_key": settings.tavily_api_key,
+                    "query": query,
+                    "search_depth": "advanced",
+                    "max_results": k,
+                    "include_raw_content": True,
+                    "include_answer": True,
+                },
+            )
+            r.raise_for_status()
+            data = r.json()
+        answer = (data.get("answer") or "").strip()
+        results = data.get("results") or []
+        if not results:
+            return None
+        citations = [{"url": r.get("url", ""), "title": r.get("title") or r.get("url", "")} for r in results]
+        # Build a dense text: Tavily answer + per-source bullets.
+        bullets: list[str] = []
+        for i, r in enumerate(results, 1):
+            snippet = (r.get("raw_content") or r.get("content") or "")[:1200]
+            bullets.append(f"[{i}] {r.get('title','')} — {r.get('url','')}\n{snippet}")
+        text = (answer + "\n\n" if answer else "") + "\n\n".join(bullets)
+        return {"text": text, "citations": citations, "query": query, "fallback": "tavily"}
+    except Exception:
+        return None
 
 
 async def _firecrawl_search(http: httpx.AsyncClient, query: str, k: int = 6) -> list[dict[str, str]]:
@@ -197,6 +233,12 @@ async def search(query: str, focus: str = "general") -> dict[str, Any]:
                 return {"text": text, "citations": citations, "query": query}
             except (httpx.HTTPError, KeyError) as err:
                 if attempt == 2:
+                    tav = await _tavily_search(query)
+                    if tav is not None:
+                        return tav
                     return await _fallback(query)
                 await asyncio.sleep(1.5 * (attempt + 1))
+    tav = await _tavily_search(query)
+    if tav is not None:
+        return tav
     return await _fallback(query)
