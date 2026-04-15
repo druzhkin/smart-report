@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 
-from config import load_prompt, settings
+from config import load_prompt, model_for, settings
 from llm import call_json
 from models import Block, Connection
 from pydantic import BaseModel
@@ -41,7 +41,7 @@ async def bisociator(blocks: list[Block], *, min_target: int = 10) -> list[Conne
         "Только JSON."
     )
     payload = await call_json(
-        model=settings.bisociator_model,
+        model=model_for("bisociator"),
         system=SYSTEM,
         user=user,
         schema=_BisociatorPayload,
@@ -59,7 +59,7 @@ async def bisociate_pair(block_a: Block, block_b: Block) -> list[Connection]:
         f"{json.dumps([_condense_block(block_a), _condense_block(block_b)], ensure_ascii=False, indent=2)}"
     )
     payload = await call_json(
-        model=settings.bisociator_model,
+        model=model_for("bisociator"),
         system=SYSTEM,
         user=user,
         schema=_BisociatorPayload,

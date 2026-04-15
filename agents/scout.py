@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 
-from config import load_prompt, settings
+from config import load_prompt, model_for, settings
 from llm import call_json
 from models import Finding, ScoutResult, ScoutTask
 from pydantic import BaseModel
@@ -29,7 +29,7 @@ async def scout(task: ScoutTask) -> ScoutResult:
         "Извлеки находки по контракту из system prompt. Только JSON."
     )
     payload = await call_json(
-        model=settings.scout_model,
+        model=model_for("scout"),
         system=SYSTEM,
         user=user,
         schema=_ScoutPayload,

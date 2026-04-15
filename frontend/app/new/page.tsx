@@ -32,7 +32,7 @@ export default function NewRequestPage() {
     setLoading(true);
     setErr(null);
     try {
-      const { id } = await startResearch(goal.trim());
+      const { id } = await startResearch(goal.trim(), depth);
       router.push(`/report/${id}`);
     } catch (e: any) {
       setErr(e?.message || "Не удалось запустить");

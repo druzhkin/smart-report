@@ -20,7 +20,7 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -63,9 +63,10 @@ app.add_middleware(
 # ---------- in-memory registry of live jobs ----------
 
 class _Job:
-    def __init__(self, report_id: str, goal: str):
+    def __init__(self, report_id: str, goal: str, depth: str = "standard"):
         self.id = report_id
         self.goal = goal
+        self.depth = depth
         self.queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         self.status: str = "pending"  # pending | running | done | error
         self.error: str | None = None
@@ -171,6 +172,7 @@ def _load(report_id: str) -> Report:
 
 class ResearchStartIn(BaseModel):
     goal: str = Field(..., min_length=3)
+    depth: Literal["light", "standard", "deep", "exhaustive"] = "standard"
 
 
 class DeepenIn(BaseModel):
@@ -214,7 +216,7 @@ async def _run_job(job: _Job) -> None:
     _write_status(job.id, "running", goal=job.goal)
     job.emit("status", "running")
     try:
-        report = await run_research(job.goal, progress=progress)
+        report = await run_research(job.goal, progress=progress, depth=job.depth)
         _persist(job.id, report)
         job.status = "done"
         _write_status(job.id, "done", goal=job.goal)
@@ -266,11 +268,11 @@ async def health() -> dict[str, str]:
 @app.post("/api/research")
 async def start_research(payload: ResearchStartIn) -> dict[str, str]:
     report_id = _make_id(payload.goal)
-    job = _Job(report_id, payload.goal)
+    job = _Job(report_id, payload.goal, depth=payload.depth)
     JOBS[report_id] = job
     _write_status(report_id, "pending", goal=payload.goal)
     job.task = asyncio.create_task(_run_job(job))
-    return {"id": report_id, "status": "pending"}
+    return {"id": report_id, "status": "pending", "depth": payload.depth}
 
 
 @app.get("/api/research/{report_id}/stream")

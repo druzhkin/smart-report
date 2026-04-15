@@ -12,7 +12,7 @@ from urllib.parse import unquote
 
 import httpx
 
-from config import settings
+from config import perplexity_model_for, settings
 
 PPLX_URL = "https://api.perplexity.ai/chat/completions"
 TAVILY_URL = "https://api.tavily.com/search"
@@ -204,7 +204,7 @@ async def search(query: str, focus: str = "general") -> dict[str, Any]:
     if not settings.perplexity_api_key:
         raise RuntimeError("PERPLEXITY_API_KEY is not set — refusing to run without a real search backend.")
     payload = {
-        "model": settings.perplexity_model,
+        "model": perplexity_model_for(),
         "messages": [
             {
                 "role": "system",

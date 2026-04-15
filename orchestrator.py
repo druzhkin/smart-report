@@ -14,7 +14,7 @@ from agents.bisociator import bisociate_pair, bisociator
 from agents.planner import plan_deepen, plan_new_domain, planner
 from agents.scout import scout
 from agents.summarizer import summarize
-from config import settings
+from config import depth_profile, profile_int, set_active_profile, settings
 from models import (
     Block,
     CellPlan,
@@ -50,7 +50,8 @@ async def _bounded_gather(coros: list[Awaitable[T]], limit: int) -> list[T]:
 async def _run_scouts_for_tasks(
     tasks: list[ScoutTask], progress: ProgressCb
 ) -> list[ScoutResult]:
-    progress("scout", f"Запускаю {len(tasks)} Scout'ов (до {settings.max_parallel_scouts} параллельно)")
+    limit = profile_int("max_parallel_scouts", settings.max_parallel_scouts)
+    progress("scout", f"Запускаю {len(tasks)} Scout'ов (до {limit} параллельно)")
 
     async def _one(task: ScoutTask) -> ScoutResult:
         progress("scout", f"[{task.cell}] {task.query_focus[:110]}")
@@ -60,13 +61,14 @@ async def _run_scouts_for_tasks(
             progress("scout", f"[{task.cell}] ОШИБКА: {err}")
             return ScoutResult(task=task, findings=[], notes=f"scout failed: {err}")
 
-    return await _bounded_gather([_one(t) for t in tasks], settings.max_parallel_scouts)
+    return await _bounded_gather([_one(t) for t in tasks], limit)
 
 
 async def _analyze_cells(
     by_cell: dict[str, list[ScoutResult]], progress: ProgressCb
 ) -> list[Block]:
-    progress("analyst", f"Синтезирую {len(by_cell)} блок(ов) (до {settings.max_parallel_analysts} параллельно)")
+    limit = profile_int("max_parallel_analysts", settings.max_parallel_analysts)
+    progress("analyst", f"Синтезирую {len(by_cell)} блок(ов) (до {limit} параллельно)")
 
     async def _one(cell: str, results: list[ScoutResult]) -> Block | None:
         if not any(sr.findings for sr in results):
@@ -82,7 +84,7 @@ async def _analyze_cells(
 
     out = await _bounded_gather(
         [_one(cell, rs) for cell, rs in by_cell.items()],
-        settings.max_parallel_analysts,
+        limit,
     )
     return [b for b in out if b is not None]
 
@@ -135,11 +137,16 @@ async def _finalize(
 
 
 async def run_research(
-    goal: str, progress: ProgressCb = _noop, matrix: Matrix | None = None
+    goal: str,
+    progress: ProgressCb = _noop,
+    matrix: Matrix | None = None,
+    depth: str = "standard",
 ) -> Report:
+    set_active_profile(depth_profile(depth))
+    progress("depth", f"Глубина: {depth}")
     if matrix is None:
-        progress("planner", f"Декомпозирую цель: {goal!r}")
-        matrix = await planner(goal)
+        progress("planner", f"Декомпозирую цель ({depth}): {goal!r}")
+        matrix = await planner(goal, depth=depth)
         progress(
             "planner",
             f"Матрица: {len(matrix.domains)} домен(ов), "
@@ -287,7 +294,7 @@ async def connect_domains(
 
     results = await _bounded_gather(
         [_one((a, b)) for a in blocks_a for b in blocks_b],
-        settings.max_parallel_analysts,
+        profile_int("max_parallel_analysts", settings.max_parallel_analysts),
     )
     new_conns: list[Connection] = [c for sub in results for c in sub]
 

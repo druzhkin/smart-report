@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 
-from config import load_prompt, settings
+from config import load_prompt, model_for, settings
 from llm import call_json
 from models import Block, Finding, ScoutResult
 from pydantic import BaseModel
@@ -39,7 +39,7 @@ async def analyst(cell: str, scout_results: list[ScoutResult]) -> Block:
         "Собери проработанный блок по контракту из system prompt. Только JSON."
     )
     payload = await call_json(
-        model=settings.analyst_model,
+        model=model_for("analyst"),
         system=SYSTEM,
         user=user,
         schema=_AnalystPayload,

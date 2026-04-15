@@ -81,10 +81,12 @@ async function j<T = any>(url: string, init?: RequestInit): Promise<T> {
   return res.json();
 }
 
-export const startResearch = (goal: string) =>
-  j<{ id: string; status: string }>("/api/research", {
+export type Depth = "light" | "standard" | "deep" | "exhaustive";
+
+export const startResearch = (goal: string, depth: Depth = "standard") =>
+  j<{ id: string; status: string; depth?: Depth }>("/api/research", {
     method: "POST",
-    body: JSON.stringify({ goal }),
+    body: JSON.stringify({ goal, depth }),
   });
 
 export const getReport = (id: string) =>

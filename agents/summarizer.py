@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 
-from config import load_prompt, settings
+from config import load_prompt, model_for, settings
 from llm import call_json
 from models import Block, BlockHeader, Connection, ExecutiveSummary, Matrix
 from pydantic import BaseModel
@@ -52,7 +52,7 @@ async def summarize(
         "Собери Executive Summary и шапки блоков по контракту из system prompt. Только JSON."
     )
     return await call_json(
-        model=settings.analyst_model,
+        model=model_for("analyst"),
         system=SYSTEM,
         user=user,
         schema=_SummarizerPayload,

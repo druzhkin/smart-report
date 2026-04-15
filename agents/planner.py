@@ -1,7 +1,7 @@
 """Planner — goal → Matrix. Plus helpers for --deepen and --add-domain."""
 from __future__ import annotations
 
-from config import load_prompt, settings
+from config import depth_profile, load_prompt, model_for, settings
 from llm import call_json
 from models import CellPlan, Domain, Matrix, ScoutTask
 from pydantic import BaseModel
@@ -20,13 +20,25 @@ class _ExpanderPayload(BaseModel):
     cell_plans: list[CellPlan]
 
 
-async def planner(goal: str) -> Matrix:
+async def planner(goal: str, depth: str = "standard") -> Matrix:
+    prof = depth_profile(depth)
+    d_lo, d_hi = prof["domains"]
+    l_lo, l_hi = prof["layers"]
+    s_per = prof["scouts_per_cell"]
+    sizing = (
+        f"Глубина исследования: «{depth}».\n"
+        f"Размер матрицы для этой глубины: {d_lo}–{d_hi} доменов × {l_lo}–{l_hi} слоёв.\n"
+        f"Заданий на ячейку: ровно {s_per}.\n"
+        "Строго соблюдай эти границы: light — 2-3 домена × 1-2 слоя, "
+        "standard — 3-4 × 2-3, deep — 4-5 × 2-4, exhaustive — 5-6 × 3-4."
+    )
     user = (
+        f"{sizing}\n\n"
         f"Цель пользователя:\n\n{goal}\n\n"
         "Построй матрицу и поисковые задания по правилам из system prompt. Только JSON."
     )
     matrix = await call_json(
-        model=settings.planner_model,
+        model=model_for("planner"),
         system=SYSTEM,
         user=user,
         schema=Matrix,
@@ -57,7 +69,7 @@ async def plan_deepen(
         "Верни 3–5 новых заданий, которые бьют в указанный фокус и не дублируют уже известное. Только JSON."
     )
     payload = await call_json(
-        model=settings.planner_model,
+        model=model_for("planner"),
         system=DEEPENER_SYSTEM,
         user=user,
         schema=_DeepenerPayload,
@@ -87,7 +99,7 @@ async def plan_new_domain(
         "Построй новый Domain (2–4 слоя) и cell_plans для его ячеек. Только JSON."
     )
     payload = await call_json(
-        model=settings.planner_model,
+        model=model_for("planner"),
         system=EXPANDER_SYSTEM,
         user=user,
         schema=_ExpanderPayload,
