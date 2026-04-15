@@ -13,6 +13,13 @@ from urllib.parse import unquote
 import httpx
 
 from config import perplexity_model_for, settings
+from llm import account_provider
+
+
+def _pplx_cost() -> float:
+    m = perplexity_model_for()
+    usd = settings.perplexity_usd_sonar_pro if "pro" in m.lower() else settings.perplexity_usd_sonar
+    return usd * settings.usd_to_credits
 
 PPLX_URL = "https://api.perplexity.ai/chat/completions"
 TAVILY_URL = "https://api.tavily.com/search"
@@ -510,6 +517,7 @@ async def _tavily_search(query: str, k: int = 6) -> dict[str, Any] | None:
         results = data.get("results") or []
         if not results:
             return None
+        account_provider("tavily", settings.tavily_usd_per_query * settings.usd_to_credits)
         citations = [{"url": r.get("url", ""), "title": r.get("title") or r.get("url", "")} for r in results]
         # Build a dense text: Tavily answer + per-source bullets.
         bullets: list[str] = []
@@ -554,6 +562,12 @@ async def _firecrawl_search(http: httpx.AsyncClient, query: str, k: int = 6) -> 
                 "snippet": item.get("description") or "",
                 "body": md[:6000],
             })
+        if out:
+            account_provider(
+                "firecrawl",
+                settings.firecrawl_usd_per_result * settings.usd_to_credits * len(out),
+                calls=1,
+            )
         return out
     except Exception:
         return []
@@ -641,6 +655,7 @@ async def _web_only(query: str) -> dict[str, Any]:
                 data = r.json()
                 text = data["choices"][0]["message"]["content"]
                 citations = data.get("citations") or data.get("search_results") or []
+                account_provider("perplexity", _pplx_cost())
                 return {"text": text, "citations": citations, "query": query, "academic_items": []}
             except (httpx.HTTPError, KeyError):
                 if attempt == 2:
@@ -700,6 +715,7 @@ async def search(query: str, focus: str = "general", search_type: str = "both") 
                 if academic_text:
                     text = f"{academic_text}\n\n=== WEB SYNTHESIS (Perplexity) ===\n{text}"
                     citations = list(academic_cites) + list(citations)
+                account_provider("perplexity", _pplx_cost())
                 return {"text": text, "citations": citations, "query": query, "academic_items": academic_items}
             except (httpx.HTTPError, KeyError):
                 if attempt == 2:

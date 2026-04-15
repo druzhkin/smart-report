@@ -33,6 +33,8 @@ PRICING: dict[str, tuple[float, float]] = {
 
 _meter_lock = threading.Lock()
 _meter: dict[str, dict[str, float]] = {}
+# Per-provider meter: {provider: {calls, credits, unit}}
+_provider_meter: dict[str, dict[str, float]] = {}
 
 
 def _account(model_id: str, in_tok: int, out_tok: int) -> None:
@@ -44,23 +46,39 @@ def _account(model_id: str, in_tok: int, out_tok: int) -> None:
         m["input"] += in_tok
         m["output"] += out_tok
         m["usd"] += cost
+        p = _provider_meter.setdefault("anthropic", {"calls": 0, "credits": 0.0})
+        p["calls"] += 1
+        p["credits"] += cost
+
+
+def account_provider(provider: str, credits: float, calls: int = 1) -> None:
+    """Record external paid API usage. `credits` ≈ rubles (1 credit = 1 ₽)."""
+    with _meter_lock:
+        p = _provider_meter.setdefault(provider, {"calls": 0, "credits": 0.0})
+        p["calls"] += calls
+        p["credits"] += float(credits)
 
 
 def reset_meter() -> None:
     with _meter_lock:
         _meter.clear()
+        _provider_meter.clear()
 
 
 def meter_snapshot() -> dict[str, Any]:
     with _meter_lock:
         per_model = {k: dict(v) for k, v in _meter.items()}
+        per_provider = {k: dict(v) for k, v in _provider_meter.items()}
     total_usd = sum(v["usd"] for v in per_model.values())
     total_in = sum(v["input"] for v in per_model.values())
     total_out = sum(v["output"] for v in per_model.values())
     total_calls = sum(v["calls"] for v in per_model.values())
+    total_credits = sum(v["credits"] for v in per_provider.values())
     return {
         "per_model": per_model,
+        "per_provider": per_provider,
         "total_usd": round(total_usd, 4),
+        "total_credits": round(total_credits, 2),
         "total_input": total_in,
         "total_output": total_out,
         "total_calls": total_calls,

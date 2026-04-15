@@ -158,6 +158,18 @@ def _sidecar_view(sidecar: dict[str, Any]) -> dict[str, Any]:
 
 def _persist(report_id: str, report: Report) -> None:
     save_report(report, _report_path(report_id))
+    try:
+        from llm import meter_snapshot
+        from config import settings as _s
+        snap = meter_snapshot()
+        snap["currency_label"] = _s.currency_label
+        snap["report_id"] = report_id
+        snap["goal"] = report.goal
+        (REPORTS_DIR / f"{report_id}.cost.json").write_text(
+            json.dumps(snap, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+    except Exception:
+        pass
 
 
 def _load(report_id: str) -> Report:
@@ -446,6 +458,16 @@ async def export_json(report_id: str) -> FileResponse:
     )
 
 
+@app.get("/api/research/{report_id}/export/onepager")
+async def export_onepager(report_id: str) -> FileResponse:
+    report = _load(report_id)
+    from export_onepager import export_onepager_html
+    out = REPORTS_DIR / f"{report_id}.onepager.html"
+    export_onepager_html(report, out)
+    return FileResponse(out, media_type="text/html; charset=utf-8",
+                        filename=f"{report_id}.onepager.html")
+
+
 @app.get("/api/research/{report_id}/export/docx")
 async def export_docx(report_id: str) -> FileResponse:
     report = _load(report_id)
@@ -600,6 +622,14 @@ async def export_gamma_status(report_id: str, generation_id: str) -> Any:
 
 
 # ---------- library ----------
+
+
+@app.get("/api/research/{report_id}/cost")
+async def get_report_cost(report_id: str) -> dict[str, Any]:
+    path = REPORTS_DIR / f"{report_id}.cost.json"
+    if not path.exists():
+        raise HTTPException(404, f"cost for {report_id} not recorded")
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 @app.get("/api/research/{report_id}/status")

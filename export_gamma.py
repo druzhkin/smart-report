@@ -11,6 +11,7 @@ from typing import Any
 import httpx
 
 from config import settings
+from llm import account_provider
 from models import Report
 
 GAMMA_API_URL = "https://public-api.gamma.app/v1.0/generations"
@@ -52,6 +53,8 @@ async def export_via_gamma(
         resp = await client.post(GAMMA_API_URL, json=payload, headers=_headers())
         resp.raise_for_status()
         result = resp.json()
+
+        account_provider("gamma", settings.gamma_usd_per_generation * settings.usd_to_credits)
 
         return {
             "generation_id": result.get("generationId") or result.get("id"),

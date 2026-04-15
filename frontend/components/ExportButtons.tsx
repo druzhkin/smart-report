@@ -2,13 +2,14 @@
 
 import { useState } from "react";
 import { exportUrl, gammaExportUrl } from "@/lib/api";
-import { FileDown, ChevronDown, FileText, FileSpreadsheet, FileCode, Presentation, Sparkles, Loader2 } from "lucide-react";
+import { FileDown, ChevronDown, FileText, FileSpreadsheet, FileCode, Presentation, Sparkles, Loader2, LayoutTemplate } from "lucide-react";
 
 type Item =
-  | { kind: "file"; fmt: "md" | "docx" | "pptx" | "json"; label: string; Icon: any; accent: string }
+  | { kind: "file"; fmt: "md" | "docx" | "pptx" | "json" | "onepager"; label: string; Icon: any; accent: string }
   | { kind: "gamma"; format: "pptx" | "pdf"; label: string; Icon: any; accent: string };
 
 const ITEMS: Item[] = [
+  { kind: "file", fmt: "onepager", label: "One-pager (HTML / PDF)", Icon: LayoutTemplate, accent: "text-[#1B3A5C]" },
   { kind: "gamma", format: "pptx", label: "✨ Gamma Presentation (.pptx)", Icon: Sparkles, accent: "text-fuchsia-600" },
   { kind: "gamma", format: "pdf", label: "✨ Gamma Presentation (.pdf)", Icon: Sparkles, accent: "text-fuchsia-600" },
   { kind: "file", fmt: "docx", label: "Word Document (.docx)", Icon: FileText, accent: "text-blue-600" },
@@ -53,6 +54,22 @@ export function ExportButtons({ id }: { id: string }) {
       }
       if (ct.includes("application/json")) {
         const j = await resp.json();
+        // If we already have a downloadable file (cached or ready) — just download it.
+        if (j.export_url) {
+          if (popup && !popup.closed) popup.close();
+          const a = document.createElement("a");
+          a.href = j.export_url;
+          a.target = "_blank";
+          a.rel = "noreferrer";
+          a.download = `${id}.gamma.${format}`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          setStatus(j.status === "cached" ? "Скачиваю готовую презентацию…" : "Файл готов — скачивание начато.");
+          setGammaBusy(null);
+          setTimeout(() => setStatus(null), 4000);
+          return;
+        }
         if (j.gamma_url) {
           if (popup && !popup.closed) popup.location.href = j.gamma_url;
           else window.open(j.gamma_url, "_blank", "noopener");

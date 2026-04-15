@@ -5,8 +5,8 @@ import json
 
 from config import load_prompt, model_for, settings
 from llm import call_json
-from models import Block, Finding, ScoutResult
-from pydantic import BaseModel
+from models import Analogy, Block, Finding, IndicatorWarning, ScoutResult
+from pydantic import BaseModel, Field
 
 SYSTEM = load_prompt("analyst")
 
@@ -17,6 +17,9 @@ class _AnalystPayload(BaseModel):
     gaps: list[str]
     key_entities: list[str]
     assumptions: list[str]
+    analogies: list[Analogy] = Field(default_factory=list)
+    indicators: list[IndicatorWarning] = Field(default_factory=list)
+    decision_point: str | None = None
 
 
 async def analyst(cell: str, scout_results: list[ScoutResult]) -> Block:
@@ -52,4 +55,7 @@ async def analyst(cell: str, scout_results: list[ScoutResult]) -> Block:
         gaps=payload.gaps,
         key_entities=payload.key_entities,
         assumptions=payload.assumptions,
+        analogies=payload.analogies,
+        indicators=payload.indicators,
+        decision_point=payload.decision_point,
     )

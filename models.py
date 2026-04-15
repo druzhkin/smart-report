@@ -50,6 +50,9 @@ class Matrix(BaseModel):
     )
 
 
+BiasType = Literal["vendor", "aggregation", "validated", "opinion"]
+
+
 class Finding(BaseModel):
     claim: str
     source: str = Field(..., description="URL or DOI")
@@ -71,6 +74,51 @@ class Finding(BaseModel):
     )
     has_numbers: bool = False
     entities: list[str] = Field(default_factory=list)
+    # Task 4 — source critique (optional)
+    critique: str | None = None
+    adjusted_range: str | None = None
+    bias_type: BiasType | None = None
+
+
+class Analogy(BaseModel):
+    """Task 1 — structured historical analogy for a block."""
+    situation: str
+    expected: str
+    actual: str
+    why_diverged: str
+    lesson: str
+
+
+class IndicatorWarning(BaseModel):
+    """Task 3 — observable signal for a competing hypothesis."""
+    hypothesis: str
+    indicator: str
+    where_to_look: str
+    timeframe: str = "6-12 месяцев"
+
+
+class PreMortem(BaseModel):
+    """Task 2 — pre-mortem: why the conclusion could be wrong."""
+    failure_mode: str = Field(..., description="Как именно вывод может оказаться ошибочным")
+    probability: str = Field(..., description="low | medium | high")
+    early_signal: str = Field(..., description="Первый наблюдаемый знак, что всё идёт не так")
+    mitigation: str = Field(..., description="Что сделать, чтобы застраховаться")
+
+
+class ChainLink(BaseModel):
+    cause: str
+    effect: str
+    mechanism: str = Field(..., description="Почему cause приводит к effect")
+    evidence: str | None = Field(default=None, description="Якорь-тезис/источник")
+
+
+class CausalChain(BaseModel):
+    """Task 5 — long causal chain (4+ links across domains)."""
+    title: str
+    domains: list[str]
+    links: list[ChainLink]
+    terminal_implication: str = Field(..., description="Что из всей цепочки следует")
+    confidence: str = Field(default="speculative", description="strong | moderate | speculative")
 
 
 class ScoutResult(BaseModel):
@@ -86,6 +134,12 @@ class Block(BaseModel):
     gaps: list[str]
     key_entities: list[str]
     assumptions: list[str]
+    analogies: list[Analogy] = Field(default_factory=list)
+    indicators: list[IndicatorWarning] = Field(default_factory=list)
+    decision_point: str | None = Field(
+        default=None,
+        description="Task 3 — ключевая развилка / решение, перед которым стоит читатель",
+    )
 
 
 class Connection(BaseModel):
@@ -140,5 +194,7 @@ class Report(BaseModel):
     connections: list[Connection]
     exec_summary: ExecutiveSummary | None = None
     block_headers: list[BlockHeader] = Field(default_factory=list)
+    pre_mortems: list[PreMortem] = Field(default_factory=list)
+    causal_chains: list[CausalChain] = Field(default_factory=list)
     budget_exhausted: bool = False
     budget_note: str | None = None

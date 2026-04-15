@@ -138,6 +138,24 @@ class Settings:
     max_parallel_scouts: int = int(os.getenv("MAX_PARALLEL_SCOUTS", "8"))
     max_parallel_analysts: int = int(os.getenv("MAX_PARALLEL_ANALYSTS", "4"))
 
+    # Currency: AWstore (Anthropic proxy) is billed in rubles — 1 credit = 1 ₽, values in
+    # llm.PRICING are already in rubles. All other paid APIs are priced in USD on their
+    # official dashboards and converted to ₽ via USD_TO_CREDITS at accounting time.
+    currency_label: str = os.getenv("CURRENCY_LABEL", "₽")
+    usd_to_credits: float = float(os.getenv("USD_TO_CREDITS", "95"))  # ≈ ₽/USD
+
+    # Official USD rates (per API docs). Overridable via ENV.
+    # Perplexity sonar: $1/$1 per 1M tokens + $1/1000 req. Typical query ≈ $0.002.
+    # Perplexity sonar-pro: $3/$15 per 1M tokens + $5/1000 req. Typical query ≈ $0.014.
+    perplexity_usd_sonar: float = float(os.getenv("PPLX_USD_SONAR", "0.002"))
+    perplexity_usd_sonar_pro: float = float(os.getenv("PPLX_USD_SONAR_PRO", "0.014"))
+    # Tavily advanced search: $0.008 per request.
+    tavily_usd_per_query: float = float(os.getenv("TAVILY_USD", "0.008"))
+    # Firecrawl growth plan ≈ $0.004 per scraped page.
+    firecrawl_usd_per_result: float = float(os.getenv("FIRECRAWL_USD", "0.004"))
+    # Gamma paid plan ≈ $0.15 per presentation generation.
+    gamma_usd_per_generation: float = float(os.getenv("GAMMA_USD", "0.15"))
+
 
 
 settings = Settings()

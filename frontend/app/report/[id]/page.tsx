@@ -21,6 +21,7 @@ import { ConnectionsGraph } from "@/components/ConnectionsGraph";
 import { ConnectionCard } from "@/components/ConnectionCard";
 import { AddDomainForm } from "@/components/AddDomainForm";
 import { ExportButtons } from "@/components/ExportButtons";
+import { CostBadge } from "@/components/CostBadge";
 import { SourcesSection } from "@/components/SourcesSection";
 import { TableOfContents, type TocItem } from "@/components/TableOfContents";
 import { ReadingProgress } from "@/components/ReadingProgress";
@@ -139,6 +140,7 @@ export default function ReportPage() {
           </span>
         </div>
         <div className="flex items-center gap-3">
+          <CostBadge id={id} />
           <ExportButtons id={id} />
           <ShareButton />
         </div>

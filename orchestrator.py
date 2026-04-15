@@ -172,6 +172,25 @@ async def _finalize(
         except Exception as err:
             progress("summarizer", f"ОШИБКА: {err}")
 
+    pre_mortems = []
+    if blocks:
+        progress("pre_mortem", "Пре-мортем: где вывод может провалиться")
+        try:
+            from agents.pre_mortem import pre_mortem as _pre_mortem
+            pre_mortems = await _pre_mortem(goal, blocks, connections)
+            progress("pre_mortem", f"Режимов провала: {len(pre_mortems)}")
+        except Exception as err:
+            progress("pre_mortem", f"ОШИБКА: {err}")
+
+    causal_chains = []
+    if len(blocks) >= 2:
+        try:
+            from agents.causal_chains import causal_chains as _chains
+            causal_chains = await _chains(goal, blocks, connections)
+            progress("causal_chains", f"Длинных цепочек: {len(causal_chains)}")
+        except Exception as err:
+            progress("causal_chains", f"ОШИБКА: {err}")
+
     return Report(
         goal=goal,
         matrix=matrix,
@@ -179,6 +198,8 @@ async def _finalize(
         connections=connections,
         exec_summary=exec_summary,
         block_headers=block_headers,
+        pre_mortems=pre_mortems,
+        causal_chains=causal_chains,
     )
 
 
