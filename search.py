@@ -165,8 +165,8 @@ async def _fallback(query: str) -> dict[str, Any]:
 
 async def search(query: str, focus: str = "general") -> dict[str, Any]:
     """Run one search query. Returns {text, citations}."""
-    if settings.use_mock_search or not settings.perplexity_api_key:
-        return _mock(query, focus)
+    if not settings.perplexity_api_key:
+        raise RuntimeError("PERPLEXITY_API_KEY is not set — refusing to run without a real search backend.")
     payload = {
         "model": settings.perplexity_model,
         "messages": [
@@ -200,19 +200,3 @@ async def search(query: str, focus: str = "general") -> dict[str, Any]:
                     return await _fallback(query)
                 await asyncio.sleep(1.5 * (attempt + 1))
     return await _fallback(query)
-
-
-def _mock(query: str, focus: str) -> dict[str, Any]:
-    return {
-        "query": query,
-        "text": (
-            f"[MOCK SEARCH]\nQuery: {query}\nFocus: {focus}\n"
-            "No real data fetched — USE_MOCK_SEARCH=1 or PERPLEXITY_API_KEY missing.\n"
-            "Finding 1: placeholder primary-source claim with a number (e.g. 12.3%) [example.gov, 2024].\n"
-            "Finding 2: placeholder secondary comment [example.org/article, 2025]."
-        ),
-        "citations": [
-            {"url": "https://example.gov/stat", "title": "Mock primary source"},
-            {"url": "https://example.org/article", "title": "Mock secondary"},
-        ],
-    }

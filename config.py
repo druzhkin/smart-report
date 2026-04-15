@@ -32,7 +32,6 @@ class Settings:
     max_parallel_scouts: int = int(os.getenv("MAX_PARALLEL_SCOUTS", "8"))
     max_parallel_analysts: int = int(os.getenv("MAX_PARALLEL_ANALYSTS", "4"))
 
-    use_mock_search: bool = os.getenv("USE_MOCK_SEARCH", "0") == "1"
 
 
 settings = Settings()
