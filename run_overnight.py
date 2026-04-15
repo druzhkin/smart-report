@@ -24,6 +24,7 @@ if hasattr(sys.stdout, "reconfigure"):
 
 from evaluator import eval_loop
 from export import to_markdown, to_json
+from llm import meter_snapshot, reset_meter
 from export_docx import export_mckinsey_docx
 from export_pptx import export_pptx
 from infographics import render_all
@@ -54,6 +55,7 @@ def _slugify(text: str) -> str:
 
 
 async def _run_one(slug: str, query: str) -> dict:
+    reset_meter()
     start = time.time()
     stamp = datetime.now().strftime("%Y%m%d")
     stem = f"{stamp}-{slug}"
@@ -97,6 +99,10 @@ async def _run_one(slug: str, query: str) -> dict:
         result["status"] = f"export_failed: {err}"
 
     result["elapsed_sec"] = round(time.time() - start, 1)
+    result["cost"] = meter_snapshot()
+    print(f"[runner] COST {slug}: ${result['cost']['total_usd']:.4f}  "
+          f"({result['cost']['total_calls']} calls, "
+          f"{result['cost']['total_input']} in / {result['cost']['total_output']} out tok)")
     return result
 
 
@@ -114,8 +120,13 @@ async def main() -> int:
         print(f"[runner] DONE {slug}: status={res['status']} elapsed={res.get('elapsed_sec')}s")
 
     print("\n\n=== ИТОГО ===")
+    grand_total = 0.0
     for r in all_results:
-        print(f"  {r['slug']}: {r['status']}  total={r.get('eval_total')}  time={r.get('elapsed_sec')}s")
+        cost = (r.get("cost") or {}).get("total_usd", 0.0)
+        grand_total += cost
+        print(f"  {r['slug']}: {r['status']}  total={r.get('eval_total')}  "
+              f"time={r.get('elapsed_sec')}s  cost=${cost:.4f}")
+    print(f"\nGRAND TOTAL: ${grand_total:.4f}")
     return 0
 
 

@@ -1,4 +1,4 @@
-"""Perplexity wrapper with mock fallback."""
+"""Perplexity primary search; AWstore-Claude fallback when Perplexity fails."""
 from __future__ import annotations
 
 import asyncio
@@ -9,6 +9,34 @@ import httpx
 from config import settings
 
 PPLX_URL = "https://api.perplexity.ai/chat/completions"
+
+_FALLBACK_SYS = (
+    "You are a research assistant operating WITHOUT live web access. "
+    "Answer the user's query using your training knowledge. Be honest about uncertainty: "
+    "tag every numeric claim with [knowledge cutoff, may be outdated]. "
+    "Prefer dense facts with named sources you remember (papers, agencies, companies). "
+    "If you do not know — say so explicitly. Russian output if query is in Russian."
+)
+
+
+async def _fallback(query: str) -> dict[str, Any]:
+    from llm import call_text
+    try:
+        text = await call_text(
+            model=settings.scout_model,
+            system=_FALLBACK_SYS,
+            user=query,
+            temperature=0.2,
+            max_tokens=2500,
+        )
+        return {
+            "text": f"[FALLBACK: AWstore-Claude knowledge, no live web]\n{text}",
+            "citations": [],
+            "query": query,
+            "fallback": True,
+        }
+    except Exception as err:
+        return {"text": f"[search+fallback failed: {err}]", "citations": [], "query": query}
 
 
 async def search(query: str, focus: str = "general") -> dict[str, Any]:
@@ -45,13 +73,9 @@ async def search(query: str, focus: str = "general") -> dict[str, Any]:
                 return {"text": text, "citations": citations, "query": query}
             except (httpx.HTTPError, KeyError) as err:
                 if attempt == 2:
-                    return {
-                        "text": f"[search error: {err}]",
-                        "citations": [],
-                        "query": query,
-                    }
+                    return await _fallback(query)
                 await asyncio.sleep(1.5 * (attempt + 1))
-    return {"text": "", "citations": [], "query": query}
+    return await _fallback(query)
 
 
 def _mock(query: str, focus: str) -> dict[str, Any]:

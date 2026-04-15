@@ -24,6 +24,7 @@ from pathlib import Path
 
 from config import OUTPUT_DIR
 from export import save_all
+from llm import meter_snapshot, reset_meter
 from orchestrator import (
     add_domain,
     connect_domains,
@@ -50,6 +51,7 @@ def _make_stem(goal: str, suffix: str = "") -> str:
 
 
 async def _run_fresh(goal: str, stem: str | None) -> int:
+    reset_meter()
     start = time.time()
     report = await run_research(goal, progress=_log)
     stem = stem or _make_stem(goal)
@@ -59,6 +61,7 @@ async def _run_fresh(goal: str, stem: str | None) -> int:
 
 
 async def _run_deepen(report_path: Path, cell: str, focus: str, stem: str | None) -> int:
+    reset_meter()
     start = time.time()
     report = load_report(report_path)
     report = await deepen_cell(report, cell, focus, progress=_log)
@@ -71,6 +74,7 @@ async def _run_deepen(report_path: Path, cell: str, focus: str, stem: str | None
 async def _run_add_domain(
     report_path: Path, domain: str, layers_hint: list[str] | None, stem: str | None
 ) -> int:
+    reset_meter()
     start = time.time()
     report = load_report(report_path)
     report = await add_domain(report, domain, layers_hint=layers_hint, progress=_log)
@@ -81,6 +85,7 @@ async def _run_add_domain(
 
 
 async def _run_connect(report_path: Path, a: str, b: str, stem: str | None) -> int:
+    reset_meter()
     start = time.time()
     report = load_report(report_path)
     report = await connect_domains(report, a, b, progress=_log)
@@ -103,6 +108,13 @@ def _print_summary(start: float, report, paths) -> None:
         print(f"Приоритеты: 🔴 {h} / 🟡 {m} / 🟢 {l}")
     for k, p in paths.items():
         print(f"{k:>5}: {p}")
+    snap = meter_snapshot()
+    print(f"\n--- Стоимость прогона ---")
+    print(f"Всего: ${snap['total_usd']:.4f}  ({snap['total_calls']} вызовов, "
+          f"{snap['total_input']} in / {snap['total_output']} out tok)")
+    for model, m in snap["per_model"].items():
+        print(f"  {model}: ${m['usd']:.4f}  ({int(m['calls'])} calls, "
+              f"{int(m['input'])} in / {int(m['output'])} out)")
 
 
 def _parse_layers(raw: str | None) -> list[str] | None:

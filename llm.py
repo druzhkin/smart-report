@@ -1,8 +1,9 @@
-"""Thin wrapper around OpenRouter via the OpenAI SDK, with JSON parsing."""
+"""Thin wrapper around AWstore via the OpenAI SDK, with JSON parsing + cost meter."""
 from __future__ import annotations
 
 import json
 import re
+import threading
 from typing import Any, TypeVar
 
 from openai import AsyncOpenAI
@@ -13,6 +14,51 @@ from config import settings
 _client: AsyncOpenAI | None = None
 
 T = TypeVar("T", bound=BaseModel)
+
+# USD per million tokens, Anthropic public list pricing.
+PRICING: dict[str, tuple[float, float]] = {
+    "claude-opus-4.1": (15.0, 75.0),
+    "claude-opus-4-1": (15.0, 75.0),
+    "claude-sonnet-4.5": (3.0, 15.0),
+    "claude-sonnet-4-5": (3.0, 15.0),
+    "claude-haiku-4.5": (1.0, 5.0),
+    "claude-haiku-4-5": (1.0, 5.0),
+}
+
+_meter_lock = threading.Lock()
+_meter: dict[str, dict[str, float]] = {}
+
+
+def _account(model_id: str, in_tok: int, out_tok: int) -> None:
+    pin, pout = PRICING.get(model_id, (3.0, 15.0))
+    cost = in_tok * pin / 1_000_000 + out_tok * pout / 1_000_000
+    with _meter_lock:
+        m = _meter.setdefault(model_id, {"calls": 0, "input": 0, "output": 0, "usd": 0.0})
+        m["calls"] += 1
+        m["input"] += in_tok
+        m["output"] += out_tok
+        m["usd"] += cost
+
+
+def reset_meter() -> None:
+    with _meter_lock:
+        _meter.clear()
+
+
+def meter_snapshot() -> dict[str, Any]:
+    with _meter_lock:
+        per_model = {k: dict(v) for k, v in _meter.items()}
+    total_usd = sum(v["usd"] for v in per_model.values())
+    total_in = sum(v["input"] for v in per_model.values())
+    total_out = sum(v["output"] for v in per_model.values())
+    total_calls = sum(v["calls"] for v in per_model.values())
+    return {
+        "per_model": per_model,
+        "total_usd": round(total_usd, 4),
+        "total_input": total_in,
+        "total_output": total_out,
+        "total_calls": total_calls,
+    }
 
 
 def client() -> AsyncOpenAI:
@@ -69,6 +115,9 @@ async def call_json(
             temperature=temperature,
             max_tokens=max_tokens,
         )
+        usage = getattr(resp, "usage", None)
+        if usage is not None:
+            _account(model_id, getattr(usage, "prompt_tokens", 0) or 0, getattr(usage, "completion_tokens", 0) or 0)
         raw = resp.choices[0].message.content or ""
         payload = _extract_json(raw)
         try:
@@ -88,3 +137,27 @@ async def call_json(
                 }
             )
     raise RuntimeError(f"LLM failed to produce valid JSON after {max_retries + 1} attempts: {last_err}")
+
+
+async def call_text(
+    *,
+    model: str,
+    system: str,
+    user: str,
+    temperature: float = 0.3,
+    max_tokens: int = 4000,
+) -> str:
+    model_id = model.split("/", 1)[1] if model.startswith("anthropic/") else model
+    resp = await client().chat.completions.create(
+        model=model_id,
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
+    usage = getattr(resp, "usage", None)
+    if usage is not None:
+        _account(model_id, getattr(usage, "prompt_tokens", 0) or 0, getattr(usage, "completion_tokens", 0) or 0)
+    return resp.choices[0].message.content or ""
