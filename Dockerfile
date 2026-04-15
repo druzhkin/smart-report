@@ -21,6 +21,8 @@ RUN cd frontend && npm run build
 COPY . .
 
 ENV PORT=8080
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONIOENCODING=utf-8
 EXPOSE 8080
 
 CMD bash -c "uvicorn api.main:app --host 0.0.0.0 --port 8000 & cd frontend && npm start -- --port ${PORT:-8080} --hostname 0.0.0.0"

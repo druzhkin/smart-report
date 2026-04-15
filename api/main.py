@@ -98,6 +98,33 @@ def _report_path(report_id: str) -> Path:
     return REPORTS_DIR / f"{report_id}.json"
 
 
+def _status_path(report_id: str) -> Path:
+    return REPORTS_DIR / f"{report_id}.status.json"
+
+
+def _write_status(report_id: str, status: str, goal: str = "", error: str | None = None) -> None:
+    try:
+        _status_path(report_id).write_text(
+            json.dumps(
+                {"id": report_id, "status": status, "goal": goal, "error": error, "ts": time.time()},
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+    except Exception:
+        pass
+
+
+def _read_status(report_id: str) -> dict[str, Any] | None:
+    p = _status_path(report_id)
+    if not p.exists():
+        return None
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
 def _persist(report_id: str, report: Report) -> None:
     save_report(report, _report_path(report_id))
 
@@ -152,15 +179,18 @@ async def _run_job(job: _Job) -> None:
             job.queue.put_nowait({"event": event, "message": message, "ts": time.time()})
 
     job.status = "running"
+    _write_status(job.id, "running", goal=job.goal)
     job.emit("status", "running")
     try:
         report = await run_research(job.goal, progress=progress)
         _persist(job.id, report)
         job.status = "done"
+        _write_status(job.id, "done", goal=job.goal)
         job.emit("done", f"report saved: {job.id}", report_id=job.id)
     except Exception as err:  # pragma: no cover
         job.status = "error"
         job.error = str(err)
+        _write_status(job.id, "error", goal=job.goal, error=str(err))
         job.emit("error", str(err))
     finally:
         # sentinel to close SSE stream
@@ -206,6 +236,7 @@ async def start_research(payload: ResearchStartIn) -> dict[str, str]:
     report_id = _make_id(payload.goal)
     job = _Job(report_id, payload.goal)
     JOBS[report_id] = job
+    _write_status(report_id, "pending", goal=payload.goal)
     job.task = asyncio.create_task(_run_job(job))
     return {"id": report_id, "status": "pending"}
 
@@ -257,7 +288,16 @@ async def get_report(report_id: str) -> dict[str, Any]:
     path = _report_path(report_id)
     if not path.exists():
         if job is None:
-            raise HTTPException(404, f"report {report_id} not found")
+            sidecar = _read_status(report_id)
+            if sidecar is None:
+                raise HTTPException(404, f"report {report_id} not found")
+            return {
+                "id": report_id,
+                "status": sidecar.get("status", "unknown"),
+                "error": sidecar.get("error"),
+                "report": None,
+                "dismissed": [],
+            }
         return {
             "id": report_id,
             "status": job.status,
