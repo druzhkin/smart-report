@@ -1,10 +1,12 @@
 "use client";
 
-import { useState, useRef, FormEvent, ChangeEvent, KeyboardEvent, useEffect } from "react";
+import { useState, useRef, FormEvent, ChangeEvent, KeyboardEvent, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 
-export default function VerifyPage() {
+export const dynamic = "force-dynamic";
+
+function VerifyPageInner() {
   const router = useRouter();
   const params = useSearchParams();
   const email = params.get("email") || "";
@@ -135,5 +137,13 @@ export default function VerifyPage() {
         </div>
       </main>
     </div>
+  );
+}
+
+export default function VerifyPage() {
+  return (
+    <Suspense fallback={null}>
+      <VerifyPageInner />
+    </Suspense>
   );
 }

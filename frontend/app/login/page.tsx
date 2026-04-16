@@ -1,10 +1,12 @@
 "use client";
 
-import { useState, FormEvent } from "react";
+import { useState, FormEvent, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 
-export default function LoginPage() {
+export const dynamic = "force-dynamic";
+
+function LoginPageInner() {
   const router = useRouter();
   const params = useSearchParams();
   const next = params.get("next") || "/new";
@@ -99,5 +101,13 @@ export default function LoginPage() {
         </div>
       </main>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginPageInner />
+    </Suspense>
   );
 }
