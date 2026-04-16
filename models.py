@@ -74,6 +74,14 @@ class Finding(BaseModel):
     )
     has_numbers: bool = False
     entities: list[str] = Field(default_factory=list)
+    numeric_values: list[str] = Field(
+        default_factory=list,
+        description="Экстрактированные числа с единицами — '$2.4B', '15.7%', 'Q3 2024', 'n=1842'. Пусто если в claim нет цифр.",
+    )
+    verbatim_quote: str | None = Field(
+        default=None,
+        description="Дословная цитата из источника, подтверждающая claim. Обязательна если has_numbers=true.",
+    )
     # Task 4 — source critique (optional)
     critique: str | None = None
     adjusted_range: str | None = None
@@ -140,6 +148,13 @@ class Block(BaseModel):
         default=None,
         description="Task 3 — ключевая развилка / решение, перед которым стоит читатель",
     )
+    unverified_numerics: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Числа из summary, которые не удалось сопоставить ни с одним finding "
+            "через fuzzy-матчинг. UI помечает их знаком ∑ как «синтезированные»."
+        ),
+    )
 
 
 class Connection(BaseModel):
@@ -196,5 +211,3 @@ class Report(BaseModel):
     block_headers: list[BlockHeader] = Field(default_factory=list)
     pre_mortems: list[PreMortem] = Field(default_factory=list)
     causal_chains: list[CausalChain] = Field(default_factory=list)
-    budget_exhausted: bool = False
-    budget_note: str | None = None

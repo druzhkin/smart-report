@@ -7,6 +7,7 @@ from config import load_prompt, model_for, settings
 from llm import call_json
 from models import Analogy, Block, Finding, IndicatorWarning, ScoutResult
 from pydantic import BaseModel, Field
+from validators import stamp_block
 
 SYSTEM = load_prompt("analyst")
 
@@ -48,7 +49,7 @@ async def analyst(cell: str, scout_results: list[ScoutResult]) -> Block:
         schema=_AnalystPayload,
         temperature=0.35,
     )
-    return Block(
+    block = Block(
         cell=cell,
         summary=payload.summary,
         findings=payload.findings,
@@ -59,3 +60,4 @@ async def analyst(cell: str, scout_results: list[ScoutResult]) -> Block:
         indicators=payload.indicators,
         decision_point=payload.decision_point,
     )
+    return stamp_block(block)

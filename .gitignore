@@ -4,3 +4,16 @@ __pycache__/
 *.pyc
 output/
 .pytest_cache/
+
+# ephemeral/test artefacts
+SESSION_REPORT.md
+_test_run.py
+frontend/tsconfig.tsbuildinfo
+frontend/package-lock.json
+reports/_*
+reports/*.log
+reports/*.cost.json
+reports/prompt_backups/
+reports/ab_*.json
+reports/bench_*.json
+reports/bench_all.json

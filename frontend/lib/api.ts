@@ -13,6 +13,7 @@ export type Block = {
   gaps: string[];
   key_entities: string[];
   assumptions: string[];
+  unverified_numerics?: string[];
 };
 
 export type Connection = {
@@ -55,8 +56,6 @@ export type Report = {
   connections: Connection[];
   exec_summary: ExecutiveSummary | null;
   block_headers: BlockHeader[];
-  budget_exhausted?: boolean;
-  budget_note?: string | null;
 };
 
 export type ReportListItem = {

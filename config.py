@@ -20,11 +20,10 @@ DEPTH_PROFILES: dict[str, dict] = {
         "scouts_per_cell": 2,
         "max_parallel_scouts": 6,
         "max_parallel_analysts": 4,
-        "planner_model": "anthropic/claude-haiku-4.5",
-        "scout_model": "anthropic/claude-haiku-4.5",
-        "analyst_model": "anthropic/claude-sonnet-4.6",
-        "bisociator_model": "anthropic/claude-sonnet-4.6",
-        "cost_cap_usd": 0.50,
+        "planner_model": "deepseek/deepseek-v3.2",
+        "scout_model": "deepseek/deepseek-v3.2",
+        "analyst_model": "moonshotai/kimi-k2",
+        "bisociator_model": "moonshotai/kimi-k2",
         "perplexity_model": "sonar",
     },
     "standard": {
@@ -33,11 +32,10 @@ DEPTH_PROFILES: dict[str, dict] = {
         "scouts_per_cell": 3,
         "max_parallel_scouts": 8,
         "max_parallel_analysts": 4,
-        "planner_model": "anthropic/claude-sonnet-4.6",
-        "scout_model": "anthropic/claude-haiku-4.5",
-        "analyst_model": "anthropic/claude-opus-4.6",
-        "bisociator_model": "anthropic/claude-opus-4.6",
-        "cost_cap_usd": 2.00,
+        "planner_model": "deepseek/deepseek-v3.2",
+        "scout_model": "deepseek/deepseek-v3.2",
+        "analyst_model": "moonshotai/kimi-k2",
+        "bisociator_model": "moonshotai/kimi-k2",
         "perplexity_model": "sonar-pro",
     },
     "deep": {
@@ -46,11 +44,10 @@ DEPTH_PROFILES: dict[str, dict] = {
         "scouts_per_cell": 4,
         "max_parallel_scouts": 10,
         "max_parallel_analysts": 5,
-        "planner_model": "anthropic/claude-opus-4.6",
-        "scout_model": "anthropic/claude-sonnet-4.5",
-        "analyst_model": "anthropic/claude-sonnet-4.5",
-        "bisociator_model": "anthropic/claude-opus-4.6",
-        "cost_cap_usd": 6.00,
+        "planner_model": "google/gemini-2.5-flash",
+        "scout_model": "deepseek/deepseek-v3.2",
+        "analyst_model": "moonshotai/kimi-k2",
+        "bisociator_model": "moonshotai/kimi-k2",
         "perplexity_model": "sonar-pro",
     },
     "exhaustive": {
@@ -59,11 +56,10 @@ DEPTH_PROFILES: dict[str, dict] = {
         "scouts_per_cell": 5,
         "max_parallel_scouts": 12,
         "max_parallel_analysts": 6,
-        "planner_model": "anthropic/claude-opus-4.6",
-        "scout_model": "anthropic/claude-sonnet-4.5",
-        "analyst_model": "anthropic/claude-opus-4.6",
-        "bisociator_model": "anthropic/claude-opus-4.6",
-        "cost_cap_usd": 15.00,
+        "planner_model": "google/gemini-2.5-flash",
+        "scout_model": "deepseek/deepseek-v3.2",
+        "analyst_model": "moonshotai/kimi-k2",
+        "bisociator_model": "moonshotai/kimi-k2",
         "perplexity_model": "sonar-pro",
     },
 }
@@ -127,14 +123,15 @@ class Settings:
     gamma_api_key: str = os.getenv("GAMMA_API_KEY", "")
     gamma_theme_id: str = os.getenv("GAMMA_THEME_ID", "")
     brave_api_key: str = os.getenv("BRAVE_API_KEY", "")
+    jina_api_key: str = os.getenv("JINA_API_KEY", "")
     # Economy switches: defaults favor free fetchers over paid search.
     use_perplexity: bool = os.getenv("USE_PERPLEXITY", "false").lower() in ("1", "true", "yes")
     use_jina_reader: bool = os.getenv("USE_JINA_READER", "true").lower() in ("1", "true", "yes")
 
-    planner_model: str = os.getenv("PLANNER_MODEL", "anthropic/claude-opus-4.5")
-    scout_model: str = os.getenv("SCOUT_MODEL", "anthropic/claude-haiku-4.5")
-    analyst_model: str = os.getenv("ANALYST_MODEL", "anthropic/claude-sonnet-4.5")
-    bisociator_model: str = os.getenv("BISOCIATOR_MODEL", "anthropic/claude-opus-4.5")
+    planner_model: str = os.getenv("PLANNER_MODEL", "deepseek/deepseek-v3.2")
+    scout_model: str = os.getenv("SCOUT_MODEL", "deepseek/deepseek-v3.2")
+    analyst_model: str = os.getenv("ANALYST_MODEL", "moonshotai/kimi-k2")
+    bisociator_model: str = os.getenv("BISOCIATOR_MODEL", "moonshotai/kimi-k2")
 
     perplexity_model: str = os.getenv("PERPLEXITY_MODEL", "sonar-pro")
 

@@ -129,6 +129,24 @@ export function BlockCard({
           >
             <div className="p-4 space-y-4 text-sm">
               <div className="whitespace-pre-wrap leading-relaxed">{block.summary}</div>
+              {block.unverified_numerics && block.unverified_numerics.length > 0 && (
+                <div
+                  className="text-xs muted border-l-2 pl-3 py-1"
+                  style={{ borderColor: "var(--border)" }}
+                  title="Это значение отсутствует дословно в источниках. Вероятно, аналитик агрегировал его из нескольких фрагментов."
+                >
+                  <span className="mr-1">∑</span>
+                  Синтезированные числа:{" "}
+                  {block.unverified_numerics.map((n, i) => (
+                    <span key={i}>
+                      <span className="underline decoration-dotted decoration-current underline-offset-4">
+                        {n}
+                      </span>
+                      {i < block.unverified_numerics!.length - 1 ? ", " : ""}
+                    </span>
+                  ))}
+                </div>
+              )}
               {block.findings.length > 0 && (
                 <div>
                   <div className="font-medium mb-1">Источники</div>

@@ -20,6 +20,7 @@ import { HeatmapMatrix } from "@/components/HeatmapMatrix";
 import { ConnectionsGraph } from "@/components/ConnectionsGraph";
 import { ConnectionCard } from "@/components/ConnectionCard";
 import { AddDomainForm } from "@/components/AddDomainForm";
+import { DeepenForm } from "@/components/DeepenForm";
 import { ExportButtons } from "@/components/ExportButtons";
 import { CostBadge } from "@/components/CostBadge";
 import { SourcesSection } from "@/components/SourcesSection";
@@ -38,6 +39,7 @@ export default function ReportPage() {
   const [selected, setSelected] = useState<string[]>([]);
   const [connectMode, setConnectMode] = useState(false);
   const [addDomainOpen, setAddDomainOpen] = useState(false);
+  const [activeDeepen, setActiveDeepen] = useState<string | null>(null);
   const [running, setRunning] = useState(true);
 
   useSSE(id ? `/api/research/${id}/stream` : null, {
@@ -189,12 +191,6 @@ export default function ReportPage() {
               )}
             </header>
 
-            {report.budget_exhausted && report.budget_note && (
-              <div className="card p-3 text-xs border-amber-400/60 bg-amber-50/40 mb-8">
-                ⚠️ {report.budget_note} — отчёт собран частично.
-              </div>
-            )}
-
             {running && <ProgressStream events={events} compact />}
 
             <div className="prose-editorial max-w-none relative space-y-6">
@@ -261,16 +257,26 @@ export default function ReportPage() {
                         Пробелы: {b.gaps.join(" · ")}
                       </p>
                     )}
-                    <div className="flex gap-2 mt-2 not-italic font-sans">
-                      <button
-                        onClick={() => {
-                          const q = prompt("Что уточнить в этом блоке?");
-                          if (q) onDeepen(b.cell, q);
-                        }}
-                        className="btn"
-                      >
-                        Копай глубже
-                      </button>
+                    <div className="mt-3 not-italic font-sans">
+                      {activeDeepen === b.cell ? (
+                        <div className="card">
+                          <DeepenForm
+                            block={b}
+                            onSubmit={async (focus) => {
+                              await onDeepen(b.cell, focus);
+                              setActiveDeepen(null);
+                            }}
+                            onClose={() => setActiveDeepen(null)}
+                          />
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setActiveDeepen(b.cell)}
+                          className="btn"
+                        >
+                          Копай глубже
+                        </button>
+                      )}
                     </div>
                   </section>
                 );

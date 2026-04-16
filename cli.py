@@ -50,10 +50,10 @@ def _make_stem(goal: str, suffix: str = "") -> str:
     return f"{base}-{suffix}" if suffix else base
 
 
-async def _run_fresh(goal: str, stem: str | None) -> int:
+async def _run_fresh(goal: str, stem: str | None, depth: str) -> int:
     reset_meter()
     start = time.time()
-    report = await run_research(goal, progress=_log)
+    report = await run_research(goal, progress=_log, depth=depth)
     stem = stem or _make_stem(goal)
     paths = save_all(report, OUTPUT_DIR, stem=stem)
     _print_summary(start, report, paths)
@@ -110,11 +110,13 @@ def _print_summary(start: float, report, paths) -> None:
         print(f"{k:>5}: {p}")
     snap = meter_snapshot()
     print(f"\n--- Стоимость прогона ---")
-    print(f"Всего: ${snap['total_usd']:.4f}  ({snap['total_calls']} вызовов, "
-          f"{snap['total_input']} in / {snap['total_output']} out tok)")
+    print(f"Всего: {snap['total_rub']:.2f} ₽  (LLM-часть ${snap['total_usd']:.4f}, "
+          f"{snap['total_calls']} вызовов, {snap['total_input']} in / {snap['total_output']} out tok)")
     for model, m in snap["per_model"].items():
         print(f"  {model}: ${m['usd']:.4f}  ({int(m['calls'])} calls, "
               f"{int(m['input'])} in / {int(m['output'])} out)")
+    for prov, p in snap["per_provider"].items():
+        print(f"  [{prov}] {p['credits']:.2f} ₽  ({int(p['calls'])} calls)")
 
 
 def _parse_layers(raw: str | None) -> list[str] | None:
@@ -138,6 +140,12 @@ def main() -> int:
         help="Два домена для прицельной бисоциации",
     )
     p.add_argument("--stem", help="Имя выходных файлов (без расширения)", default=None)
+    p.add_argument(
+        "--depth",
+        choices=["light", "standard", "deep", "exhaustive"],
+        default="standard",
+        help="Глубина прогона (действует только для первого прохода)",
+    )
     args = p.parse_args()
 
     try:
@@ -160,7 +168,7 @@ def main() -> int:
             return asyncio.run(_run_connect(args.from_json, a, b, args.stem))
         if not args.goal:
             p.error("Укажи цель (первый аргумент) либо используй --from-json с операцией")
-        return asyncio.run(_run_fresh(args.goal, args.stem))
+        return asyncio.run(_run_fresh(args.goal, args.stem, args.depth))
     except KeyboardInterrupt:
         print("\n[aborted]", file=sys.stderr)
         return 130
