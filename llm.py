@@ -2,14 +2,18 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import threading
+import time
 from typing import Any, TypeVar
 
 from openai import AsyncOpenAI
 from pydantic import BaseModel, ValidationError
 
 from config import settings
+
+log = logging.getLogger("llm")
 
 _client: AsyncOpenAI | None = None
 
@@ -174,6 +178,37 @@ def _extract_json(text: str) -> str:
     return text
 
 
+class LLMAuthError(RuntimeError):
+    """Raised for auth-class failures (401/403). Pipeline should fail-fast, not retry."""
+
+
+def _is_auth_error(err: Exception) -> bool:
+    status = getattr(err, "status_code", None)
+    if status in (401, 403):
+        return True
+    text = str(err).lower()
+    return "401" in text or "403" in text or "auth" in text or "api key" in text
+
+
+async def _chat(model_id: str, **kwargs: Any) -> Any:
+    t0 = time.time()
+    try:
+        resp = await client().chat.completions.create(model=model_id, **kwargs)
+    except Exception as err:
+        dt = time.time() - t0
+        if _is_auth_error(err):
+            log.error("LLM AUTH-FAIL model=%s after %.1fs: %s", model_id, dt, err)
+            raise LLMAuthError(f"OpenRouter auth failure ({model_id}): {err}") from err
+        log.error("LLM FAIL model=%s after %.1fs: %s", model_id, dt, err)
+        raise
+    dt = time.time() - t0
+    usage = getattr(resp, "usage", None)
+    in_tok = getattr(usage, "prompt_tokens", 0) or 0 if usage else 0
+    out_tok = getattr(usage, "completion_tokens", 0) or 0 if usage else 0
+    log.info("LLM ok model=%s %.1fs in=%d out=%d", model_id, dt, in_tok, out_tok)
+    return resp
+
+
 async def call_json(
     *,
     model: str,
@@ -192,8 +227,8 @@ async def call_json(
     last_err: Exception | None = None
     model_id = _resolve_model(model)
     for attempt in range(max_retries + 1):
-        resp = await client().chat.completions.create(
-            model=model_id,
+        resp = await _chat(
+            model_id,
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
@@ -208,6 +243,7 @@ async def call_json(
             return schema.model_validate(data)
         except (json.JSONDecodeError, ValidationError) as err:
             last_err = err
+            log.warning("LLM JSON parse fail model=%s attempt=%d err=%s", model_id, attempt + 1, type(err).__name__)
             messages.append({"role": "assistant", "content": raw})
             messages.append(
                 {
@@ -231,8 +267,8 @@ async def call_text(
     max_tokens: int = 4000,
 ) -> str:
     model_id = _resolve_model(model)
-    resp = await client().chat.completions.create(
-        model=model_id,
+    resp = await _chat(
+        model_id,
         messages=[
             {"role": "system", "content": system},
             {"role": "user", "content": user},

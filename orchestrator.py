@@ -22,7 +22,7 @@ from config import (
     set_active_profile,
     settings,
 )
-from llm import call_text, reset_meter
+from llm import LLMAuthError, call_text, reset_meter
 from models import (
     Block,
     CellPlan,
@@ -91,6 +91,8 @@ async def _run_scouts_for_tasks(
         progress("scout", f"[{task.cell}] {task.query_focus[:110]}")
         try:
             return await scout(task)
+        except LLMAuthError:
+            raise
         except Exception as err:
             progress("scout", f"[{task.cell}] ОШИБКА: {err}")
             return ScoutResult(task=task, findings=[], notes=f"scout failed: {err}")
@@ -112,6 +114,8 @@ async def _analyze_cells(
             block = await analyst(cell, results)
             progress("analyst", f"[{cell}] готов: {len(block.findings)} источников, {len(block.gaps)} пробелов")
             return block
+        except LLMAuthError:
+            raise
         except Exception as err:
             progress("analyst", f"[{cell}] ОШИБКА: {err}")
             return None

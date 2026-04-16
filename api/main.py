@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
 import sys
 import time
@@ -31,6 +32,31 @@ from pydantic import BaseModel, Field
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+
+def _bootstrap_logging() -> None:
+    """Force INFO-level logging to stdout so Railway/Docker capture pipeline events."""
+    root = logging.getLogger()
+    if getattr(root, "_smart_report_bootstrapped", False):
+        return
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(logging.Formatter(
+        "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+    ))
+    # Replace any existing handlers uvicorn may have installed on root.
+    for h in list(root.handlers):
+        root.removeHandler(h)
+    root.addHandler(handler)
+    root.setLevel(logging.INFO)
+    # Quiet down HTTP libs so access logs don't drown pipeline logs.
+    for noisy in ("httpx", "httpcore", "openai", "urllib3"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
+    root._smart_report_bootstrapped = True  # type: ignore[attr-defined]
+
+
+_bootstrap_logging()
+log = logging.getLogger("api")
 
 from export import save_all, to_markdown  # noqa: E402
 from models import Report  # noqa: E402
@@ -215,6 +241,7 @@ class DismissIn(BaseModel):
 
 async def _run_job(job: _Job) -> None:
     loop = asyncio.get_running_loop()
+    t0 = time.time()
 
     def progress(event: str, message: str) -> None:
         # orchestrator's ProgressCb is sync; push into queue safely
@@ -226,21 +253,29 @@ async def _run_job(job: _Job) -> None:
             job.queue.put_nowait({"event": event, "message": message, "ts": time.time()})
         # Heartbeat: bump sidecar updated_at + current phase on every progress tick.
         _write_status(job.id, "running", goal=job.goal, phase=event)
+        # Mirror to stdout so Railway/Docker logs capture every pipeline step.
+        log.info("[%s] [%s] %s", job.id[-12:], event, message[:400])
 
     job.status = "running"
     _write_status(job.id, "running", goal=job.goal)
     job.emit("status", "running")
+    log.info("[%s] job START goal=%r depth=%s", job.id[-12:], job.goal[:120], job.depth)
     try:
         report = await run_research(job.goal, progress=progress, depth=job.depth)
         _persist(job.id, report)
         job.status = "done"
         _write_status(job.id, "done", goal=job.goal)
         job.emit("done", f"report saved: {job.id}", report_id=job.id)
+        log.info(
+            "[%s] job DONE blocks=%d conns=%d elapsed=%.1fs",
+            job.id[-12:], len(report.blocks), len(report.connections), time.time() - t0,
+        )
     except Exception as err:  # pragma: no cover
         job.status = "error"
         job.error = str(err)
         _write_status(job.id, "error", goal=job.goal, error=str(err))
         job.emit("error", str(err))
+        log.exception("[%s] job FAILED after %.1fs: %s", job.id[-12:], time.time() - t0, err)
     finally:
         # sentinel to close SSE stream
         job.queue.put_nowait({"event": "__end__", "message": ""})

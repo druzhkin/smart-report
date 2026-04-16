@@ -5,7 +5,9 @@ Firecrawl returns already-scraped markdown so no second fetch round-trip is need
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
+import time
 from html import unescape
 from typing import Any
 from urllib.parse import unquote
@@ -14,6 +16,8 @@ import httpx
 
 from config import perplexity_model_for, settings
 from llm import account_provider
+
+log = logging.getLogger("search")
 
 
 def _pplx_cost() -> float:
@@ -27,6 +31,7 @@ FIRECRAWL_SEARCH_URL = "https://api.firecrawl.dev/v1/search"
 DDG_HTML_URL = "https://html.duckduckgo.com/html/"
 BRAVE_SEARCH_URL = "https://api.search.brave.com/res/v1/web/search"
 JINA_READER_BASE = "https://r.jina.ai/"
+JINA_SEARCH_BASE = "https://s.jina.ai/"
 OPENALEX_URL = "https://api.openalex.org/works"
 CROSSREF_URL = "https://api.crossref.org/works"
 S2_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
@@ -619,12 +624,152 @@ async def _firecrawl_search(http: httpx.AsyncClient, query: str, k: int = 6) -> 
         return []
 
 
+async def _jina_search(http: httpx.AsyncClient, query: str, k: int = 6) -> list[dict[str, str]]:
+    """Jina Search s.jina.ai (requires JINA_API_KEY). Returns pre-scraped SERP."""
+    if not settings.jina_api_key:
+        return []
+    from urllib.parse import quote
+    try:
+        r = await http.get(
+            JINA_SEARCH_BASE + quote(query),
+            headers={
+                "Accept": "application/json",
+                "User-Agent": UA,
+                "Authorization": f"Bearer {settings.jina_api_key}",
+            },
+            timeout=45,
+            follow_redirects=True,
+        )
+        if r.status_code >= 400:
+            return []
+        data = r.json()
+    except Exception:
+        return []
+    items = data.get("data") if isinstance(data, dict) else data
+    if not isinstance(items, list):
+        return []
+    out: list[dict[str, str]] = []
+    for it in items[:k]:
+        url = it.get("url") or ""
+        if not url.startswith("http"):
+            continue
+        body = it.get("content") or it.get("description") or ""
+        out.append({
+            "url": url,
+            "title": it.get("title") or url,
+            "snippet": (it.get("description") or "")[:400],
+            "body": body[:6000],
+        })
+    return out
+
+
+async def _hn_algolia_search(http: httpx.AsyncClient, query: str, k: int = 5) -> list[dict[str, str]]:
+    """HackerNews Algolia search: free, no key. Surfaces SaaS/startup/tech discussions with real numbers.
+    For each story, we attempt a cheap Jina-reader fetch of the URL to capture content."""
+    # HN Algolia uses AND semantics — long queries return 0 hits. Try progressively shorter variants.
+    words = [w for w in re.split(r"\s+", query) if len(w) > 2]
+    candidates = [query] + [" ".join(words[:n]) for n in (4, 3, 2) if len(words) > n]
+    hits: list[dict] = []
+    try:
+        for q in candidates:
+            r = await http.get(
+                "https://hn.algolia.com/api/v1/search",
+                params={"query": q, "tags": "story", "hitsPerPage": k * 2},
+                headers={"User-Agent": UA},
+                timeout=15,
+            )
+            if r.status_code >= 400:
+                continue
+            hits = (r.json().get("hits") or [])
+            if hits:
+                break
+    except Exception:
+        return []
+    picks = []
+    for h in hits:
+        url = h.get("url") or ""
+        if not url.startswith("http"):
+            continue
+        picks.append(h)
+        if len(picks) >= k:
+            break
+    if not picks:
+        return []
+    async def _grab(h: dict) -> dict[str, str] | None:
+        body = await _fetch_page(http, h["url"], max_chars=4000)
+        if not body:
+            body = (h.get("story_text") or h.get("comment_text") or h.get("title") or "")[:4000]
+        if not body.strip():
+            return None
+        return {
+            "url": h["url"],
+            "title": f"{h.get('title','')} (HN · {h.get('points',0)}pts)",
+            "snippet": (h.get("title") or "")[:400],
+            "body": body,
+        }
+    results = await asyncio.gather(*[_grab(h) for h in picks])
+    return [x for x in results if x]
+
+
+async def _wikipedia_search(http: httpx.AsyncClient, query: str, k: int = 4) -> list[dict[str, str]]:
+    """Wikipedia search+extract API: free, no key, returns dense article intros with facts.
+    Tries ru.wikipedia first (Russian goals), then en.wikipedia."""
+    out: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for lang in ("ru", "en"):
+        try:
+            r = await http.get(
+                f"https://{lang}.wikipedia.org/w/api.php",
+                params={
+                    "action": "query",
+                    "format": "json",
+                    "generator": "search",
+                    "gsrsearch": query,
+                    "gsrlimit": k,
+                    "prop": "extracts|info",
+                    "inprop": "url",
+                    "exintro": "1",
+                    "explaintext": "1",
+                    "exchars": 1200,
+                },
+                headers={"User-Agent": "smart-report-mvp/1.0 research@smart-report.local"},
+                timeout=15,
+            )
+            if r.status_code >= 400:
+                continue
+            pages = ((r.json().get("query") or {}).get("pages") or {})
+        except Exception:
+            continue
+        for p in pages.values():
+            url = p.get("fullurl") or ""
+            if not url.startswith("http") or url in seen:
+                continue
+            seen.add(url)
+            title = p.get("title") or ""
+            extract = (p.get("extract") or "").strip()
+            if not extract:
+                continue
+            out.append({
+                "url": url,
+                "title": f"{title} (Wikipedia {lang})",
+                "snippet": extract[:400],
+                "body": extract[:6000],
+            })
+            if len(out) >= k:
+                return out
+        if len(out) >= k:
+            break
+    return out
+
+
 async def _fallback(query: str) -> dict[str, Any]:
     """Live-web fallback: Firecrawl search+scrape → DDG SERP + fetch → Claude synth."""
     from llm import call_text
 
     try:
         async with httpx.AsyncClient(timeout=90) as http:
+            wiki_task = asyncio.create_task(_wikipedia_search(http, query, k=4))
+            hn_task = asyncio.create_task(_hn_algolia_search(http, query, k=4))
             brave = await _brave_search(http, query, k=6)
             if brave:
                 results = brave
@@ -637,12 +782,30 @@ async def _fallback(query: str) -> dict[str, Any]:
                     pages = [r.get("body", "") for r in fc]
                     source_tag = "firecrawl+claude"
                 else:
-                    results = await _ddg_search(http, query, k=6)
-                    if not results:
-                        return {"text": f"[fallback: no results for '{query}']",
-                                "citations": [], "query": query, "fallback": True}
-                    pages = await asyncio.gather(*[_fetch_page(http, r["url"]) for r in results[:5]])
-                    source_tag = "ddg+jina+claude"
+                    js = await _jina_search(http, query, k=6)
+                    if js:
+                        results = js
+                        pages = [r.get("body", "") for r in js]
+                        source_tag = "jina-search+claude"
+                    else:
+                        results = await _ddg_search(http, query, k=6)
+                        pages = (
+                            await asyncio.gather(*[_fetch_page(http, r["url"]) for r in results[:5]])
+                            if results else []
+                        )
+                        source_tag = "ddg+jina+claude" if results else "wiki-only+claude"
+            wiki_items, hn_items = await asyncio.gather(wiki_task, hn_task)
+            if hn_items:
+                results = list(hn_items) + list(results)
+                pages = [h.get("body", "") for h in hn_items] + list(pages)
+                source_tag = source_tag + "+hn"
+            if wiki_items:
+                results = list(wiki_items) + list(results)
+                pages = [w.get("body", "") for w in wiki_items] + list(pages)
+                source_tag = source_tag + "+wiki"
+            if not results:
+                return {"text": f"[fallback: no results for '{query}']",
+                        "citations": [], "query": query, "fallback": True}
 
         corpus_parts: list[str] = []
         citations: list[dict[str, str]] = []
@@ -724,6 +887,23 @@ async def _web_only(query: str) -> dict[str, Any]:
 
 async def search(query: str, focus: str = "general", search_type: str = "both") -> dict[str, Any]:
     """Run one search query. Routes by search_type: web | academic | both. Returns {text, citations, academic_items}."""
+    t0 = time.time()
+    try:
+        result = await _search_impl(query, focus, search_type)
+    except Exception as err:
+        log.error("search FAIL type=%s q=%r after %.1fs: %s", search_type, query[:80], time.time() - t0, err)
+        raise
+    log.info(
+        "search ok type=%s %.1fs cites=%d acad=%d q=%r",
+        search_type, time.time() - t0,
+        len(result.get("citations") or []),
+        len(result.get("academic_items") or []),
+        query[:80],
+    )
+    return result
+
+
+async def _search_impl(query: str, focus: str, search_type: str) -> dict[str, Any]:
     if search_type == "academic":
         items = await _academic_fetch_all(query)
         academic_text, academic_cites = _academic_bundle_from_items(items)
@@ -732,6 +912,11 @@ async def search(query: str, focus: str = "general", search_type: str = "both") 
     if search_type == "web":
         if settings.use_perplexity and settings.perplexity_api_key:
             return await _web_only(query)
+        if settings.tavily_api_key:
+            tav = await _tavily_search(query)
+            if tav is not None:
+                tav["academic_items"] = []
+                return tav
         fb = await _fallback(query)
         fb["academic_items"] = []
         return fb
@@ -739,6 +924,14 @@ async def search(query: str, focus: str = "general", search_type: str = "both") 
     if not (settings.use_perplexity and settings.perplexity_api_key):
         academic_items = await _academic_fetch_all(query)
         academic_text, academic_cites = _academic_bundle_from_items(academic_items)
+        if settings.tavily_api_key:
+            tav = await _tavily_search(query)
+            if tav is not None:
+                if academic_text:
+                    tav["text"] = f"{academic_text}\n\n=== WEB SYNTHESIS (Tavily) ===\n{tav.get('text','')}"
+                    tav["citations"] = list(academic_cites) + list(tav.get("citations") or [])
+                tav["academic_items"] = academic_items
+                return tav
         fb = await _fallback(query)
         if academic_text:
             fb["text"] = f"{academic_text}\n\n=== WEB SYNTHESIS (free) ===\n{fb.get('text','')}"
