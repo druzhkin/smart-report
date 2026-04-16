@@ -239,6 +239,79 @@ def validate_block_numbers(block: Block) -> list[str]:
     return unverified
 
 
+def strip_unverified_numerics(block: Block) -> Block:
+    """Заменяет в summary цифры без источника маркером, но сохраняет их в unverified_numerics.
+
+    Логика та же, что у validate_block_numbers: сигнальные единицы, fuzzy-match
+    против findings. Числа внутри verbatim_quote не трогаем — они уже «в кавычках».
+    """
+    summary_nums = extract_numbers(block.summary)
+    if not summary_nums:
+        return block
+
+    known: list[Number] = []
+    for f in block.findings:
+        for nv in f.numeric_values:
+            known.extend(extract_numbers(nv))
+        if f.verbatim_quote:
+            known.extend(extract_numbers(f.verbatim_quote))
+
+    # Собираем защищённые диапазоны — позиции verbatim_quote в summary.
+    # Числа внутри дословных цитат не трогаем, даже если они «не в sources».
+    protected: list[tuple[int, int]] = []
+    for f in block.findings:
+        if f.verbatim_quote:
+            pos = block.summary.find(f.verbatim_quote)
+            if pos != -1:
+                protected.append((pos, pos + len(f.verbatim_quote)))
+
+    def _in_protected(s: int, e: int) -> bool:
+        return any(s >= ps and e <= pe for ps, pe in protected)
+
+    seen: set[tuple[str, float]] = set()
+    unverified_raws: list[str] = []
+
+    # Заменяем справа налево, чтобы смещения не съехали.
+    new_summary = block.summary
+    # Пересобираем позиции через повторный поиск по оригинальному тексту.
+    replacements: list[tuple[int, int, str]] = []
+
+    for sn in summary_nums:
+        if sn.unit not in _SIGNAL_UNITS:
+            continue
+        if any(fuzzy_match(sn, kn) for kn in known):
+            continue
+        key = (sn.unit, round(sn.value, 4))
+        if key in seen:
+            continue
+        seen.add(key)
+        unverified_raws.append(sn.raw)
+
+        # Найдём все вхождения raw-строки в summary и пометим незащищённые.
+        search_start = 0
+        while True:
+            pos = block.summary.find(sn.raw, search_start)
+            if pos == -1:
+                break
+            end = pos + len(sn.raw)
+            if not _in_protected(pos, end):
+                replacements.append((pos, end, sn.raw))
+            search_start = end
+
+    # Применяем замены справа налево — иначе сдвинутся индексы.
+    replacements.sort(key=lambda x: x[0], reverse=True)
+    seen_ranges: set[tuple[int, int]] = set()
+    for start, end, _ in replacements:
+        if (start, end) in seen_ranges:
+            continue
+        seen_ranges.add((start, end))
+        new_summary = new_summary[:start] + "[число удалено: не в источниках]" + new_summary[end:]
+
+    block.summary = new_summary
+    block.unverified_numerics = unverified_raws
+    return block
+
+
 def stamp_block(block: Block) -> Block:
     """Attach unverified_numerics to block and log any hits for audit."""
     unv = validate_block_numbers(block)

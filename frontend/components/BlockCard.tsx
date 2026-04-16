@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ChevronDown, EyeOff, Zap, Link2 } from "lucide-react";
-import type { Block, BlockHeader } from "@/lib/api";
+import type { Analogy, AssumptionInversion, Block, BlockHeader, BlockInversions } from "@/lib/api";
 import { DeepenForm } from "@/components/DeepenForm";
 
 function prioClass(p?: string) {
@@ -19,9 +19,28 @@ function prioDot(p?: string) {
   return "⚪";
 }
 
+function depBorderClass(dep: string) {
+  if (dep === "critical") return "border-red-400";
+  if (dep === "important") return "border-amber-400";
+  return "border-zinc-300 dark:border-zinc-600";
+}
+
+function probChipClass(prob: string) {
+  if (prob === "high") return "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300";
+  if (prob === "medium") return "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300";
+  return "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400";
+}
+
+function depChipClass(dep: string) {
+  if (dep === "critical") return "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300";
+  if (dep === "important") return "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300";
+  return "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400";
+}
+
 export function BlockCard({
   block,
   header,
+  inversions,
   selected,
   connectMode,
   onSelect,
@@ -30,6 +49,7 @@ export function BlockCard({
 }: {
   block: Block;
   header?: BlockHeader;
+  inversions?: BlockInversions | null;
   selected?: boolean;
   connectMode?: boolean;
   onSelect: (cell: string) => void;
@@ -182,6 +202,82 @@ export function BlockCard({
                   <ul className="list-disc ml-5 text-xs muted">
                     {block.gaps.map((g, i) => <li key={i}>{g}</li>)}
                   </ul>
+                </div>
+              )}
+              {block.analogies && block.analogies.length > 0 && (
+                <div>
+                  <div className="text-xs uppercase tracking-wide muted mb-2">Исторические аналогии</div>
+                  <div className="space-y-2">
+                    {block.analogies.map((a: Analogy, i: number) => (
+                      <div
+                        key={i}
+                        className="border-l-2 pl-3 py-1 text-xs"
+                        style={{ borderColor: "var(--brand-500, #6366f1)" }}
+                      >
+                        {a.location && (
+                          <div className="font-medium text-sm">{a.location}</div>
+                        )}
+                        <div className="muted mb-1">{a.situation}</div>
+                        {((a.matched && a.matched.length > 0) || (a.differed && a.differed.length > 0)) && (
+                          <div className="grid grid-cols-2 gap-2 mb-1">
+                            {a.matched && a.matched.length > 0 && (
+                              <div>
+                                <span className="text-xs font-medium" style={{ color: "var(--green-600, #16a34a)" }}>Что совпадает</span>
+                                <ul className="list-disc ml-4 mt-0.5">
+                                  {a.matched.map((m, j) => <li key={j}>{m}</li>)}
+                                </ul>
+                              </div>
+                            )}
+                            {a.differed && a.differed.length > 0 && (
+                              <div>
+                                <span className="text-xs font-medium" style={{ color: "var(--amber-600, #d97706)" }}>Что отличается</span>
+                                <ul className="list-disc ml-4 mt-0.5">
+                                  {a.differed.map((d, j) => <li key={j}>{d}</li>)}
+                                </ul>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        <div className="font-medium">{a.lesson}</div>
+                        {a.confidence && a.confidence !== "high" && (
+                          <span className="inline-block mt-1 px-1.5 py-0.5 rounded text-xs muted border" style={{ borderColor: "var(--border)" }}>
+                            {a.confidence}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {inversions && inversions.inversions.length > 0 && (
+                <div>
+                  <div className="text-xs uppercase tracking-wide muted mb-2">Проверка допущений · quadrant crunch</div>
+                  {inversions.unfalsifiable_flag && (
+                    <div className="mb-2 px-3 py-1.5 text-xs border border-amber-300 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-700 rounded">
+                      Внимание: вывод может быть нефальсифицируем — ни одно допущение не является критически несущим.
+                    </div>
+                  )}
+                  <div className="space-y-2">
+                    {inversions.inversions.map((inv: AssumptionInversion, i: number) => (
+                      <div
+                        key={i}
+                        className={`border-l-2 pl-3 py-1.5 text-xs space-y-1 ${depBorderClass(inv.dependency)}`}
+                      >
+                        <div><span className="muted">Допущение: </span>{inv.assumption}</div>
+                        <div><span className="muted">А если нет? </span><span className="font-semibold">{inv.inversion}</span></div>
+                        <div><span className="muted">Последствие: </span>{inv.consequence}</div>
+                        <div className="flex flex-wrap gap-1.5 items-center">
+                          <span className={`inline-block px-1.5 py-0.5 rounded text-xs font-medium ${probChipClass(inv.probability)}`}>
+                            {inv.probability}
+                          </span>
+                          <span className={`inline-block px-1.5 py-0.5 rounded text-xs font-medium ${depChipClass(inv.dependency)}`}>
+                            {inv.dependency}
+                          </span>
+                        </div>
+                        <div><span className="muted">Ранний сигнал: </span>{inv.early_signal}</div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>

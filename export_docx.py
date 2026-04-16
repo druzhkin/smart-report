@@ -572,6 +572,94 @@ def _blocks_section(doc, report: Report) -> None:
                 r.font.name = FONT
                 r.font.size = Pt(10)
 
+        analogies_list = getattr(b, "analogies", None) or []
+        if analogies_list:
+            _heading(doc, "Исторические аналогии", level=3)
+            for a in analogies_list:
+                loc = getattr(a, "location", "") or ""
+                matched = getattr(a, "matched", None) or []
+                differed = getattr(a, "differed", None) or []
+                confidence = getattr(a, "confidence", "moderate") or "moderate"
+                # heading: location — situation
+                p = doc.add_paragraph()
+                heading_text = f"{loc} — {a.situation}" if loc else a.situation
+                r = p.add_run(heading_text)
+                r.font.name = FONT
+                r.font.size = Pt(10)
+                r.font.bold = True
+                r.font.color.rgb = NAVY
+                _set_paragraph_left_border(p, "1B3A5C", size_pt=16)
+                # matched
+                if matched:
+                    pm = doc.add_paragraph()
+                    r = pm.add_run("Что совпадает: ")
+                    r.font.name = FONT; r.font.size = Pt(9); r.font.bold = True
+                    r.font.color.rgb = RGBColor(0x16, 0xa3, 0x4a)
+                    r2 = pm.add_run("; ".join(matched))
+                    r2.font.name = FONT; r2.font.size = Pt(9)
+                # differed
+                if differed:
+                    pd = doc.add_paragraph()
+                    r = pd.add_run("Что отличается: ")
+                    r.font.name = FONT; r.font.size = Pt(9); r.font.bold = True
+                    r.font.color.rgb = RGBColor(0xD9, 0x77, 0x06)
+                    r2 = pd.add_run("; ".join(differed))
+                    r2.font.name = FONT; r2.font.size = Pt(9)
+                # lesson
+                pl = doc.add_paragraph()
+                r = pl.add_run("Урок: ")
+                r.font.name = FONT; r.font.size = Pt(9); r.font.bold = True
+                r2 = pl.add_run(a.lesson)
+                r2.font.name = FONT; r2.font.size = Pt(9)
+                # confidence chip if not high
+                if confidence != "high":
+                    pc = doc.add_paragraph()
+                    r = pc.add_run(f"[{confidence}]")
+                    r.font.name = FONT; r.font.size = Pt(8)
+                    r.font.color.rgb = GREY_TXT; r.font.italic = True
+
+        # Quadrant Crunch — assumption inversions
+        inv_blocks = getattr(report, "assumption_inversions", None) or []
+        block_inv = next((bi for bi in inv_blocks if bi.block_cell == b.cell), None)
+        if block_inv and block_inv.inversions:
+            _heading(doc, "Проверка допущений", level=3)
+            if block_inv.unfalsifiable_flag:
+                pw = doc.add_paragraph()
+                r = pw.add_run("Внимание: вывод может быть нефальсифицируем.")
+                r.font.name = FONT; r.font.size = Pt(9); r.font.italic = True
+                r.font.color.rgb = RGBColor(0xD9, 0x77, 0x06)
+            for inv in block_inv.inversions:
+                dep_color = (
+                    RGBColor(0xDC, 0x26, 0x26) if inv.dependency == "critical"
+                    else RGBColor(0xD9, 0x77, 0x06) if inv.dependency == "important"
+                    else GREY_TXT
+                )
+                p = doc.add_paragraph()
+                r = p.add_run(f"[{inv.dependency}] ")
+                r.font.name = FONT; r.font.size = Pt(10); r.font.bold = True
+                r.font.color.rgb = dep_color
+                r2 = p.add_run(inv.assumption)
+                r2.font.name = FONT; r2.font.size = Pt(10); r2.font.bold = True
+                _set_paragraph_left_border(p, "1B3A5C" if inv.dependency == "minor" else
+                                           ("DC2626" if inv.dependency == "critical" else "D97706"), size_pt=16)
+                pi = doc.add_paragraph()
+                r = pi.add_run("А если нет? ")
+                r.font.name = FONT; r.font.size = Pt(10); r.font.bold = True
+                r.font.color.rgb = dep_color
+                r2 = pi.add_run(inv.inversion)
+                r2.font.name = FONT; r2.font.size = Pt(10)
+                pc = doc.add_paragraph()
+                r = pc.add_run("Последствие: ")
+                r.font.name = FONT; r.font.size = Pt(9); r.font.bold = True
+                r2 = pc.add_run(inv.consequence)
+                r2.font.name = FONT; r2.font.size = Pt(9)
+                pp = doc.add_paragraph()
+                r = pp.add_run(f"Вероятность: {inv.probability}   Ранний сигнал: ")
+                r.font.name = FONT; r.font.size = Pt(9); r.font.italic = True
+                r.font.color.rgb = GREY_TXT
+                r2 = pp.add_run(inv.early_signal)
+                r2.font.name = FONT; r2.font.size = Pt(9); r2.font.color.rgb = GREY_TXT
+
         doc.add_paragraph()
 
 
@@ -633,6 +721,106 @@ def _connections_section(doc, report: Report) -> None:
             r.font.italic = True
 
         doc.add_paragraph()
+
+
+def _scenarios_section(doc, report: Report) -> None:
+    """Dedicated «Сценарии» section for predictive questions."""
+    cone = getattr(report, "scenario_cone", None)
+    if not cone:
+        return
+    horizon = getattr(cone, "question_horizon", "12-24 месяцев") or "12-24 месяцев"
+    _heading(doc, f"Сценарии · горизонт {horizon}", level=1)
+
+    verdict = getattr(cone, "conditional_verdict", "") or ""
+    if verdict:
+        p = doc.add_paragraph()
+        _set_paragraph_left_border(p, "2563EB", size_pt=20)
+        r = p.add_run(verdict)
+        r.font.name = FONT
+        r.font.size = Pt(11)
+        r.font.italic = True
+        r.font.color.rgb = NAVY
+
+    uncertainties = getattr(cone, "key_uncertainties", []) or []
+    if uncertainties:
+        p = doc.add_paragraph()
+        r = p.add_run("Ключевые неопределённости: ")
+        r.font.name = FONT
+        r.font.bold = True
+        r = p.add_run("; ".join(uncertainties))
+        r.font.name = FONT
+        r.font.size = Pt(10)
+
+    scenario_colors = {"base": "2563EB", "optim": "27AE60", "pessim": "C0392B"}
+
+    for s in (getattr(cone, "scenarios", []) or []):
+        name = getattr(s, "name", "") or ""
+        prob = getattr(s, "probability", "") or ""
+        desc = getattr(s, "description", "") or ""
+        key_driver = getattr(s, "key_driver", "") or ""
+        implications = getattr(s, "implications", []) or []
+        indicators = getattr(s, "indicators", []) or []
+
+        name_low = name.lower()
+        if "optim" in name_low or "оптим" in name_low:
+            color_hex = scenario_colors["optim"]
+        elif "pessim" in name_low or "пессим" in name_low:
+            color_hex = scenario_colors["pessim"]
+        else:
+            color_hex = scenario_colors["base"]
+
+        _heading(doc, f"{name} ({prob})", level=2)
+        p = doc.add_paragraph()
+        _set_paragraph_left_border(p, color_hex, size_pt=24)
+        r = p.add_run(desc)
+        r.font.name = FONT
+        r.font.size = Pt(11)
+
+        p = doc.add_paragraph()
+        r = p.add_run("Ключевой драйвер: ")
+        r.font.name = FONT
+        r.font.bold = True
+        r.font.color.rgb = NAVY
+        r = p.add_run(key_driver)
+        r.font.name = FONT
+
+        if implications:
+            _heading(doc, "Следствия для клиента", level=3)
+            for imp in implications:
+                pp = doc.add_paragraph(style="List Bullet")
+                r = pp.add_run(imp)
+                r.font.name = FONT
+                r.font.size = Pt(10)
+
+        if indicators:
+            _heading(doc, "Индикаторы (I&W)", level=3)
+            for ind in indicators:
+                pp = doc.add_paragraph(style="List Bullet")
+                r = pp.add_run(ind)
+                r.font.name = FONT
+                r.font.size = Pt(10)
+
+        doc.add_paragraph()
+
+    wild_card = getattr(cone, "wild_card", None)
+    if wild_card:
+        _heading(doc, "Wild Card", level=2)
+        wc_prob = getattr(wild_card, "probability", "") or ""
+        wc_desc = getattr(wild_card, "description", "") or ""
+        wc_impact = getattr(wild_card, "impact", "") or ""
+        p = doc.add_paragraph()
+        r = p.add_run(f"P={wc_prob}: {wc_desc}")
+        r.font.name = FONT
+        r.font.size = Pt(11)
+        r.font.color.rgb = RGBColor(0xD9, 0x77, 0x06)
+        if wc_impact:
+            p = doc.add_paragraph()
+            r = p.add_run("Эффект: ")
+            r.font.name = FONT
+            r.font.bold = True
+            r = p.add_run(wc_impact)
+            r.font.name = FONT
+            r.font.size = Pt(10)
 
 
 def _appendix_sources(doc, report: Report) -> None:
@@ -719,7 +907,12 @@ def export_mckinsey_docx(report: Report, path: Path, images: dict[str, Path] | N
         _insert_image(doc, images.get("graph"), "Рис. 4. Связи между доменами: цвет = тип, толщина = сила.")
         _connections_section(doc, report)
 
-    # 9. Appendices
+    # 9. Scenarios (predictive questions only)
+    if getattr(report, "scenario_cone", None):
+        doc.add_page_break()
+        _scenarios_section(doc, report)
+
+    # 10. Appendices
     doc.add_page_break()
     _appendix_sources(doc, report)
     doc.add_page_break()

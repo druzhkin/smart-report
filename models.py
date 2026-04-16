@@ -41,12 +41,26 @@ class Domain(BaseModel):
     layers: list[Layer]
 
 
+QuestionType = Literal[
+    "factual",
+    "predictive",
+    "comparative",
+    "causal",
+    "normative",
+    "exploratory",
+]
+
+
 class Matrix(BaseModel):
     goal: str
     domains: list[Domain]
     cell_plans: list[CellPlan] = Field(
         default_factory=list,
         description="Per-cell scout task bundles. Cell = 'Domain / Layer'",
+    )
+    question_type: QuestionType = Field(
+        default="exploratory",
+        description="Classification of the user's question, set by planner",
     )
 
 
@@ -95,6 +109,11 @@ class Analogy(BaseModel):
     actual: str
     why_diverged: str
     lesson: str
+    location: str = Field(default="", description="City/country + year, e.g. 'London, 2012'")
+    matched: list[str] = Field(default_factory=list, description="What specifically parallels the current finding")
+    differed: list[str] = Field(default_factory=list, description="Key differences that change applicability")
+    why_matters: str = Field(default="", description="Concrete implication for client decision")
+    confidence: str = Field(default="moderate", description="high | moderate | speculative")
 
 
 class IndicatorWarning(BaseModel):
@@ -202,6 +221,44 @@ class ExecutiveSummary(BaseModel):
     key_gaps: list[str]
 
 
+class Scenario(BaseModel):
+    name: str  # "Base case" | "Optimistic" | "Pessimistic"
+    probability: str  # e.g. "50-60%"
+    description: str
+    key_driver: str = Field(..., description="What must happen for this scenario")
+    implications: list[str] = Field(default_factory=list, description="For the client, this means ...")
+    indicators: list[str] = Field(default_factory=list, description="Observable signals linked to I&W")
+
+
+class WildCard(BaseModel):
+    description: str
+    probability: str  # e.g. "<5%"
+    impact: str
+
+
+class ScenarioCone(BaseModel):
+    question_horizon: str = Field(default="12-24 месяцев")
+    key_uncertainties: list[str] = Field(default_factory=list)
+    scenarios: list[Scenario]  # expected length 3
+    wild_card: WildCard | None = None
+    conditional_verdict: str = Field(default="", description="«При базовом сценарии (P=X)... при оптимистичном... ключевая развилка — ...»")
+
+
+class AssumptionInversion(BaseModel):
+    assumption: str
+    inversion: str = Field(..., description="Что если допущение ЛОЖНО?")
+    consequence: str = Field(..., description="Как изменится главный вывод блока, если допущение ложно")
+    probability: str = Field(..., description="low | medium | high")
+    early_signal: str = Field(..., description="Первый наблюдаемый сигнал, что допущение ложно")
+    dependency: str = Field(..., description="critical | important | minor — если critical, вывод блока переворачивается")
+
+
+class BlockInversions(BaseModel):
+    block_cell: str
+    inversions: list[AssumptionInversion]
+    unfalsifiable_flag: bool = Field(default=False, description="True если ни одно допущение не critical — вывод нефальсифицируем")
+
+
 class Report(BaseModel):
     goal: str
     matrix: Matrix
@@ -211,3 +268,5 @@ class Report(BaseModel):
     block_headers: list[BlockHeader] = Field(default_factory=list)
     pre_mortems: list[PreMortem] = Field(default_factory=list)
     causal_chains: list[CausalChain] = Field(default_factory=list)
+    scenario_cone: ScenarioCone | None = None  # Cone of Plausibility — generated for predictive questions
+    assumption_inversions: list[BlockInversions] = Field(default_factory=list)  # Quadrant Crunch — CIA SAT

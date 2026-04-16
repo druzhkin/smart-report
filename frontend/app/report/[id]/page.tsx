@@ -12,6 +12,8 @@ import {
   getReport,
   type Report,
   type Block,
+  type BlockInversions,
+  type AssumptionInversion,
 } from "@/lib/api";
 import { useSSE, type SSEEvent } from "@/lib/useSSE";
 import { ExecutiveSummary } from "@/components/ExecutiveSummary";
@@ -29,6 +31,7 @@ import { ReadingProgress } from "@/components/ReadingProgress";
 import { ShareButton } from "@/components/ShareButton";
 import { SelectionTooltip } from "@/components/SelectionTooltip";
 import { LivePipeline } from "@/components/LivePipeline";
+import { ScenarioConeBlock } from "@/components/ScenarioConeBlock";
 import { CheckCircle2, Clock, BookOpen, ChevronRight } from "lucide-react";
 
 export default function ReportPage() {
@@ -213,6 +216,10 @@ export default function ReportPage() {
                 </section>
               )}
 
+              {report.scenario_cone && (
+                <ScenarioConeBlock data={report.scenario_cone} />
+              )}
+
               {sortedBlocks.map((b, idx) => {
                 const header = headersByCell.get(b.cell);
                 const num = String(idx + 2).padStart(2, "0");
@@ -257,6 +264,53 @@ export default function ReportPage() {
                         Пробелы: {b.gaps.join(" · ")}
                       </p>
                     )}
+                    {(() => {
+                      const bi: BlockInversions | undefined = report.assumption_inversions?.find(
+                        (x) => x.block_cell === b.cell
+                      );
+                      if (!bi || bi.inversions.length === 0) return null;
+                      return (
+                        <div className="not-italic font-sans mt-4">
+                          <div className="text-xs uppercase tracking-wide muted mb-2">Проверка допущений · quadrant crunch</div>
+                          {bi.unfalsifiable_flag && (
+                            <div className="mb-2 px-3 py-1.5 text-xs border border-amber-300 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-700 rounded">
+                              Внимание: вывод может быть нефальсифицируем — ни одно допущение не является критически несущим.
+                            </div>
+                          )}
+                          <div className="space-y-2">
+                            {bi.inversions.map((inv: AssumptionInversion, ii: number) => {
+                              const borderCls = inv.dependency === "critical"
+                                ? "border-red-400"
+                                : inv.dependency === "important"
+                                  ? "border-amber-400"
+                                  : "border-zinc-300";
+                              const probCls = inv.probability === "high"
+                                ? "bg-red-100 text-red-700"
+                                : inv.probability === "medium"
+                                  ? "bg-amber-100 text-amber-700"
+                                  : "bg-zinc-100 text-zinc-600";
+                              const depCls = inv.dependency === "critical"
+                                ? "bg-red-100 text-red-700"
+                                : inv.dependency === "important"
+                                  ? "bg-amber-100 text-amber-700"
+                                  : "bg-zinc-100 text-zinc-600";
+                              return (
+                                <div key={ii} className={`border-l-2 pl-3 py-1.5 text-xs space-y-1 ${borderCls}`}>
+                                  <div><span className="muted">Допущение: </span>{inv.assumption}</div>
+                                  <div><span className="muted">А если нет? </span><span className="font-semibold">{inv.inversion}</span></div>
+                                  <div><span className="muted">Последствие: </span>{inv.consequence}</div>
+                                  <div className="flex flex-wrap gap-1.5 items-center">
+                                    <span className={`inline-block px-1.5 py-0.5 rounded text-xs font-medium ${probCls}`}>{inv.probability}</span>
+                                    <span className={`inline-block px-1.5 py-0.5 rounded text-xs font-medium ${depCls}`}>{inv.dependency}</span>
+                                  </div>
+                                  <div><span className="muted">Ранний сигнал: </span>{inv.early_signal}</div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })()}
                     <div className="mt-3 not-italic font-sans">
                       {activeDeepen === b.cell ? (
                         <div className="card">
@@ -420,6 +474,7 @@ function pickPullQuote(report: Report, headers: Map<string, any>): { text: strin
 function buildToc(report: Report, blocks: Block[]): TocItem[] {
   const items: TocItem[] = [];
   if (report.exec_summary) items.push({ id: "sec-exec", label: "Executive Abstract" });
+  if (report.scenario_cone) items.push({ id: "sec-scenarios", label: "Конус сценариев" });
   blocks.forEach((b, i) =>
     items.push({
       id: `block-${b.cell}`,

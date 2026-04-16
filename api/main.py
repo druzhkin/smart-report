@@ -530,6 +530,19 @@ async def export_onepager(report_id: str) -> FileResponse:
                         filename=f"{report_id}.onepager.html")
 
 
+@app.get("/api/research/{report_id}/export/onepager.docx")
+async def export_onepager_docx_endpoint(report_id: str) -> FileResponse:
+    report = _load(report_id)
+    from export_onepager_docx import export_onepager_docx
+    out = REPORTS_DIR / f"{report_id}.onepager.docx"
+    export_onepager_docx(report, out)
+    return FileResponse(
+        out,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        filename=f"{report_id}.onepager.docx",
+    )
+
+
 @app.get("/api/research/{report_id}/export/docx")
 async def export_docx(report_id: str) -> FileResponse:
     report = _load(report_id)

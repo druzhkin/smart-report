@@ -7,7 +7,7 @@ from config import load_prompt, model_for, settings
 from llm import call_json
 from models import Analogy, Block, Finding, IndicatorWarning, ScoutResult
 from pydantic import BaseModel, Field
-from validators import stamp_block
+from validators import stamp_block, strip_unverified_numerics
 
 SYSTEM = load_prompt("analyst")
 
@@ -60,4 +60,6 @@ async def analyst(cell: str, scout_results: list[ScoutResult]) -> Block:
         indicators=payload.indicators,
         decision_point=payload.decision_point,
     )
+    # Сначала убираем изобретённые числа из текста, затем stamp_block логирует итог.
+    block = strip_unverified_numerics(block)
     return stamp_block(block)

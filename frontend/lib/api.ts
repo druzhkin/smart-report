@@ -6,6 +6,19 @@ export type Finding = {
   entities: string[];
 };
 
+export type Analogy = {
+  situation: string;
+  expected: string;
+  actual: string;
+  why_diverged: string;
+  lesson: string;
+  location?: string;
+  matched?: string[];
+  differed?: string[];
+  why_matters?: string;
+  confidence?: string;
+};
+
 export type Block = {
   cell: string;
   summary: string;
@@ -14,6 +27,7 @@ export type Block = {
   key_entities: string[];
   assumptions: string[];
   unverified_numerics?: string[];
+  analogies?: Analogy[];
 };
 
 export type Connection = {
@@ -39,7 +53,7 @@ export type BlockHeader = {
 
 export type Layer = { name: string; description: string };
 export type Domain = { name: string; rationale: string; layers: Layer[] };
-export type Matrix = { goal: string; domains: Domain[]; cell_plans: any[] };
+export type Matrix = { goal: string; domains: Domain[]; cell_plans: any[]; question_type?: string };
 
 export type ExecutiveSummary = {
   goal_restate: string;
@@ -49,6 +63,38 @@ export type ExecutiveSummary = {
   key_gaps: string[];
 };
 
+export type ScenarioItem = {
+  name: string;
+  probability: string;
+  description: string;
+  key_driver: string;
+  implications: string[];
+  indicators: string[];
+};
+
+export type ScenarioCone = {
+  question_horizon?: string;
+  key_uncertainties?: string[];
+  scenarios: ScenarioItem[];
+  wild_card?: { description: string; probability: string; impact: string } | null;
+  conditional_verdict?: string;
+};
+
+export interface AssumptionInversion {
+  assumption: string;
+  inversion: string;
+  consequence: string;
+  probability: string;
+  early_signal: string;
+  dependency: string;
+}
+
+export interface BlockInversions {
+  block_cell: string;
+  inversions: AssumptionInversion[];
+  unfalsifiable_flag: boolean;
+}
+
 export type Report = {
   goal: string;
   matrix: Matrix;
@@ -56,6 +102,8 @@ export type Report = {
   connections: Connection[];
   exec_summary: ExecutiveSummary | null;
   block_headers: BlockHeader[];
+  scenario_cone?: ScenarioCone | null;
+  assumption_inversions?: BlockInversions[];
 };
 
 export type ReportListItem = {

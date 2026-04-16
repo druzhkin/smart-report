@@ -278,12 +278,24 @@ def _render_html(report: Report) -> str:
 
     if analogies:
         parts.append("<section><h2>Исторические аналогии</h2>")
-        for cell, a in analogies[:4]:
-            parts.append(
-                f"<div class='conn'><div class='pair'>{escape(cell)}: {escape(a.situation)}</div>"
-                f"<div class='desc'>Ожидалось: {escape(a.expected)}. Фактически: {escape(a.actual)}. "
-                f"Почему разошлось: {escape(a.why_diverged)}. <b>Урок:</b> {escape(a.lesson)}</div></div>"
-            )
+        for cell, a in analogies[:3]:
+            loc = getattr(a, "location", "") or ""
+            heading = f"{loc} — {escape(a.situation)}" if loc else escape(a.situation)
+            matched = getattr(a, "matched", None) or []
+            differed = getattr(a, "differed", None) or []
+            confidence = getattr(a, "confidence", "moderate") or "moderate"
+            conf_chip = f" <span style='font-size:0.75em;color:#888;border:1px solid #ccc;border-radius:3px;padding:0 4px'>{escape(confidence)}</span>" if confidence != "high" else ""
+            parts.append(f"<div class='conn'><div class='pair'>{escape(cell)}: {heading}{conf_chip}</div>")
+            if matched or differed:
+                parts.append("<div style='display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:4px 0'>")
+                if matched:
+                    items = "".join(f"<li>{escape(m)}</li>" for m in matched)
+                    parts.append(f"<div><span style='color:#16a34a;font-size:0.8em;font-weight:600'>Что совпадает</span><ul style='margin:2px 0 0 16px;font-size:0.8em'>{items}</ul></div>")
+                if differed:
+                    items = "".join(f"<li>{escape(d)}</li>" for d in differed)
+                    parts.append(f"<div><span style='color:#d97706;font-size:0.8em;font-weight:600'>Что отличается</span><ul style='margin:2px 0 0 16px;font-size:0.8em'>{items}</ul></div>")
+                parts.append("</div>")
+            parts.append(f"<div class='desc'><b>Урок:</b> {escape(a.lesson)}</div></div>")
         parts.append("</section>")
 
     if indicators:
@@ -302,6 +314,53 @@ def _render_html(report: Report) -> str:
         parts.append("<section><h2>Ключевые развилки</h2>")
         for cell, dp in decision_points[:6]:
             parts.append(f"<div class='gap'><b>{escape(cell)}:</b> {escape(dp)}</div>")
+        parts.append("</section>")
+
+    inv_blocks = getattr(report, "assumption_inversions", None) or []
+    critical_inv = [
+        (bi.block_cell, inv)
+        for bi in inv_blocks
+        for inv in bi.inversions
+        if inv.dependency in ("critical", "important")
+    ][:3]
+    if critical_inv:
+        parts.append("<section><h2>Проверка допущений</h2>")
+        for cell, inv in critical_inv:
+            dep_color = "#DC2626" if inv.dependency == "critical" else "#D97706"
+            parts.append(
+                f"<div class='conn'><div class='pair' style='color:{dep_color}'>"
+                f"{escape(cell)} [{escape(inv.dependency)}]</div>"
+                f"<div class='desc'>{escape(inv.assumption)} "
+                f"&rarr; если ложно: <b>{escape(inv.inversion)}</b></div></div>"
+            )
+        parts.append("</section>")
+
+    cone = getattr(report, "scenario_cone", None)
+    if cone:
+        horizon = escape(getattr(cone, "question_horizon", "12-24 месяцев") or "12-24 месяцев")
+        parts.append(f"<section><h2>Конус сценариев · {horizon}</h2>")
+        if getattr(cone, "conditional_verdict", None):
+            parts.append(
+                f"<div class='conn'><div class='desc' style='font-style:italic'>{escape(cone.conditional_verdict)}</div></div>"
+            )
+        parts.append("<div class='grid-3'>")
+        for s in (cone.scenarios or []):
+            name = escape(s.name)
+            prob = escape(s.probability)
+            desc = escape((s.description or "")[:140])
+            parts.append(
+                f"<div class='kpi'><div class='n' style='font-size:13pt'>{prob}</div>"
+                f"<div class='c' style='font-weight:600'>{name}</div>"
+                f"<div class='c'>{desc}</div></div>"
+            )
+        parts.append("</div>")
+        wc = getattr(cone, "wild_card", None)
+        if wc:
+            parts.append(
+                f"<div class='conn' style='border-left-color:{AMBER}'>"
+                f"<div class='pair'>Wild Card ({escape(wc.probability)}): {escape((wc.description or '')[:100])}</div>"
+                f"<div class='desc'>{escape((wc.impact or '')[:120])}</div></div>"
+            )
         parts.append("</section>")
 
     if gaps:

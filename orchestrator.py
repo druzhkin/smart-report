@@ -81,6 +81,55 @@ async def _rewrite_task_broader(task: ScoutTask) -> ScoutTask:
         return task
 
 
+async def _rewrite_task_international(task: ScoutTask) -> ScoutTask:
+    """Translate query to English and pivot to international analogs; force web search_type."""
+    try:
+        new_q = await call_text(
+            model=model_for("scout"),
+            system="Ты переформулируешь поисковые задания Scout-агента на английский язык.",
+            user=(
+                f"Задание не вернуло результатов на русском: «{task.query_focus}»\n"
+                "Переведи на английский и переориентируй на международные аналоги "
+                "(например, вместо «московская премиум недвижимость» → "
+                "«Moscow-comparable global cities premium residential price premiums Knight Frank CBRE Savills»). "
+                "Включи названия ведущих консультантов/агентств (Knight Frank, CBRE, Savills, JLL, McKinsey, OECD). "
+                "Верни только один поисковый запрос на английском, одной строкой, без кавычек."
+            ),
+            temperature=0.4,
+            max_tokens=200,
+        )
+        new_q = new_q.strip().strip('"\'')
+        if not new_q:
+            return task
+        return task.model_copy(update={"query_focus": new_q, "search_type": "web"})
+    except Exception:
+        return task
+
+
+async def _rewrite_task_pivot(task: ScoutTask) -> ScoutTask:
+    """Pivot to a different angle / adjacent domain when direct and international queries both failed."""
+    try:
+        new_q = await call_text(
+            model=model_for("scout"),
+            system="Ты переформулируешь поисковые задания Scout-агента, меняя угол зрения.",
+            user=(
+                f"Два предыдущих варианта поискового задания не дали результатов: «{task.query_focus}»\n"
+                "Предложи смежный угол: если исходное задание о предпочтениях покупателей — "
+                "попробуй кейсы девелоперов, смежный массовый сегмент, паттерны трат на люкс. "
+                "Если о ценах — попробуй транзакционные данные, ипотечные показатели, индексы аренды. "
+                "Сохрани ту же тематическую область. Верни только новый запрос, одной строкой, без кавычек."
+            ),
+            temperature=0.5,
+            max_tokens=200,
+        )
+        new_q = new_q.strip().strip('"«»')
+        if not new_q:
+            return task
+        return task.model_copy(update={"query_focus": new_q})
+    except Exception:
+        return task
+
+
 async def _run_scouts_for_tasks(
     tasks: list[ScoutTask], progress: ProgressCb
 ) -> list[ScoutResult]:
@@ -180,6 +229,31 @@ async def _finalize(
         except Exception as err:
             progress("causal_chains", f"ОШИБКА: {err}")
 
+    scenario_cone = None
+    try:
+        from agents.scenarios import scenarios as _scenarios
+        scenario_cone = await _scenarios(
+            goal=goal,
+            question_type=matrix.question_type,
+            blocks=blocks,
+            connections=connections,
+        )
+        progress("scenarios", f"cone_generated={scenario_cone is not None}")
+    except Exception as err:
+        progress("scenarios", f"ОШИБКА: {err}")
+
+    assumption_inversions = []
+    try:
+        from agents.quadrant_crunch import quadrant_crunch as _quadrant_crunch
+        assumption_inversions = await _quadrant_crunch(
+            goal=goal,
+            blocks=blocks,
+        )
+        progress("quadrant_crunch", f"blocks_processed={len(assumption_inversions)}")
+    except Exception as e:
+        progress("quadrant_crunch", f"failed: {e}")
+        assumption_inversions = []
+
     return Report(
         goal=goal,
         matrix=matrix,
@@ -189,6 +263,8 @@ async def _finalize(
         block_headers=block_headers,
         pre_mortems=pre_mortems,
         causal_chains=causal_chains,
+        scenario_cone=scenario_cone,
+        assumption_inversions=assumption_inversions,
     )
 
 
@@ -208,6 +284,7 @@ async def run_research(
     if matrix is None:
         progress("planner", f"Декомпозирую цель ({depth}): {goal!r}")
         matrix = await planner(goal, depth=depth)
+        progress("planner", f"question_type={matrix.question_type}")
         progress(
             "planner",
             f"Матрица: {len(matrix.domains)} домен(ов), "
@@ -228,43 +305,57 @@ async def run_research(
     for sr in scout_results:
         by_cell.setdefault(sr.task.cell, []).append(sr)
 
-    # Empty-cell fallback: rewrite broader and retry once
+    # Empty-cell fallback: 3-level cascade
     empty_cells = [c for c, rs in by_cell.items() if not any(sr.findings for sr in rs)]
     for cp in matrix.cell_plans:
         if cp.cell not in by_cell:
             empty_cells.append(cp.cell)
             by_cell[cp.cell] = []
+
+    _fallback_rewriters = [
+        ("L1", _rewrite_task_broader),
+        ("L2", _rewrite_task_international),
+        ("L3", _rewrite_task_pivot),
+    ]
+
     if empty_cells:
-        progress("scout", f"Пустых ячеек: {len(empty_cells)} — переформулирую и повторяю")
-        retry_tasks: list[ScoutTask] = []
-        for cell in empty_cells:
-            src = next(
-                (t for t in all_tasks if t.cell == cell),
-                ScoutTask(cell=cell, query_focus=cell, source_hints=""),
-            )
-            retry_tasks.append(await _rewrite_task_broader(src))
-        try:
-            retry_results = await _run_scouts_for_tasks(retry_tasks, progress)
-            for sr in retry_results:
-                by_cell.setdefault(sr.task.cell, []).append(sr)
-        except Exception as err:
-            progress("scout", f"retry failed: {err}")
-        for cell in empty_cells:
-            if not any(sr.findings for sr in by_cell.get(cell, [])):
-                stub = ScoutResult(
-                    task=ScoutTask(cell=cell, query_focus="stub", source_hints=""),
-                    findings=[
-                        Finding(
-                            claim="Данные по этой ячейке не найдены в открытых источниках.",
-                            source="system",
-                            source_label="system",
-                            source_type="opinion",
-                            has_numbers=False,
-                        )
-                    ],
-                    notes="empty-cell stub",
+        progress("scout", f"Пустых ячеек: {len(empty_cells)} — запускаю 3-уровневый fallback")
+        still_empty = list(empty_cells)
+        for level_tag, rewriter in _fallback_rewriters:
+            if not still_empty:
+                break
+            progress("scout", f"fallback {level_tag} для {len(still_empty)} ячеек: {still_empty}")
+            retry_tasks: list[ScoutTask] = []
+            for cell in still_empty:
+                src = next(
+                    (t for t in all_tasks if t.cell == cell),
+                    ScoutTask(cell=cell, query_focus=cell, source_hints=""),
                 )
-                by_cell.setdefault(cell, []).append(stub)
+                progress("scout", f"fallback {level_tag} for cell={cell}")
+                retry_tasks.append(await rewriter(src))
+            try:
+                retry_results = await _run_scouts_for_tasks(retry_tasks, progress)
+                for sr in retry_results:
+                    by_cell.setdefault(sr.task.cell, []).append(sr)
+            except Exception as err:
+                progress("scout", f"fallback {level_tag} failed: {err}")
+            still_empty = [c for c in still_empty if not any(sr.findings for sr in by_cell.get(c, []))]
+
+        for cell in still_empty:
+            stub = ScoutResult(
+                task=ScoutTask(cell=cell, query_focus="stub", source_hints=""),
+                findings=[
+                    Finding(
+                        claim="Данные по этой ячейке не найдены в открытых источниках.",
+                        source="system",
+                        source_label="system",
+                        source_type="opinion",
+                        has_numbers=False,
+                    )
+                ],
+                notes="empty-cell stub",
+            )
+            by_cell.setdefault(cell, []).append(stub)
 
     blocks = await _analyze_cells(by_cell, progress)
     return await _finalize(goal, matrix, blocks, progress)
@@ -279,8 +370,25 @@ def save_report(report: Report, path: Path) -> None:
     )
 
 
+_VALID_SOURCE_TYPES = {
+    "primary_academic", "primary_official", "primary_data",
+    "secondary", "opinion",
+}
+
+
+def _fix_source_types(data: dict) -> dict:
+    """Remap legacy source_type values that no longer match the Literal enum."""
+    for block in data.get("blocks", []):
+        for finding in block.get("findings", []):
+            st = finding.get("source_type")
+            if st and st not in _VALID_SOURCE_TYPES:
+                finding["source_type"] = "secondary"
+    return data
+
+
 def load_report(path: Path) -> Report:
     data = json.loads(path.read_text(encoding="utf-8"))
+    data = _fix_source_types(data)
     return Report.model_validate(data)
 
 

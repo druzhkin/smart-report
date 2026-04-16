@@ -22,7 +22,7 @@ DEPTH_PROFILES: dict[str, dict] = {
         "max_parallel_analysts": 4,
         "planner_model": "google/gemini-2.5-flash",
         "scout_model": "deepseek/deepseek-chat-v3.1",
-        "analyst_model": "moonshotai/kimi-k2",
+        "analyst_model": "google/gemini-2.5-flash",
         "bisociator_model": "moonshotai/kimi-k2",
         "perplexity_model": "sonar",
     },
@@ -34,7 +34,7 @@ DEPTH_PROFILES: dict[str, dict] = {
         "max_parallel_analysts": 4,
         "planner_model": "google/gemini-2.5-flash",
         "scout_model": "deepseek/deepseek-chat-v3.1",
-        "analyst_model": "moonshotai/kimi-k2",
+        "analyst_model": "google/gemini-2.5-flash",
         "bisociator_model": "moonshotai/kimi-k2",
         "perplexity_model": "sonar-pro",
     },
@@ -46,7 +46,7 @@ DEPTH_PROFILES: dict[str, dict] = {
         "max_parallel_analysts": 5,
         "planner_model": "google/gemini-2.5-flash",
         "scout_model": "deepseek/deepseek-chat-v3.1",
-        "analyst_model": "moonshotai/kimi-k2",
+        "analyst_model": "google/gemini-2.5-flash",
         "bisociator_model": "moonshotai/kimi-k2",
         "perplexity_model": "sonar-pro",
     },
@@ -58,7 +58,7 @@ DEPTH_PROFILES: dict[str, dict] = {
         "max_parallel_analysts": 6,
         "planner_model": "google/gemini-2.5-flash",
         "scout_model": "deepseek/deepseek-chat-v3.1",
-        "analyst_model": "moonshotai/kimi-k2",
+        "analyst_model": "google/gemini-2.5-flash",
         "bisociator_model": "moonshotai/kimi-k2",
         "perplexity_model": "sonar-pro",
     },
@@ -130,7 +130,7 @@ class Settings:
 
     planner_model: str = os.getenv("PLANNER_MODEL", "deepseek/deepseek-chat-v3.1")
     scout_model: str = os.getenv("SCOUT_MODEL", "deepseek/deepseek-chat-v3.1")
-    analyst_model: str = os.getenv("ANALYST_MODEL", "moonshotai/kimi-k2")
+    analyst_model: str = os.getenv("ANALYST_MODEL", "google/gemini-2.5-flash")
     bisociator_model: str = os.getenv("BISOCIATOR_MODEL", "moonshotai/kimi-k2")
 
     perplexity_model: str = os.getenv("PERPLEXITY_MODEL", "sonar-pro")

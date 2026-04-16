@@ -762,7 +762,71 @@ async def _wikipedia_search(http: httpx.AsyncClient, query: str, k: int = 4) -> 
     return out
 
 
-async def _fallback(query: str) -> dict[str, Any]:
+_RU_RE_KEYWORDS = re.compile(
+    r"недвижим|жил|квартир|жилья|новострой|жк|residential|real.?estate|property",
+    re.IGNORECASE,
+)
+_RU_RE_DOMAINS = [
+    "domclick.ru", "cian.ru", "avito.ru/nedvizhimost",
+    "domrf.ru", "rosreestr.gov.ru", "metrium.ru",
+    "nedvizhimost.ru", "knightfrank.ru", "cbre.ru", "savills.ru",
+]
+
+# (focus_keyword, disallowed_snippet_markers)
+_RELEVANCE_RULES: list[tuple[re.Pattern[str], list[str]]] = [
+    (
+        re.compile(r"недвижим|жил|квартир|residential|real.?estate|property|housing", re.I),
+        ["oncology", "clinical", "pubmed", "cancer", "patient", "trial", "NCT0",
+         "tumor", "chemotherapy", "randomized controlled"],
+    ),
+    (
+        re.compile(r"финанс|econom|market|рынок|коммерч", re.I),
+        ["astro-ph", "hep-th", "quant-ph", "gr-qc", "cond-mat", "nucl-", "astrophys"],
+    ),
+]
+
+
+def filter_irrelevant(results: list[dict[str, Any]], query: str, focus: str) -> list[dict[str, Any]]:
+    """Drop results with strong off-topic markers based on focus domain heuristics."""
+    combined = f"{query} {focus}"
+    applicable_rules = [(fp, markers) for fp, markers in _RELEVANCE_RULES if fp.search(combined)]
+    if not applicable_rules:
+        return results
+    out: list[dict[str, Any]] = []
+    for r in results:
+        haystack = f"{r.get('title','')} {r.get('snippet','') or r.get('abstract','') or ''} {r.get('url','')}".lower()
+        drop = False
+        for _, markers in applicable_rules:
+            if any(m.lower() in haystack for m in markers):
+                drop = True
+                break
+        if not drop:
+            out.append(r)
+    return out
+
+
+async def _ru_niche_realestate_probe(http: httpx.AsyncClient, query: str) -> list[dict[str, Any]]:
+    """Parallel DDG site: queries against Russian real-estate niche domains."""
+    tasks = [
+        _ddg_search(http, f"site:{domain} {query}", k=3)
+        for domain in _RU_RE_DOMAINS
+    ]
+    batches = await asyncio.gather(*tasks, return_exceptions=True)
+    results: list[dict[str, Any]] = []
+    for batch in batches:
+        if isinstance(batch, list):
+            results.extend(batch)
+    seen: set[str] = set()
+    deduped: list[dict[str, Any]] = []
+    for r in results:
+        key = r.get("url", "").lower()
+        if key and key not in seen:
+            seen.add(key)
+            deduped.append(r)
+    return deduped[:12]
+
+
+async def _fallback(query: str, focus: str = "") -> dict[str, Any]:
     """Live-web fallback: Firecrawl search+scrape → DDG SERP + fetch → Claude synth."""
     from llm import call_text
 
@@ -770,6 +834,10 @@ async def _fallback(query: str) -> dict[str, Any]:
         async with httpx.AsyncClient(timeout=90) as http:
             wiki_task = asyncio.create_task(_wikipedia_search(http, query, k=4))
             hn_task = asyncio.create_task(_hn_algolia_search(http, query, k=4))
+            # RU niche real-estate sources — first shot before generic providers
+            niche_items: list[dict[str, Any]] = []
+            if _RU_RE_KEYWORDS.search(f"{query} {focus}"):
+                niche_items = await _ru_niche_realestate_probe(http, query)
             brave = await _brave_search(http, query, k=6)
             if brave:
                 results = brave
@@ -794,6 +862,10 @@ async def _fallback(query: str) -> dict[str, Any]:
                             if results else []
                         )
                         source_tag = "ddg+jina+claude" if results else "wiki-only+claude"
+            if niche_items:
+                results = list(niche_items) + list(results)
+                pages = [n.get("body", n.get("snippet", "")) for n in niche_items] + list(pages)
+                source_tag = "ru-niche+" + source_tag
             wiki_items, hn_items = await asyncio.gather(wiki_task, hn_task)
             if hn_items:
                 results = list(hn_items) + list(results)
@@ -906,6 +978,7 @@ async def search(query: str, focus: str = "general", search_type: str = "both") 
 async def _search_impl(query: str, focus: str, search_type: str) -> dict[str, Any]:
     if search_type == "academic":
         items = await _academic_fetch_all(query)
+        items = filter_irrelevant(items, query, focus)
         academic_text, academic_cites = _academic_bundle_from_items(items)
         return {"text": academic_text or f"[no academic results for '{query}']",
                 "citations": academic_cites, "query": query, "academic_items": items}
@@ -917,12 +990,14 @@ async def _search_impl(query: str, focus: str, search_type: str) -> dict[str, An
             if tav is not None:
                 tav["academic_items"] = []
                 return tav
-        fb = await _fallback(query)
+        fb = await _fallback(query, focus)
+        fb["citations"] = filter_irrelevant(fb.get("citations") or [], query, focus)
         fb["academic_items"] = []
         return fb
     # both (default): free academic + free web fallback, unless user opts into Perplexity
     if not (settings.use_perplexity and settings.perplexity_api_key):
         academic_items = await _academic_fetch_all(query)
+        academic_items = filter_irrelevant(academic_items, query, focus)
         academic_text, academic_cites = _academic_bundle_from_items(academic_items)
         if settings.tavily_api_key:
             tav = await _tavily_search(query)
@@ -932,10 +1007,12 @@ async def _search_impl(query: str, focus: str, search_type: str) -> dict[str, An
                     tav["citations"] = list(academic_cites) + list(tav.get("citations") or [])
                 tav["academic_items"] = academic_items
                 return tav
-        fb = await _fallback(query)
+        fb = await _fallback(query, focus)
+        fb["citations"] = filter_irrelevant(
+            list(academic_cites) + list(fb.get("citations") or []), query, focus
+        )
         if academic_text:
             fb["text"] = f"{academic_text}\n\n=== WEB SYNTHESIS (free) ===\n{fb.get('text','')}"
-            fb["citations"] = list(academic_cites) + list(fb.get("citations") or [])
         fb["academic_items"] = academic_items
         return fb
     payload = {
@@ -979,7 +1056,7 @@ async def _search_impl(query: str, focus: str, search_type: str) -> dict[str, An
                     if tav is not None:
                         tav["academic_items"] = await _academic_fetch_all(query)
                         return tav
-                    fb = await _fallback(query)
+                    fb = await _fallback(query, focus)
                     fb["academic_items"] = await _academic_fetch_all(query)
                     return fb
                 await asyncio.sleep(1.5 * (attempt + 1))
@@ -987,6 +1064,6 @@ async def _search_impl(query: str, focus: str, search_type: str) -> dict[str, An
     if tav is not None:
         tav["academic_items"] = []
         return tav
-    fb = await _fallback(query)
+    fb = await _fallback(query, focus)
     fb["academic_items"] = []
     return fb
