@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from config import load_prompt, model_for
@@ -9,6 +10,44 @@ from llm import call_json
 from models import Finding, ScoutResult, ScoutTask
 from pydantic import BaseModel
 from search import search
+
+_NUM_RE = re.compile(
+    r"(?:"
+    # currency-prefixed amounts: $2.4B, ₽450, €1.2M
+    r"[$€£¥₽]\s?\d[\d,.]*\s?(?:B|M|K|T|bn|mn|trn|k|млрд|млн|тыс|)?\b"
+    # percentages
+    r"|\d[\d,.]*\s?(?:%|‰|pp|percent|процент(?:ов|а)?|процентных\sпунктов)\b"
+    # time quarters / halves / years
+    r"|(?:Q[1-4]|H[12])[\s-]?\d{4}\b"
+    r"|\d{4}(?:[-–]\d{2,4})?\b"
+    # multiples: 3x, 2.5×, в 4 раза
+    r"|\d[\d.]*\s?(?:x|×|fold|кратн[а-я]*|раз[а-я]*)\b"
+    # sample sizes: n=1842, N=500
+    r"|[nN]\s?=\s?\d[\d,]*\b"
+    # counts with units (RU/EN)
+    r"|\d[\d,]*\s?(?:человек|пациент(?:ов|а)?|участник(?:ов|а)?|респондент(?:ов|а)?|клиент(?:ов|а)?|сайт(?:ов|а)?|patients?|sites?|subjects?|respondents?)\b"
+    # durations
+    r"|\d[\d.]*\s?(?:мес(?:яц(?:ев|а)?|\.?)?|год(?:а|ов|\b)?|лет\b|week(?:s)?\b|month(?:s)?\b|day(?:s)?\b|years?\b|days?\b|час(?:а|ов|\b)?)"
+    # power/physical units
+    r"|\d[\d.]*\s?(?:MW|kW|GW|ГВт|МВт|кВт|Вт|kg|км|mg|°C|°F)\b"
+    r")",
+    flags=re.IGNORECASE | re.UNICODE,
+)
+
+
+def _extract_numeric_values(text: str, limit: int = 8) -> list[str]:
+    """Regex-extract numeric phrases with units from abstract/quote text."""
+    if not text:
+        return []
+    seen: list[str] = []
+    for m in _NUM_RE.finditer(text):
+        v = m.group(0).strip()
+        if len(v) < 2 or v in seen:
+            continue
+        seen.append(v)
+        if len(seen) >= limit:
+            break
+    return seen
 
 SYSTEM = load_prompt("scout")
 
@@ -46,6 +85,8 @@ def _academic_items_to_findings(items: list[dict[str, Any]]) -> list[Finding]:
             label_parts.append(str(year))
         label = ", ".join(label_parts) if label_parts else (authors[0] if authors else "academic source")
         has_numbers = bool(abstract) and any(ch.isdigit() for ch in abstract)
+        numeric_values = _extract_numeric_values(abstract) if has_numbers else []
+        verbatim_quote = (abstract[:400] or None) if has_numbers else None
         entities = [a for a in authors if a][:5]
         if venue:
             entities.append(venue)
@@ -59,6 +100,8 @@ def _academic_items_to_findings(items: list[dict[str, Any]]) -> list[Finding]:
             source_db=it.get("source_db") or "academic",
             has_numbers=has_numbers,
             entities=entities[:8],
+            numeric_values=numeric_values,
+            verbatim_quote=verbatim_quote,
         ))
     return out
 

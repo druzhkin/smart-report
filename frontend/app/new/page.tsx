@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { startResearch } from "@/lib/api";
 import { Paperclip, Play, Check } from "lucide-react";
@@ -24,6 +24,12 @@ export default function NewRequestPage() {
   const router = useRouter();
   const [goal, setGoal] = useState("");
   const [depth, setDepth] = useState<Depth>("standard");
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("default_depth") as Depth | null;
+      if (saved && DEPTHS.some((d) => d.id === saved)) setDepth(saved);
+    } catch {}
+  }, []);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 

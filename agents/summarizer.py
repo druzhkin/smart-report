@@ -33,7 +33,7 @@ async def summarize(
             "strong_findings": [
                 {"claim": f.claim, "source": f.source, "type": f.source_type}
                 for f in b.findings
-                if f.has_numbers and f.source_type == "primary"
+                if f.has_numbers and f.source_type.startswith("primary")
             ][:5],
             "gaps": b.gaps,
             "assumptions": b.assumptions,
