@@ -244,13 +244,15 @@ async def _run_job(job: _Job) -> None:
     t0 = time.time()
 
     def progress(event: str, message: str) -> None:
-        # orchestrator's ProgressCb is sync; push into queue safely
+        payload = {"event": event, "message": message, "ts": time.time()}
+        # Polling endpoint reads job.events; keep it in sync with the SSE queue.
+        job.events.append(payload)
+        if len(job.events) > 2000:
+            job.events = job.events[-1500:]
         try:
-            loop.call_soon_threadsafe(job.queue.put_nowait, {
-                "event": event, "message": message, "ts": time.time()
-            })
+            loop.call_soon_threadsafe(job.queue.put_nowait, payload)
         except RuntimeError:
-            job.queue.put_nowait({"event": event, "message": message, "ts": time.time()})
+            job.queue.put_nowait(payload)
         # Heartbeat: bump sidecar updated_at + current phase on every progress tick.
         _write_status(job.id, "running", goal=job.goal, phase=event)
         # Mirror to stdout so Railway/Docker logs capture every pipeline step.
@@ -285,12 +287,14 @@ async def _run_mutation(job: _Job, coro_factory) -> None:
     loop = asyncio.get_running_loop()
 
     def progress(event: str, message: str) -> None:
+        payload = {"event": event, "message": message, "ts": time.time()}
+        job.events.append(payload)
+        if len(job.events) > 2000:
+            job.events = job.events[-1500:]
         try:
-            loop.call_soon_threadsafe(job.queue.put_nowait, {
-                "event": event, "message": message, "ts": time.time()
-            })
+            loop.call_soon_threadsafe(job.queue.put_nowait, payload)
         except RuntimeError:
-            job.queue.put_nowait({"event": event, "message": message, "ts": time.time()})
+            job.queue.put_nowait(payload)
 
     job.status = "running"
     job.emit("status", "running")
