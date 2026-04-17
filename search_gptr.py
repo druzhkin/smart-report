@@ -1,26 +1,25 @@
-"""gpt-researcher search backend (bench-only, NOT wired into production pipeline).
+"""gpt-researcher search backend — cheap mode.
 
-Environment injection strategy
--------------------------------
-gpt-researcher reads its configuration exclusively from environment variables at
-instantiation time.  We set the required vars in os.environ right before each
-call so they take effect without touching .env or any shared state that other
-backends rely on:
+Our scout already extracts facts from raw text, so we skip gpt-researcher's
+`write_report()` step (which is ~60% of its cost) and feed the accumulated
+research context straight to the scout.
 
-  OPENAI_API_KEY      — forwarded from OPENROUTER_API_KEY (gptr uses this key name
-                        when provider == "openrouter")
-  OPENROUTER_API_KEY  — same key; gptr's openrouter provider reads this directly
-  FAST_LLM            — "openrouter:google/gemini-2.5-flash"
-  SMART_LLM           — "openrouter:google/gemini-2.5-flash"
-  STRATEGIC_LLM       — "openrouter:google/gemini-2.5-flash"
-  RETRIEVER           — "duckduckgo" (free, no API key needed)
-                        Falls back to "tavily" if TAVILY_API_KEY is set and
-                        duckduckgo is unavailable (see _ensure_retriever()).
+Cost levers applied (all via env vars read at GPTResearcher instantiation):
+  MAX_ITERATIONS=1                 — one sub-query pass, not three
+  MAX_SUBTOPICS=1                  — no topic branching
+  MAX_SEARCH_RESULTS_PER_QUERY=3   — fewer URLs scraped per sub-query
+  CURATE_SOURCES=False             — skip extra LLM curation pass
+  SIMILARITY_THRESHOLD=0.5         — tighter source filtering
+  RETRIEVER=duckduckgo             — free retriever, no API key
+  FAST/SMART/STRATEGIC_LLM         — all pinned to gemini-2.5-flash
 
-Cost accounting
----------------
-gpt-researcher accumulates cost via researcher.get_costs() → float USD.
-We convert that to ₽ via settings.usd_to_credits and call account_provider().
+Accessors used instead of write_report():
+  researcher.conduct_research()    — scrapes + builds context
+  researcher.get_research_context() — accumulated RAG text
+  researcher.get_research_sources() — list of {url,title,content} dicts
+
+Cost accounting: researcher.get_costs() → USD, converted to ₽ via
+settings.usd_to_credits, recorded under provider 'gpt_researcher'.
 """
 from __future__ import annotations
 
@@ -51,6 +50,13 @@ def _prepare_env() -> None:
     os.environ["SMART_LLM"] = _GPTR_MODEL
     os.environ["STRATEGIC_LLM"] = _GPTR_MODEL
     os.environ["RETRIEVER"] = _choose_retriever()
+    # Cheap mode: minimise LLM fan-out inside gpt-researcher. Our scout does
+    # extraction itself, so gpt-researcher only needs to gather raw evidence.
+    os.environ["MAX_ITERATIONS"] = "1"
+    os.environ["MAX_SUBTOPICS"] = "1"
+    os.environ["MAX_SEARCH_RESULTS_PER_QUERY"] = "3"
+    os.environ["CURATE_SOURCES"] = "False"
+    os.environ["SIMILARITY_THRESHOLD"] = "0.5"
     if settings.tavily_api_key:
         os.environ["TAVILY_API_KEY"] = settings.tavily_api_key
 
@@ -110,33 +116,47 @@ async def gpt_researcher_search(query: str) -> dict[str, Any]:
     try:
         from gpt_researcher import GPTResearcher  # late import so env is set first
 
+        # outline_report is the lightest report_type; we skip write_report anyway
+        # but the config needs a valid type during instantiation.
         researcher = GPTResearcher(
             query=query,
-            report_type="research_report",
+            report_type="outline_report",
             verbose=False,
         )
         await researcher.conduct_research()
-        report: str = await researcher.write_report()
 
         sources: list[dict[str, Any]] = researcher.get_research_sources()
+        context: str = researcher.get_research_context() or ""
         citations = _extract_citations(sources)
+
+        # Compose raw evidence corpus from scraped sources — the scout LLM will
+        # extract numeric facts downstream. Skipping write_report() saves ~60%
+        # of gpt-researcher's LLM spend.
+        corpus_parts = [context] if context else []
+        for i, s in enumerate(sources, 1):
+            body = (s.get("raw_content") or s.get("content") or s.get("body") or "").strip()
+            if not body:
+                continue
+            url = s.get("url", "")
+            title = s.get("title") or url
+            corpus_parts.append(f"[{i}] {title} — {url}\n{body[:2000]}")
+        corpus = "\n\n---\n\n".join(corpus_parts)[:30000]
 
         cost_usd: float = researcher.get_costs() or 0.0
         cost_rub = cost_usd * settings.usd_to_credits
         account_provider("gpt_researcher", cost_rub, calls=1)
 
         log.info(
-            "search_gptr: query=%r text_len=%d cites=%d inline_refs=%d cost_usd=%.4f cost_rub=%.2f",
+            "search_gptr: query=%r corpus_len=%d cites=%d cost_usd=%.4f cost_rub=%.2f",
             query[:60],
-            len(report),
+            len(corpus),
             len(citations),
-            _count_citation_refs(report),
             cost_usd,
             cost_rub,
         )
 
         return {
-            "text": report,
+            "text": corpus,
             "citations": citations,
             "query": query,
             "source_db": "gpt_researcher",
