@@ -474,29 +474,68 @@ def _stats(report: Report) -> dict:
 
 
 def _synth_tldr(report: Report, limit: int = 5) -> list[str]:
-    """Extract 3-5 plain-language insights: exec_summary.top_findings first, fall back to high-priority block one-liners."""
+    """Extract 3-5 plain-language insights. Fallback chain: top_findings → high/medium one_liners
+    → any non-empty one_liner → top_connections → key_gaps. Degenerate reports still get a TL;DR."""
     out: list[str] = []
+    seen: set[str] = set()
+
+    def _push(text: str) -> bool:
+        t = (text or "").strip()
+        if not t or t in seen:
+            return False
+        seen.add(t)
+        out.append(t)
+        return len(out) >= limit
+
     if report.exec_summary and report.exec_summary.top_findings:
         for tf in report.exec_summary.top_findings[:limit]:
-            out.append(tf.headline)
-    if len(out) < limit:
-        headers = _headers_by_cell(report)
+            if _push(tf.headline):
+                return out
+
+    headers = _headers_by_cell(report)
+    for priority_tier in (("high", "medium"), ("low",)):
+        if len(out) >= limit:
+            break
         for b in _sorted_blocks(report):
             h = headers.get(b.cell)
-            if h and h.priority in ("high", "medium") and h.one_liner not in out:
-                out.append(h.one_liner)
-                if len(out) >= limit:
-                    break
+            if h and h.priority in priority_tier and h.one_liner:
+                if _push(h.one_liner):
+                    return out
+
+    if report.exec_summary:
+        for c in report.exec_summary.top_connections or []:
+            if _push(c.headline):
+                return out
+        for g in report.exec_summary.key_gaps or []:
+            if _push(g):
+                return out
+
     return out[:limit]
 
 
+_DEGENERATE_NUM_RE = re.compile(r"^\s*0\s+[^\d]", flags=re.UNICODE)
+
+
+def _is_meaningful_number(text: str) -> bool:
+    """Filter out degenerate LLM outputs like '0 исследований…' that render as if they were numbers.
+    Require: non-empty, contains at least one digit, not of pattern '0 <non-digit…>'."""
+    t = (text or "").strip()
+    if not t or len(t) < 2:
+        return False
+    if not any(ch.isdigit() for ch in t):
+        return False
+    if _DEGENERATE_NUM_RE.match(t):
+        return False
+    return True
+
+
 def _collect_key_numbers(report: Report, limit: int = 5) -> list[tuple[str, str]]:
-    """Return list of (number_phrase, source_label) from block headers, skipping empties."""
+    """Return list of (number_phrase, source_label) from block headers, skipping empties and degenerate phrases."""
     out: list[tuple[str, str]] = []
     headers = _headers_by_cell(report)
     for b in _sorted_blocks(report):
         h = headers.get(b.cell)
-        if not h or not h.strongest_number:
+        if not h or not _is_meaningful_number(h.strongest_number):
             continue
         label = b.cell.split(" / ")[0]
         out.append((h.strongest_number, label))
@@ -796,8 +835,8 @@ def _add_block(doc, block: Block, header: BlockHeader | None) -> None:
             label_color=_CLR_PRIMARY,
         )
 
-    # Strongest number
-    if header and header.strongest_number:
+    # Strongest number — skip degenerate "0 исследований" style phrases
+    if header and _is_meaningful_number(header.strongest_number):
         _add_callout(
             doc,
             header.strongest_number,
@@ -847,8 +886,17 @@ def _add_block(doc, block: Block, header: BlockHeader | None) -> None:
         )
 
     # Evidence
+    doc.add_heading("Доказательная база", level=3)
+    if not block.findings:
+        _add_callout(
+            doc,
+            "По этому срезу данных собрать не удалось — см. «Пробелы» ниже, там расписано, куда копать дальше.",
+            shade=_SHADE_WARN,
+            border_color="BF8F00",
+            label="Данных в блоке не найдено.",
+            label_color=RGBColor(0x9C, 0x65, 0x00),
+        )
     if block.findings:
-        doc.add_heading("Доказательная база", level=3)
         for f in block.findings:
             p = doc.add_paragraph(style="List Bullet")
             p.paragraph_format.space_after = Pt(3)
@@ -939,7 +987,7 @@ def _add_connections(doc, report: Report) -> None:
     if not report.connections:
         return
     doc.add_page_break()
-    doc.add_heading("Связи между доменами", level=1)
+    doc.add_heading("Кросс-доменные связи: подробный разбор", level=1)
     intro = doc.add_paragraph()
     r = intro.add_run(
         "Кросс-доменные связи показывают, где выводы одного блока подкрепляют или противоречат другому. "
