@@ -127,6 +127,14 @@ class Settings:
     # Economy switches: defaults favor free fetchers over paid search.
     use_perplexity: bool = os.getenv("USE_PERPLEXITY", "false").lower() in ("1", "true", "yes")
     use_jina_reader: bool = os.getenv("USE_JINA_READER", "true").lower() in ("1", "true", "yes")
+    # Per-backend gates for bench matrix. Defaults preserve current production behavior.
+    use_academic: bool = os.getenv("USE_ACADEMIC", "true").lower() in ("1", "true", "yes")
+    use_cheap_web: bool = os.getenv("USE_CHEAP_WEB", "true").lower() in ("1", "true", "yes")
+    use_tavily: bool = os.getenv("USE_TAVILY", "true").lower() in ("1", "true", "yes")
+    use_gpt_researcher: bool = os.getenv("USE_GPT_RESEARCHER", "false").lower() in ("1", "true", "yes")
+    # Tavily whitelist mode: comma-separated list of domains or empty. When set,
+    # Tavily calls pass include_domains to filter out blog/marketing noise.
+    tavily_include_domains: str = os.getenv("TAVILY_INCLUDE_DOMAINS", "")
 
     planner_model: str = os.getenv("PLANNER_MODEL", "deepseek/deepseek-chat-v3.1")
     scout_model: str = os.getenv("SCOUT_MODEL", "deepseek/deepseek-chat-v3.1")

@@ -110,6 +110,7 @@ async def scout(task: ScoutTask) -> ScoutResult:
     raw = await search(task.query_focus, focus=task.cell, search_type=task.search_type)
     academic_items = raw.get("academic_items") or []
     academic_findings = _academic_items_to_findings(academic_items)
+    web_source_db = raw.get("source_db") or raw.get("fallback") or "web_unknown"
 
     citations_blob = json.dumps(raw.get("citations", []), ensure_ascii=False, indent=2)
     academic_hint = ""
@@ -139,5 +140,12 @@ async def scout(task: ScoutTask) -> ScoutResult:
         schema=_ScoutPayload,
         temperature=0.2,
     )
-    findings = list(academic_findings) + list(payload.findings)
+    # Ground-truth backend attribution: override whatever the LLM guessed with the
+    # actual search backend label. Without this the bench can't tell which backend
+    # contributed each finding — the LLM tends to pick familiar enum values (e.g.
+    # "firecrawl") regardless of which backend produced the raw text.
+    web_findings = list(payload.findings)
+    for f in web_findings:
+        f.source_db = web_source_db
+    findings = list(academic_findings) + web_findings
     return ScoutResult(task=task, findings=findings, notes=payload.notes)

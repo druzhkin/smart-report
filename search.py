@@ -545,23 +545,32 @@ def _academic_bundle_from_items(uniq: list[dict[str, Any]]) -> tuple[str, list[d
     return "\n".join(lines), citations
 
 
-async def _tavily_search(query: str, k: int = 6) -> dict[str, Any] | None:
-    """Tavily /search: returns LLM answer + raw content of top-k results. Fast + cheap."""
+def _parse_tavily_whitelist() -> list[str]:
+    raw = (settings.tavily_include_domains or "").strip()
+    if not raw:
+        return []
+    return [d.strip() for d in raw.split(",") if d.strip()]
+
+
+async def _tavily_search(query: str, k: int = 6, include_domains: list[str] | None = None) -> dict[str, Any] | None:
+    """Tavily /search: returns LLM answer + raw content of top-k results. Fast + cheap.
+    Pass include_domains (or rely on TAVILY_INCLUDE_DOMAINS env) to whitelist trusted sources."""
     if not settings.tavily_api_key:
         return None
+    domains = include_domains if include_domains is not None else _parse_tavily_whitelist()
     try:
+        body: dict[str, Any] = {
+            "api_key": settings.tavily_api_key,
+            "query": query,
+            "search_depth": "advanced",
+            "max_results": k,
+            "include_raw_content": True,
+            "include_answer": True,
+        }
+        if domains:
+            body["include_domains"] = domains
         async with httpx.AsyncClient(timeout=45) as http:
-            r = await http.post(
-                TAVILY_URL,
-                json={
-                    "api_key": settings.tavily_api_key,
-                    "query": query,
-                    "search_depth": "advanced",
-                    "max_results": k,
-                    "include_raw_content": True,
-                    "include_answer": True,
-                },
-            )
+            r = await http.post(TAVILY_URL, json=body)
             r.raise_for_status()
             data = r.json()
         answer = (data.get("answer") or "").strip()
@@ -576,7 +585,8 @@ async def _tavily_search(query: str, k: int = 6) -> dict[str, Any] | None:
             snippet = (r.get("raw_content") or r.get("content") or "")[:1200]
             bullets.append(f"[{i}] {r.get('title','')} — {r.get('url','')}\n{snippet}")
         text = (answer + "\n\n" if answer else "") + "\n\n".join(bullets)
-        return {"text": text, "citations": citations, "query": query, "fallback": "tavily"}
+        tag = "tavily_whitelist" if domains else "tavily"
+        return {"text": text, "citations": citations, "query": query, "fallback": tag, "source_db": tag}
     except Exception:
         return None
 
@@ -786,6 +796,20 @@ _RELEVANCE_RULES: list[tuple[re.Pattern[str], list[str]]] = [
 ]
 
 
+def _normalize_citations(raw: Any) -> list[dict[str, str]]:
+    """Coerce heterogeneous citation items to {url,title,...} dicts.
+    Perplexity returns bare URL strings; gpt-researcher returns dicts; academic returns dicts."""
+    if not raw:
+        return []
+    out: list[dict[str, str]] = []
+    for item in raw:
+        if isinstance(item, dict):
+            out.append(item)
+        elif isinstance(item, str):
+            out.append({"url": item, "title": item})
+    return out
+
+
 def filter_irrelevant(results: list[dict[str, Any]], query: str, focus: str) -> list[dict[str, Any]]:
     """Drop results with strong off-topic markers based on focus domain heuristics."""
     combined = f"{query} {focus}"
@@ -911,110 +935,10 @@ async def _fallback(query: str, focus: str = "") -> dict[str, Any]:
         return {"text": f"[search+fallback failed: {err}]", "citations": [], "query": query}
 
 
-async def _web_only(query: str) -> dict[str, Any]:
-    """Perplexity-only pipeline (no academic bundle). Same fallback chain."""
+async def _perplexity_raw(query: str) -> dict[str, Any] | None:
+    """Pure Perplexity call — no composition, no fallback. Returns None on failure."""
     if not settings.perplexity_api_key:
-        return await _fallback(query)
-    payload = {
-        "model": perplexity_model_for(),
-        "messages": [
-            {
-                "role": "system",
-                "content": (
-                    "You are a research assistant. Answer the user's query with concrete facts, "
-                    "numbers and named sources. Prefer primary sources (official statistics, "
-                    "regulators, company filings). Keep it dense, no fluff."
-                ),
-            },
-            {"role": "user", "content": query},
-        ],
-        "temperature": 0.2,
-    }
-    headers = {
-        "Authorization": f"Bearer {settings.perplexity_api_key}",
-        "Content-Type": "application/json",
-    }
-    async with httpx.AsyncClient(timeout=90) as http:
-        for attempt in range(3):
-            try:
-                r = await http.post(PPLX_URL, json=payload, headers=headers)
-                r.raise_for_status()
-                data = r.json()
-                text = data["choices"][0]["message"]["content"]
-                citations = data.get("citations") or data.get("search_results") or []
-                account_provider("perplexity", _pplx_cost())
-                return {"text": text, "citations": citations, "query": query, "academic_items": []}
-            except (httpx.HTTPError, KeyError):
-                if attempt == 2:
-                    break
-                await asyncio.sleep(1.5 * (attempt + 1))
-    tav = await _tavily_search(query)
-    if tav is not None:
-        tav["academic_items"] = []
-        return tav
-    fb = await _fallback(query)
-    fb["academic_items"] = []
-    return fb
-
-
-async def search(query: str, focus: str = "general", search_type: str = "both") -> dict[str, Any]:
-    """Run one search query. Routes by search_type: web | academic | both. Returns {text, citations, academic_items}."""
-    t0 = time.time()
-    try:
-        result = await _search_impl(query, focus, search_type)
-    except Exception as err:
-        log.error("search FAIL type=%s q=%r after %.1fs: %s", search_type, query[:80], time.time() - t0, err)
-        raise
-    log.info(
-        "search ok type=%s %.1fs cites=%d acad=%d q=%r",
-        search_type, time.time() - t0,
-        len(result.get("citations") or []),
-        len(result.get("academic_items") or []),
-        query[:80],
-    )
-    return result
-
-
-async def _search_impl(query: str, focus: str, search_type: str) -> dict[str, Any]:
-    if search_type == "academic":
-        items = await _academic_fetch_all(query)
-        items = filter_irrelevant(items, query, focus)
-        academic_text, academic_cites = _academic_bundle_from_items(items)
-        return {"text": academic_text or f"[no academic results for '{query}']",
-                "citations": academic_cites, "query": query, "academic_items": items}
-    if search_type == "web":
-        if settings.use_perplexity and settings.perplexity_api_key:
-            return await _web_only(query)
-        if settings.tavily_api_key:
-            tav = await _tavily_search(query)
-            if tav is not None:
-                tav["academic_items"] = []
-                return tav
-        fb = await _fallback(query, focus)
-        fb["citations"] = filter_irrelevant(fb.get("citations") or [], query, focus)
-        fb["academic_items"] = []
-        return fb
-    # both (default): free academic + free web fallback, unless user opts into Perplexity
-    if not (settings.use_perplexity and settings.perplexity_api_key):
-        academic_items = await _academic_fetch_all(query)
-        academic_items = filter_irrelevant(academic_items, query, focus)
-        academic_text, academic_cites = _academic_bundle_from_items(academic_items)
-        if settings.tavily_api_key:
-            tav = await _tavily_search(query)
-            if tav is not None:
-                if academic_text:
-                    tav["text"] = f"{academic_text}\n\n=== WEB SYNTHESIS (Tavily) ===\n{tav.get('text','')}"
-                    tav["citations"] = list(academic_cites) + list(tav.get("citations") or [])
-                tav["academic_items"] = academic_items
-                return tav
-        fb = await _fallback(query, focus)
-        fb["citations"] = filter_irrelevant(
-            list(academic_cites) + list(fb.get("citations") or []), query, focus
-        )
-        if academic_text:
-            fb["text"] = f"{academic_text}\n\n=== WEB SYNTHESIS (free) ===\n{fb.get('text','')}"
-        fb["academic_items"] = academic_items
-        return fb
+        return None
     payload = {
         "model": perplexity_model_for(),
         "messages": [
@@ -1037,33 +961,156 @@ async def _search_impl(query: str, focus: str, search_type: str) -> dict[str, An
     async with httpx.AsyncClient(timeout=90) as http:
         for attempt in range(3):
             try:
-                pplx_task = http.post(PPLX_URL, json=payload, headers=headers)
-                academic_task = _academic_fetch_all(query)
-                r, academic_items = await asyncio.gather(pplx_task, academic_task)
-                academic_text, academic_cites = _academic_bundle_from_items(academic_items)
+                r = await http.post(PPLX_URL, json=payload, headers=headers)
                 r.raise_for_status()
                 data = r.json()
                 text = data["choices"][0]["message"]["content"]
                 citations = data.get("citations") or data.get("search_results") or []
-                if academic_text:
-                    text = f"{academic_text}\n\n=== WEB SYNTHESIS (Perplexity) ===\n{text}"
-                    citations = list(academic_cites) + list(citations)
                 account_provider("perplexity", _pplx_cost())
-                return {"text": text, "citations": citations, "query": query, "academic_items": academic_items}
+                return {"text": text, "citations": citations, "query": query, "source_db": "perplexity"}
             except (httpx.HTTPError, KeyError):
                 if attempt == 2:
-                    tav = await _tavily_search(query)
-                    if tav is not None:
-                        tav["academic_items"] = await _academic_fetch_all(query)
-                        return tav
-                    fb = await _fallback(query, focus)
-                    fb["academic_items"] = await _academic_fetch_all(query)
-                    return fb
+                    return None
                 await asyncio.sleep(1.5 * (attempt + 1))
-    tav = await _tavily_search(query)
-    if tav is not None:
-        tav["academic_items"] = []
-        return tav
-    fb = await _fallback(query, focus)
+    return None
+
+
+async def _gpt_researcher_call(query: str) -> dict[str, Any] | None:
+    """Call gpt-researcher backend if installed. Lazy import so a missing dep doesn't break prod."""
+    try:
+        from search_gptr import gpt_researcher_search
+    except ImportError:
+        log.warning("search: gpt_researcher backend enabled but search_gptr missing")
+        return None
+    try:
+        res = await gpt_researcher_search(query)
+        if not res.get("text") or res.get("fallback") == "gpt_researcher_failed":
+            return None
+        res["source_db"] = "gpt_researcher"
+        return res
+    except Exception as err:
+        log.warning("search: gpt_researcher error: %s", err)
+        return None
+
+
+async def _web_only(query: str) -> dict[str, Any]:
+    """Perplexity-only pipeline (no academic bundle). Same fallback chain."""
+    pp = await _perplexity_raw(query)
+    if pp is not None:
+        pp["academic_items"] = []
+        return pp
+    if settings.use_tavily:
+        tav = await _tavily_search(query)
+        if tav is not None:
+            tav["academic_items"] = []
+            return tav
+    fb = await _fallback(query)
     fb["academic_items"] = []
+    fb.setdefault("source_db", fb.get("fallback") or "cheap_web")
     return fb
+
+
+async def search(query: str, focus: str = "general", search_type: str = "both") -> dict[str, Any]:
+    """Run one search query. Routes by search_type: web | academic | both. Returns {text, citations, academic_items}."""
+    t0 = time.time()
+    try:
+        result = await _search_impl(query, focus, search_type)
+    except Exception as err:
+        log.error("search FAIL type=%s q=%r after %.1fs: %s", search_type, query[:80], time.time() - t0, err)
+        raise
+    log.info(
+        "search ok type=%s %.1fs cites=%d acad=%d q=%r",
+        search_type, time.time() - t0,
+        len(result.get("citations") or []),
+        len(result.get("academic_items") or []),
+        query[:80],
+    )
+    return result
+
+
+async def _academic_branch(query: str, focus: str) -> tuple[str, list[dict[str, str]], list[dict[str, Any]]]:
+    """Run academic stack if enabled. Returns (text, citations, items) or ("", [], [])."""
+    if not settings.use_academic:
+        return "", [], []
+    items = await _academic_fetch_all(query)
+    items = filter_irrelevant(items, query, focus)
+    text, cites = _academic_bundle_from_items(items)
+    return text, cites, items
+
+
+async def _search_impl(query: str, focus: str, search_type: str) -> dict[str, Any]:
+    """Composable multi-backend search. Each backend is gated by its own settings flag.
+    Runs enabled backends in parallel and concatenates their output. The bench harness
+    toggles flags at runtime to isolate individual backends."""
+    # Academic-only shortcut keeps the old contract for search_type='academic' callers.
+    if search_type == "academic":
+        text, cites, items = await _academic_branch(query, focus)
+        if not items:
+            return {"text": f"[no academic results for '{query}']", "citations": [],
+                    "query": query, "academic_items": [], "source_db": "academic_empty"}
+        return {"text": text, "citations": cites, "query": query,
+                "academic_items": items, "source_db": "academic"}
+
+    include_academic = (search_type == "both") and settings.use_academic
+    web_tasks: list[tuple[str, Any]] = []
+    if settings.use_perplexity and settings.perplexity_api_key:
+        web_tasks.append(("perplexity", _perplexity_raw(query)))
+    if settings.use_gpt_researcher:
+        web_tasks.append(("gpt_researcher", _gpt_researcher_call(query)))
+    if settings.use_tavily and settings.tavily_api_key:
+        web_tasks.append(("tavily", _tavily_search(query)))
+
+    academic_coro = _academic_branch(query, focus) if include_academic else None
+    gathered = await asyncio.gather(
+        *(coro for _, coro in web_tasks),
+        academic_coro if academic_coro is not None else asyncio.sleep(0, result=("", [], [])),
+        return_exceptions=True,
+    )
+    web_results = list(gathered[:-1])
+    academic_text, academic_cites, academic_items = gathered[-1] if include_academic else ("", [], [])
+
+    text_parts: list[str] = []
+    all_citations: list[dict[str, str]] = []
+    source_dbs: list[str] = []
+    if academic_text:
+        text_parts.append(academic_text)
+        all_citations.extend(_normalize_citations(academic_cites))
+        source_dbs.append("academic")
+    for (label, _coro), res in zip(web_tasks, web_results):
+        if isinstance(res, Exception) or not isinstance(res, dict):
+            continue
+        txt = (res.get("text") or "").strip()
+        if not txt:
+            continue
+        text_parts.append(f"=== WEB SYNTHESIS ({label.upper()}) ===\n{txt}")
+        all_citations.extend(_normalize_citations(res.get("citations")))
+        source_dbs.append(res.get("source_db") or label)
+
+    if text_parts:
+        return {
+            "text": "\n\n".join(text_parts),
+            "citations": filter_irrelevant(all_citations, query, focus),
+            "query": query,
+            "academic_items": academic_items,
+            "source_db": "+".join(source_dbs) or "composite",
+        }
+
+    # No primary backend produced text — fall back to cheap-web chain if allowed.
+    if settings.use_cheap_web:
+        fb = await _fallback(query, focus)
+        fb["citations"] = filter_irrelevant(
+            _normalize_citations(academic_cites) + _normalize_citations(fb.get("citations")),
+            query, focus,
+        )
+        if academic_text:
+            fb["text"] = f"{academic_text}\n\n=== WEB SYNTHESIS (cheap_web) ===\n{fb.get('text','')}"
+        fb["academic_items"] = academic_items
+        fb.setdefault("source_db", fb.get("fallback") or "cheap_web")
+        return fb
+    return {
+        "text": academic_text or f"[no backend enabled returned results for '{query}']",
+        "citations": academic_cites,
+        "query": query,
+        "academic_items": academic_items,
+        "source_db": "empty",
+    }
