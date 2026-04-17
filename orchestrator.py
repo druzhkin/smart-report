@@ -594,6 +594,7 @@ async def run_research(
     progress: ProgressCb = _noop,
     matrix: Matrix | None = None,
     depth: str = "standard",
+    question_type_override: str | None = None,
 ) -> Report:
     set_active_profile(depth_profile(depth))
     reset_meter()
@@ -602,6 +603,9 @@ async def run_research(
     if matrix is None:
         progress("planner", f"Декомпозирую цель ({depth}): {goal!r}")
         matrix = await planner(goal, depth=depth)
+        if question_type_override:
+            matrix = matrix.model_copy(update={"question_type": question_type_override})
+            progress("planner", f"question_type overridden → {question_type_override}")
         progress("planner", f"question_type={matrix.question_type}")
         progress(
             "planner",

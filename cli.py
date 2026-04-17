@@ -50,10 +50,14 @@ def _make_stem(goal: str, suffix: str = "") -> str:
     return f"{base}-{suffix}" if suffix else base
 
 
-async def _run_fresh(goal: str, stem: str | None, depth: str) -> int:
+async def _run_fresh(
+    goal: str, stem: str | None, depth: str, question_type: str | None = None
+) -> int:
     reset_meter()
     start = time.time()
-    report = await run_research(goal, progress=_log, depth=depth)
+    report = await run_research(
+        goal, progress=_log, depth=depth, question_type_override=question_type
+    )
     stem = stem or _make_stem(goal)
     paths = save_all(report, OUTPUT_DIR, stem=stem)
     _print_summary(start, report, paths)
@@ -142,9 +146,16 @@ def main() -> int:
     p.add_argument("--stem", help="Имя выходных файлов (без расширения)", default=None)
     p.add_argument(
         "--depth",
-        choices=["light", "standard", "deep", "exhaustive"],
+        choices=["light", "standard", "deep", "premium"],
         default="standard",
         help="Глубина прогона (действует только для первого прохода)",
+    )
+    p.add_argument(
+        "--question-type",
+        dest="question_type",
+        choices=["factual", "predictive", "comparative", "causal", "normative", "exploratory"],
+        default=None,
+        help="Форсировать planner.question_type (для A/B детерминизма; только первый проход)",
     )
     args = p.parse_args()
 
@@ -168,7 +179,7 @@ def main() -> int:
             return asyncio.run(_run_connect(args.from_json, a, b, args.stem))
         if not args.goal:
             p.error("Укажи цель (первый аргумент) либо используй --from-json с операцией")
-        return asyncio.run(_run_fresh(args.goal, args.stem, args.depth))
+        return asyncio.run(_run_fresh(args.goal, args.stem, args.depth, args.question_type))
     except KeyboardInterrupt:
         print("\n[aborted]", file=sys.stderr)
         return 130
