@@ -27,6 +27,8 @@ from typing import Any
 from config import settings
 from llm import account_provider
 
+import valyu_sdk_patch  # noqa: F401  — widens ImageMetadata.chart_type on import
+
 log = logging.getLogger("search_deep")
 
 
