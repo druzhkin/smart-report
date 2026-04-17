@@ -48,7 +48,10 @@ def _apply() -> None:
     if _APPLIED:
         return
     try:
+        import inspect
+        from valyu.types import deepresearch as _dr
         from valyu.types.deepresearch import ImageMetadata
+        from pydantic import BaseModel
         from pydantic.fields import FieldInfo
     except ImportError:
         log.debug("valyu_sdk_patch: valyu SDK not importable, skipping")
@@ -59,8 +62,21 @@ def _apply() -> None:
         default=None,
     )
     ImageMetadata.model_rebuild(force=True)
+
+    # Parent models (DeepResearchStatusResponse et al.) compiled their core_schema
+    # before the patch and still hold the old Literal. Rebuild every BaseModel
+    # subclass in the module to invalidate those cached schemas.
+    rebuilt = 0
+    for name, obj in vars(_dr).items():
+        if inspect.isclass(obj) and issubclass(obj, BaseModel) and obj is not BaseModel:
+            try:
+                obj.model_rebuild(force=True)
+                rebuilt += 1
+            except Exception as e:  # noqa: BLE001
+                log.debug("valyu_sdk_patch: rebuild failed for %s: %s", name, e)
+
     _APPLIED = True
-    log.info("valyu_sdk_patch: widened ImageMetadata.chart_type to Optional[str]")
+    log.info("valyu_sdk_patch: widened ImageMetadata.chart_type to Optional[str]; rebuilt %d models", rebuilt)
 
 
 _apply()
