@@ -13,6 +13,7 @@ from typing import Awaitable, Callable, TypeVar
 
 from agents.analyst import analyst
 from agents.bisociator import bisociate_pair, bisociator
+from agents.consensus import build_consensus
 from agents.contrarian import critique_block
 from agents.planner import plan_deepen, plan_new_domain, planner
 from agents.quant_extractor import extract_quants
@@ -522,6 +523,27 @@ async def _finalize(
         progress("quadrant_crunch", f"failed: {e}")
         assumption_inversions = []
 
+    consensus_layer = None
+    if corpus is not None and profile_bool("consensus_layer", False):
+        synth_count = sum(1 for s in (corpus.synth_reports or {}).values() if s)
+        if synth_count >= 2:
+            progress("consensus", f"строю cross-backend мета-анализ ({synth_count} отчётов)")
+            try:
+                consensus_layer = await build_consensus(goal, corpus)
+                if consensus_layer:
+                    progress(
+                        "consensus",
+                        f"agreements={len(consensus_layer.agreements)} "
+                        f"disagreements={len(consensus_layer.disagreements)} "
+                        f"confidence={consensus_layer.overall_confidence}",
+                    )
+                else:
+                    progress("consensus", "пусто")
+            except Exception as err:
+                progress("consensus", f"ОШИБКА: {err}")
+        else:
+            progress("consensus", f"skip — только {synth_count} synth-отчётов (нужно ≥2)")
+
     return Report(
         goal=goal,
         matrix=matrix,
@@ -533,6 +555,7 @@ async def _finalize(
         causal_chains=causal_chains,
         scenario_cone=scenario_cone,
         assumption_inversions=assumption_inversions,
+        consensus_layer=consensus_layer,
     )
 
 

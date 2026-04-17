@@ -304,6 +304,40 @@ class BlockInversions(BaseModel):
     unfalsifiable_flag: bool = Field(default=False, description="True если ни одно допущение не critical — вывод нефальсифицируем")
 
 
+class ConsensusAgreement(BaseModel):
+    """One claim where ≥2 DR backends converged. Higher backend_count = higher confidence."""
+    claim: str
+    backends: list[str] = Field(default_factory=list, description="Which backends asserted this")
+    backend_count: int = 0
+    evidence: list[str] = Field(default_factory=list, description="Short paraphrases from each backend")
+    confidence: str = Field(default="medium", description="high | medium | low")
+
+
+class ConsensusDisagreement(BaseModel):
+    """A topic where DR backends diverge. Each per-backend position must be preserved."""
+    topic: str
+    positions: list[dict] = Field(
+        default_factory=list,
+        description="[{backend, position, evidence_summary}, …]",
+    )
+    likely_resolution: str = Field(
+        default="",
+        description="Which backend is probably right and why (methodological / source-quality)",
+    )
+
+
+class ConsensusLayer(BaseModel):
+    """Premium-only: meta-analysis across multiple DR backends' synth reports."""
+    agreements: list[ConsensusAgreement] = Field(default_factory=list)
+    disagreements: list[ConsensusDisagreement] = Field(default_factory=list)
+    verdict: str = Field(
+        default="",
+        description="One-paragraph calibrated conclusion across all backends",
+    )
+    overall_confidence: str = Field(default="medium", description="high | medium | low")
+    backends_consulted: list[str] = Field(default_factory=list)
+
+
 class IntakeMessage(BaseModel):
     role: Literal["assistant", "user"]
     content: str
@@ -329,4 +363,5 @@ class Report(BaseModel):
     causal_chains: list[CausalChain] = Field(default_factory=list)
     scenario_cone: ScenarioCone | None = None  # Cone of Plausibility — generated for predictive questions
     assumption_inversions: list[BlockInversions] = Field(default_factory=list)  # Quadrant Crunch — CIA SAT
+    consensus_layer: ConsensusLayer | None = None  # Premium-only cross-backend meta-analysis
     intake_context: IntakeContext | None = None
