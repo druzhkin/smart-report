@@ -1,0 +1,93 @@
+{
+  "id": "e0906bd5-6f73-48b6-917f-db6744cfdc98",
+  "model": "sonar-pro",
+  "created": 1776466566,
+  "usage": {
+    "prompt_tokens": 166,
+    "completion_tokens": 201,
+    "total_tokens": 367,
+    "search_context_size": "low",
+    "cost": {
+      "input_tokens_cost": 0.0005,
+      "output_tokens_cost": 0.00301,
+      "request_cost": 0.006,
+      "total_cost": 0.00951
+    }
+  },
+  "citations": [
+    "https://erzrf.ru/news/v-2025-godu-sebestoimost-stroitelstva-1-kv-m-zhilya-v-stolitsakh-i-primorye-prodolzhila-rost-a-na-severnom-kavkaze--snizilas?search=%D0%BF%D1%80%D0%BE%D0%B5%D0%BA%D1%82&tag=%D0%92%D0%B2%D0%BE%D0%B4+%D0%B6%D0%B8%D0%BB%D1%8C%D1%8F",
+    "https://erzrf.ru/news/yerz-trendy-k-kontsu-2026-goda-razryv-mezhdu-dolgami-po-proyektnomu-finansirovaniyu-i-sredstvami-na-schetakh-eskrou-dostignet-62?search=%D0%BF%D1%80%D0%BE%D0%B3%D0%BD%D0%BE%D0%B7&_escaped_fragment_=&tag=%D0%91%D0%B0%D0%BD%D0%BA%D1%80%D0%BE%D1%82%D1%81%D1%82%D0%B2%D0%BE",
+    "https://erzrf.ru/news/brusnika-operezhayushchiye-prodazhi-pozvolyayut-sokhranit-tempy-stroitelstva?tag=%D0%9E%D1%82%D1%87%D0%B5%D1%82%D0%BD%D0%BE%D1%81%D1%82%D1%8C+%D0%B7%D0%B0%D1%81%D1%82%D1%80%D0%BE%D0%B9%D1%89%D0%B8%D0%BA%D0%B0",
+    "https://erzrf.ru/news/stanet-li-bankrotstvo-zastroyshchikov-trendom-v-2025-godu?tag=%D0%91%D0%B0%D0%BD%D0%BA%D1%80%D0%BE%D1%82%D1%81%D1%82%D0%B2%D0%BE",
+    "https://erzrf.ru/publikacii/chto-takoye-reyting-yerz-i-kak-on-rasschityvayetsya?tag=%D0%9F%D1%80%D0%BE%D0%B3%D0%BD%D0%BE%D0%B7%D1%8B",
+    "https://erzrf.ru/zastroyschiki/brand/461175001",
+    "https://erzrf.ru/news/dmitriy-medvedev-gosudarstvennuyu-ekologicheskuyu-ekspertizu-neobkhodimo-perenesti-na-etap-obosnovaniya-investitsiy-proyekta?search=%D1%8D%D0%BA%D0%BE%D0%BB%D0%BE"
+  ],
+  "search_results": [
+    {
+      "title": "В 2025 году себестоимость строительства 1 кв. м жилья в ...",
+      "url": "https://erzrf.ru/news/v-2025-godu-sebestoimost-stroitelstva-1-kv-m-zhilya-v-stolitsakh-i-primorye-prodolzhila-rost-a-na-severnom-kavkaze--snizilas?search=%D0%BF%D1%80%D0%BE%D0%B5%D0%BA%D1%82&tag=%D0%92%D0%B2%D0%BE%D0%B4+%D0%B6%D0%B8%D0%BB%D1%8C%D1%8F",
+      "snippet": "... сдачи 30% жилых объектов перенесены, а запуск новых проектов снизился на ... ДОНСТРОЙ вышел на девятое место. Месяц назад он был 13‑м. Жилой комплекс ...",
+      "source": "web"
+    },
+    {
+      "title": "ЕРЗ-тренды: к концу 2026 года разрыв между долгами по ...",
+      "url": "https://erzrf.ru/news/yerz-trendy-k-kontsu-2026-goda-razryv-mezhdu-dolgami-po-proyektnomu-finansirovaniyu-i-sredstvami-na-schetakh-eskrou-dostignet-62?search=%D0%BF%D1%80%D0%BE%D0%B3%D0%BD%D0%BE%D0%B7&_escaped_fragment_=&tag=%D0%91%D0%B0%D0%BD%D0%BA%D1%80%D0%BE%D1%82%D1%81%D1%82%D0%B2%D0%BE",
+      "snippet": "доля просроченной задолженности будет расти и в 2025-м составит 5,27%, а в 2026-м — 7,71%. Говоря об отраслевых показателях, Кирилл Холопик отметил, что ...",
+      "source": "web"
+    },
+    {
+      "title": "Брусника: опережающие продажи позволяют сохранить темпы ...",
+      "url": "https://erzrf.ru/news/brusnika-operezhayushchiye-prodazhi-pozvolyayut-sokhranit-tempy-stroitelstva?tag=%D0%9E%D1%82%D1%87%D0%B5%D1%82%D0%BD%D0%BE%D1%81%D1%82%D1%8C+%D0%B7%D0%B0%D1%81%D1%82%D1%80%D0%BE%D0%B9%D1%89%D0%B8%D0%BA%D0%B0",
+      "date": "2024-10-30",
+      "last_updated": "2025-03-31",
+      "snippet": "Крупнейший застройщик России сократил продажи на 37% по итогам III квартала, но увеличил их на 25% по итогам 9 месяцев ; Новые продажи, млрд руб.",
+      "source": "web"
+    },
+    {
+      "title": "Станет ли банкротство застройщиков трендом в 2025 году",
+      "url": "https://erzrf.ru/news/stanet-li-bankrotstvo-zastroyshchikov-trendom-v-2025-godu?tag=%D0%91%D0%B0%D0%BD%D0%BA%D1%80%D0%BE%D1%82%D1%81%D1%82%D0%B2%D0%BE",
+      "date": "2025-02-20",
+      "last_updated": "2025-02-22",
+      "snippet": "К 2026 году увеличится вероятность банкротства застройщиков. Но как считают специалисты, чьи мнения привела «Российская газета», для покупателей ...",
+      "source": "web"
+    },
+    {
+      "title": "Что такое рейтинг ЕРЗ и как он расчитывается - Новости ЕРЗ.РФ",
+      "url": "https://erzrf.ru/publikacii/chto-takoye-reyting-yerz-i-kak-on-rasschityvayetsya?tag=%D0%9F%D1%80%D0%BE%D0%B3%D0%BD%D0%BE%D0%B7%D1%8B",
+      "snippet": "Аналитики ЕРЗ.РФ считают, что с 2025-го на последующие годы будет перенесен ввод порядка 6 млн кв. м. Аналитики Циан ожидают перенос ввода в ...",
+      "source": "web"
+    },
+    {
+      "title": "ГК Развитие - вся информация о бренде, телефон, сайт, адрес ...",
+      "url": "https://erzrf.ru/zastroyschiki/brand/461175001",
+      "last_updated": "2026-03-20",
+      "snippet": "В 2025 году компания увеличила объем текущего строительства на 44% - до 876 190 кв.м. Благодаря этому она занимает 14-е место в России по объему ...",
+      "source": "web"
+    },
+    {
+      "title": "Дмитрий Медведев: Государственную экологическую экспертизу ...",
+      "url": "https://erzrf.ru/news/dmitriy-medvedev-gosudarstvennuyu-ekologicheskuyu-ekspertizu-neobkhodimo-perenesti-na-etap-obosnovaniya-investitsiy-proyekta?search=%D1%8D%D0%BA%D0%BE%D0%BB%D0%BE",
+      "snippet": "В рамках онлайн-дискуссии ЕРЗ-тренды эксперты и застройщики обсудят, как экостроительство отражается на продажах и маржинальности проекта. 9 октября 2025 года в ...",
+      "source": "web"
+    }
+  ],
+  "object": "chat.completion",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "**Нет данных по доле строительства с переносом срока сдачи для указанных девелоперов (Донстрой, MR Group, Level Group, Группа Эталон, Sminex) на erzrf.ru за 2025–2026 годы.**\n\nПоиск по site:erzrf.ru не выявил страниц со статистикой именно по этим девелоперам бизнес-класса Москвы с требуемыми процентами, датами среза и прямыми URL. Упоминается Донстрой в контексте общего рынка (30% объектов с переносом сдачи в 2025 году, но без привязки к компании)[1], однако конкретных данных по доле переноса для каждого из пяти застройщиков нет[1][2][3][4][5][6][7]. Для всех: **нет данных**."
+      },
+      "delta": {
+        "role": "assistant",
+        "content": ""
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "_status": 200,
+  "_latency_s": 4.54,
+  "_model": "sonar-pro"
+}

@@ -1,0 +1,126 @@
+{
+  "id": "da28e4c8-3a1a-42e3-8852-3a4c3b727042",
+  "model": "sonar",
+  "created": 1776466545,
+  "usage": {
+    "prompt_tokens": 51,
+    "completion_tokens": 349,
+    "total_tokens": 400,
+    "search_context_size": "low",
+    "cost": {
+      "input_tokens_cost": 5e-05,
+      "output_tokens_cost": 0.00035,
+      "request_cost": 0.005,
+      "total_cost": 0.0054
+    }
+  },
+  "citations": [
+    "https://egolion.ru/journal/top-developers-family-business",
+    "https://stroygaz.ru/publication/biznes/reyting-kompaniy-developerov-za-fevral-2026-goda/",
+    "http://stage-1.donstroy.moscow/press/media/reyting-zastroyshchikov-moskvy-2023/",
+    "https://nikoliersdom.ru/blog/nikoliers-podgotovili-rejting-top-developerov-i-proektov-po-obemu-prodazh-po-vsem-klassam-zhilja-po-itogam-i-polugodija-2025-g.",
+    "https://www.onlinetambov.ru/businnes-news/reyting-zastroyshchikov-moskvy-2025/",
+    "https://novostroev.ru/zastroyshchiki/sminex/",
+    "https://domclick.ru/novostrojki/gk-sozdateli",
+    "https://uawards.ru/news/ratings",
+    "https://t.me/s/NovostroyM?before=7242",
+    "https://www.novostroy-m.ru/rajon-zamoskvorechqe/build-class-bussiness"
+  ],
+  "search_results": [
+    {
+      "title": "Топ застройщиков с семейными новостройками бизнес-класса",
+      "url": "https://egolion.ru/journal/top-developers-family-business",
+      "date": "2023-11-07",
+      "last_updated": "2026-04-17",
+      "snippet": "4. Level Group: В продаже сейчас находится 13 жилых комплексов. При этом отсутствуют переносы сроков сдачи. Компания предоставляет высокое ...",
+      "source": "web"
+    },
+    {
+      "title": "Рейтинг компаний-девелоперов за февраль 2026 года",
+      "url": "https://stroygaz.ru/publication/biznes/reyting-kompaniy-developerov-za-fevral-2026-goda/",
+      "date": "2026-03-14",
+      "last_updated": "2026-03-15",
+      "snippet": "Группа компаний ПИК в феврале 2026 года заняла третье место по количеству упоминаний, второе место по «заметности» в СМИ и охвату аудитории. По ...",
+      "source": "web"
+    },
+    {
+      "title": "Рейтинг застройщиков Москвы 2023 - Донстрой",
+      "url": "http://stage-1.donstroy.moscow/press/media/reyting-zastroyshchikov-moskvy-2023/",
+      "date": "2023-04-05",
+      "last_updated": "2024-12-12",
+      "snippet": "... компания предлагает и дорогие квартиры бизнес класса стоимостью более 44 млн рублей. ... м² со 100% соблюдением сроков сдачи готовых объектов, а ...",
+      "source": "web"
+    },
+    {
+      "title": "Nikoliers подготовили рейтинг ТОП-девелоперов и проектов по ...",
+      "url": "https://nikoliersdom.ru/blog/nikoliers-podgotovili-rejting-top-developerov-i-proektov-po-obemu-prodazh-po-vsem-klassam-zhilja-po-itogam-i-polugodija-2025-g.",
+      "date": "2025-08-08",
+      "last_updated": "2025-10-27",
+      "snippet": "Nikoliers подготовили рейтинг ТОП-девелоперов и проектов по объему продаж по всем классам жилья по итогам I полугодия 2025г.",
+      "source": "web"
+    },
+    {
+      "title": "Рейтинг застройщиков Москвы 2025 - Онлайн Тамбов.ру",
+      "url": "https://www.onlinetambov.ru/businnes-news/reyting-zastroyshchikov-moskvy-2025/",
+      "date": "2026-02-27",
+      "last_updated": "2026-04-17",
+      "snippet": "MR Group. ИНН 7714637341. Эксперт в сегменте бизнес-класса и апартаментов премиального уровня. Создает объекты с повышенной комфортностью и ...",
+      "source": "web"
+    },
+    {
+      "title": "Застройщик Sminex: 30 новостроек, отзывы, официальный сайт",
+      "url": "https://novostroev.ru/zastroyshchiki/sminex/",
+      "date": "2017-09-27",
+      "last_updated": "2026-03-23",
+      "snippet": "Оценка формируется на основе имеющихся данных о переносах сроков сдачи на ... Sminex: только в четверти проектов бизнес-класса продаются квартиры с террасами.",
+      "source": "web"
+    },
+    {
+      "title": "Новостройки (ЖК) от застройщика ГК СОЗДАТЕЛИ в Москве",
+      "url": "https://domclick.ru/novostrojki/gk-sozdateli",
+      "snippet": "Бизнес класса · Комфорт-класса · Премиум-класса · Со сдачей 2023 году ... Левел Звенигородская ― это новый проект класса «комфорт+» от девелопера Level Group.",
+      "source": "web"
+    },
+    {
+      "title": "Журнал - Премия Urban",
+      "url": "https://uawards.ru/news/ratings",
+      "last_updated": "2026-03-25",
+      "snippet": "Замыкает тройку лидеров Служба комфорта Sminex, управляющая недвижимостью бизнес-, премиум- и элит-класса. С 17-летним опытом работы на рынке Москвы компания ...",
+      "source": "web"
+    },
+    {
+      "title": "Новострой-М. Москва и МО. Новостройки",
+      "url": "https://t.me/s/NovostroyM?before=7242",
+      "date": "2023-11-17",
+      "last_updated": "2025-11-27",
+      "snippet": "Девелопер Sminex-Интеко планирует построить дом премиум-класса в районе Шаболовки на месте парфюмерной фабрики «Новая Заря» (ул. Павла Андреева, 23). Сама ...",
+      "source": "web"
+    },
+    {
+      "title": "Новостройки в Замоскворечье бизнес класса - Новострой-М",
+      "url": "https://www.novostroy-m.ru/rajon-zamoskvorechqe/build-class-bussiness",
+      "date": "2025-09-02",
+      "last_updated": "2025-09-02",
+      "snippet": "Новостройки в Замоскворечье бизнес класса: популярные подборки жилых комплексов. Застройщики; Срок сдачи; Класс жилья; Комнатность; Отделка; Тип дома; Условия ...",
+      "source": "web"
+    }
+  ],
+  "object": "chat.completion",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "На основе предоставленных поисковых результатов я могу дать частичный ответ о переносах сроков сдачи у топ-девелоперов бизнес-класса Москвы.\n\n## Информация о переносах сроков сдачи\n\n**Донстрой**: В 2022 году компания ввела в эксплуатацию 181,5 тыс. м² жилья без нарушения проектных сроков сдачи[3]. Однако за этот же год из 157,5 тыс. м² первичной недвижимости 62,5 тыс. м² были сданы с переносом срока до полугода[3].\n\n**Level Group**: Компания демонстрирует отсутствие переносов сроков сдачи[1].\n\n**Эталон**: Характеризуется неизменным соблюдением сроков сдачи объектов[1].\n\n**MR Group и Sminex**: Поисковые результаты не содержат конкретной информации о переносах сроков сдачи для этих компаний.\n\n## Ограничения ответа\n\nПоисковые результаты не включают:\n- Актуальные данные о переносах сроков для всех пяти девелоперов\n- Информацию о процентах по ЕРЗ (единому реестру залогов) для указанных компаний\n\nДля получения полной информации о процентах по ЕРЗ и актуальных данных о переносах сроков сдачи потребуется дополнительный поиск в специализированных источниках по недвижимости и финансовых базах данных."
+      },
+      "delta": {
+        "role": "assistant",
+        "content": ""
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "_status": 200,
+  "_latency_s": 6.43,
+  "_model": "sonar"
+}

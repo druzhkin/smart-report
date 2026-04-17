@@ -1,0 +1,129 @@
+{
+  "MR Group": {
+    "dev": "MR Group",
+    "tried": [
+      {
+        "url": "https://erzrf.ru/zastroyschiki/brand/mr-group-461170001",
+        "status": 200,
+        "bytes": 32465
+      }
+    ],
+    "reached_url": "https://erzrf.ru/zastroyschiki/brand/mr-group-461170001",
+    "status": 200,
+    "bytes": 32465,
+    "candidates": [],
+    "best": null,
+    "truth": 5.65,
+    "hit": false,
+    "accurate": false,
+    "error_modes": [
+      "200:https://erzrf.ru/zastroyschiki/brand/mr-group-461170001:JS-rendered (no static перенос data)"
+    ]
+  },
+  "Sminex": {
+    "dev": "Sminex",
+    "tried": [
+      {
+        "url": "https://erzrf.ru/zastroyschiki/brand/461175001",
+        "status": 200,
+        "bytes": 56256
+      }
+    ],
+    "reached_url": "https://erzrf.ru/zastroyschiki/brand/461175001",
+    "status": 200,
+    "bytes": 56256,
+    "candidates": [],
+    "best": null,
+    "truth": null,
+    "hit": false,
+    "accurate": false,
+    "error_modes": [
+      "200:https://erzrf.ru/zastroyschiki/brand/461175001:JS-rendered (no static перенос data)"
+    ]
+  },
+  "Донстрой": {
+    "dev": "Донстрой",
+    "tried": [
+      {
+        "url": "https://erzrf.ru/zastroyschiki/brand/donstroj-430278001",
+        "status": 200,
+        "bytes": 55757
+      }
+    ],
+    "reached_url": "https://erzrf.ru/zastroyschiki/brand/donstroj-430278001",
+    "status": 200,
+    "bytes": 55757,
+    "candidates": [],
+    "best": null,
+    "truth": 0.0,
+    "hit": false,
+    "accurate": false,
+    "error_modes": [
+      "200:https://erzrf.ru/zastroyschiki/brand/donstroj-430278001:JS-rendered (no static перенос data)"
+    ]
+  },
+  "Level Group": {
+    "dev": "Level Group",
+    "tried": [
+      {
+        "url": "https://erzrf.ru/zastroyschiki/brand/level-group-461174001",
+        "status": 404,
+        "bytes": 39786
+      },
+      {
+        "url": "https://erzrf.ru/zastroyschiki/brand/level-group",
+        "status": 404,
+        "bytes": 39776
+      },
+      {
+        "url": "https://erzrf.ru/search?q=Level+Group",
+        "status": 404,
+        "bytes": 22003
+      }
+    ],
+    "reached_url": null,
+    "status": null,
+    "bytes": 0,
+    "candidates": [],
+    "best": null,
+    "truth": 8.67,
+    "hit": false,
+    "accurate": false,
+    "error_modes": [
+      "404:https://erzrf.ru/zastroyschiki/brand/level-group-461174001",
+      "404:https://erzrf.ru/zastroyschiki/brand/level-group"
+    ]
+  },
+  "Эталон": {
+    "dev": "Эталон",
+    "tried": [
+      {
+        "url": "https://erzrf.ru/zastroyschiki/brand/gruppa-etalon-430279001",
+        "status": 404,
+        "bytes": 39788
+      },
+      {
+        "url": "https://erzrf.ru/zastroyschiki/brand/gruppa-etalon",
+        "status": 404,
+        "bytes": 39778
+      },
+      {
+        "url": "https://erzrf.ru/search?q=Эталон",
+        "status": 404,
+        "bytes": 22049
+      }
+    ],
+    "reached_url": null,
+    "status": null,
+    "bytes": 0,
+    "candidates": [],
+    "best": null,
+    "truth": 35.46,
+    "hit": false,
+    "accurate": false,
+    "error_modes": [
+      "404:https://erzrf.ru/zastroyschiki/brand/gruppa-etalon-430279001",
+      "404:https://erzrf.ru/zastroyschiki/brand/gruppa-etalon"
+    ]
+  }
+}

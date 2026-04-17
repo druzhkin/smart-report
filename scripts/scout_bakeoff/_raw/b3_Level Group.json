@@ -1,0 +1,82 @@
+{
+  "id": "32fb8aea-fd4d-4dfc-b16b-b6bf668c2842",
+  "model": "sonar-pro",
+  "created": 1776466553,
+  "usage": {
+    "prompt_tokens": 99,
+    "completion_tokens": 160,
+    "total_tokens": 259,
+    "search_context_size": "low",
+    "cost": {
+      "input_tokens_cost": 0.0003,
+      "output_tokens_cost": 0.0024,
+      "request_cost": 0.006,
+      "total_cost": 0.0087
+    }
+  },
+  "citations": [
+    "https://erzrf.ru/news/kak-mozhno-zamedlit-rost-tsen-na-zhilye-mneniye-eksperta?search=%D1%86%D0%B5%D0%BD%D1%8B&tag=%D0%92%D0%B2%D0%BE%D0%B4+%D0%B6%D0%B8%D0%BB%D1%8C%D1%8F",
+    "https://profi.erzrf.ru/events/rossiyskaya-stroitelnaya-nedelya-2025-forum-stroim-budushchee-rossii-vmeste/",
+    "https://erzrf.ru/news/klyuchevyye-soobshcheniya-telegram-kanala-yerzrf-novosti-s-6-po-10-oktyabrya?search=%D0%A6%D0%B5%D0%BD%D1%8B&tag=%D0%92%D0%B2%D0%BE%D0%B4+%D0%B6%D0%B8%D0%BB%D1%8C%D1%8F",
+    "https://erzrf.ru/news/eksperty-nazvali-goroda-obognavshiye-moskvu-po-rostu-tsen-na-zhilye?search=%D1%86%D0%B5%D0%BD%D1%8B&tag=%D0%92%D0%B2%D0%BE%D0%B4+%D0%B6%D0%B8%D0%BB%D1%8C%D1%8F",
+    "https://erzrf.ru/news/kakikh-izmeneniy-na-rynke-zhilya-stoit-ozhidat-nyneshney-osenyu-prognozy-ekspertov?search=%D0%BF%D1%80%D0%BE%D0%B3%D0%BD%D0%BE%D0%B7&tag=%D0%9D%D0%BE%D0%B2%D1%8B%D0%B5+%D0%BF%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B",
+    "https://erzrf.ru/news/klyuchevyye-soobshcheniya-telegram-kanala-yerzrf-novosti-s-21-po-25-iyulya?search=%D1%86%D0%B5%D0%BD%D1%8B&tag=%D0%92%D0%B2%D0%BE%D0%B4+%D0%B6%D0%B8%D0%BB%D1%8C%D1%8F"
+  ],
+  "search_results": [
+    {
+      "title": "Как можно замедлить рост цен на жилье: мнение эксперта",
+      "url": "https://erzrf.ru/news/kak-mozhno-zamedlit-rost-tsen-na-zhilye-mneniye-eksperta?search=%D1%86%D0%B5%D0%BD%D1%8B&tag=%D0%92%D0%B2%D0%BE%D0%B4+%D0%B6%D0%B8%D0%BB%D1%8C%D1%8F",
+      "snippet": "Как рассказал «Ведомостям» вице-премьер Марат Хуснуллин (на фото ниже), срок ввода 19% проектов уже перенесен. В июне, по данным ЕРЗ.РФ, более ...",
+      "source": "web"
+    },
+    {
+      "title": "Российская строительная неделя 2025. Форум «Строим ...",
+      "url": "https://profi.erzrf.ru/events/rossiyskaya-stroitelnaya-nedelya-2025-forum-stroim-budushchee-rossii-vmeste/",
+      "last_updated": "2026-03-12",
+      "snippet": "Вторая всероссийская офлайн шоу-битва новостроек состоится между 16 финалистами главной номинации ТОП ЖК-2025, сгруппированными в Дивизионы «Запад» и «Восток».",
+      "source": "web"
+    },
+    {
+      "title": "Ключевые сообщения телеграм-канала ЕРЗ.РФ НОВОСТИ с 6 по ...",
+      "url": "https://erzrf.ru/news/klyuchevyye-soobshcheniya-telegram-kanala-yerzrf-novosti-s-6-po-10-oktyabrya?search=%D0%A6%D0%B5%D0%BD%D1%8B&tag=%D0%92%D0%B2%D0%BE%D0%B4+%D0%B6%D0%B8%D0%BB%D1%8C%D1%8F",
+      "snippet": "Предлагаем вашему вниманию подборку ключевых новостей официального телеграм-канала Единого ресурса застройщиков за прошедшую неделю. Аналитика ЕРЗ.РФ.",
+      "source": "web"
+    },
+    {
+      "title": "Эксперты назвали города, обогнавшие Москву по росту цен на ...",
+      "url": "https://erzrf.ru/news/eksperty-nazvali-goroda-obognavshiye-moskvu-po-rostu-tsen-na-zhilye?search=%D1%86%D0%B5%D0%BD%D1%8B&tag=%D0%92%D0%B2%D0%BE%D0%B4+%D0%B6%D0%B8%D0%BB%D1%8C%D1%8F",
+      "snippet": "В рамках национальных целей в жилищном строительстве поставлены задачи выйти на 120 млн кв. м в год к 2030-му и 38 кв. м на человека — к 2036-му. Партнер ...",
+      "source": "web"
+    },
+    {
+      "title": "Какие изменения на рынке жилья стоит ожидать нынешней ...",
+      "url": "https://erzrf.ru/news/kakikh-izmeneniy-na-rynke-zhilya-stoit-ozhidat-nyneshney-osenyu-prognozy-ekspertov?search=%D0%BF%D1%80%D0%BE%D0%B3%D0%BD%D0%BE%D0%B7&tag=%D0%9D%D0%BE%D0%B2%D1%8B%D0%B5+%D0%BF%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B",
+      "snippet": "— Важным трендом предстоящей осени должны стать старты жилых комплексов, которые были отложены. Девелоперы переносили сроки в связи с дорогим ...",
+      "source": "web"
+    },
+    {
+      "title": "Ключевые сообщения телеграм-канала ЕРЗ.РФ НОВОСТИ с 21 ...",
+      "url": "https://erzrf.ru/news/klyuchevyye-soobshcheniya-telegram-kanala-yerzrf-novosti-s-21-po-25-iyulya?search=%D1%86%D0%B5%D0%BD%D1%8B&tag=%D0%92%D0%B2%D0%BE%D0%B4+%D0%B6%D0%B8%D0%BB%D1%8C%D1%8F",
+      "snippet": "Предлагаем вашему вниманию подборку ключевых новостей официального телеграм-канала Единого ресурса застройщиков за прошедшую неделю. Аналитика ЕРЗ.РФ.",
+      "source": "web"
+    }
+  ],
+  "object": "chat.completion",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "**Нет данных.**\n\nНи один из поисковых результатов не содержит информации о доле текущего строительства у застройщика **'Level Group'** в Москве с переносом срока сдачи (в процентах) по данным ЕРЗ (erzrf.ru) на период 2025–2026 гг. Результаты упоминают общие данные по рынку (например, 19% проектов с переносом сроков по стране в июне[1]), но не касаются конкретного застройщика, Москвы или запрошенного периода. Прямая страница застройщика на erzrf.ru в результатах отсутствует."
+      },
+      "delta": {
+        "role": "assistant",
+        "content": ""
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "_status": 200,
+  "_latency_s": 3.92,
+  "_model": "sonar-pro"
+}

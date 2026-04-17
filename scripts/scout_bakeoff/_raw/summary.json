@@ -1,0 +1,674 @@
+{
+  "results": {
+    "B1": {
+      "name": "B1 — Perplexity naive",
+      "model": "sonar",
+      "query": "Перенос срока сдачи у топ-5 девелоперов бизнес-класса Москвы: Донстрой, MR Group, Level Group, Эталон, Sminex. Проценты по ЕРЗ.",
+      "latency_s": 6.43,
+      "cost_usd": 0.005,
+      "status": 200,
+      "hits": 0,
+      "accurate": 0,
+      "off_topic": false,
+      "citations": [
+        "https://egolion.ru/journal/top-developers-family-business",
+        "https://stroygaz.ru/publication/biznes/reyting-kompaniy-developerov-za-fevral-2026-goda/",
+        "http://stage-1.donstroy.moscow/press/media/reyting-zastroyshchikov-moskvy-2023/",
+        "https://nikoliersdom.ru/blog/nikoliers-podgotovili-rejting-top-developerov-i-proektov-po-obemu-prodazh-po-vsem-klassam-zhilja-po-itogam-i-polugodija-2025-g.",
+        "https://www.onlinetambov.ru/businnes-news/reyting-zastroyshchikov-moskvy-2025/",
+        "https://novostroev.ru/zastroyshchiki/sminex/",
+        "https://domclick.ru/novostrojki/gk-sozdateli",
+        "https://uawards.ru/news/ratings",
+        "https://t.me/s/NovostroyM?before=7242",
+        "https://www.novostroy-m.ru/rajon-zamoskvorechqe/build-class-bussiness"
+      ],
+      "per_dev": {
+        "Донстрой": {
+          "candidates": [],
+          "best": null,
+          "truth": 0.0,
+          "hit": false,
+          "accurate": false
+        },
+        "MR Group": {
+          "candidates": [],
+          "best": null,
+          "truth": 5.65,
+          "hit": false,
+          "accurate": false
+        },
+        "Level Group": {
+          "candidates": [],
+          "best": null,
+          "truth": 8.67,
+          "hit": false,
+          "accurate": false
+        },
+        "Эталон": {
+          "candidates": [],
+          "best": null,
+          "truth": 35.46,
+          "hit": false,
+          "accurate": false
+        },
+        "Sminex": {
+          "candidates": [],
+          "best": null,
+          "truth": null,
+          "hit": false,
+          "accurate": false
+        }
+      },
+      "text_preview": "На основе предоставленных поисковых результатов я могу дать частичный ответ о переносах сроков сдачи у топ-девелоперов бизнес-класса Москвы.\n\n## Информация о переносах сроков сдачи\n\n**Донстрой**: В 2022 году компания ввела в эксплуатацию 181,5 тыс. м² жилья без нарушения проектных сроков сдачи[3]. Однако за этот же год из 157,5 тыс. м² первичной недвижимости 62,5 тыс. м² были сданы с переносом срока до полугода[3].\n\n**Level Group**: Компания демонстрирует отсутствие переносов сроков сдачи[1].\n\n*"
+    },
+    "B2": {
+      "name": "B2 — Perplexity targeted",
+      "model": "sonar-pro",
+      "query": "По данным ЕРЗ (erzrf.ru), назови долю строительства с переносом срока сдачи (в процентах, последняя доступная дата 2025–2026) по каждому из 5 девелоперов бизнес-класса Москвы:\n1) Донстрой\n2) MR Group\n3) Level Group\n4) Группа Эталон\n5) Sminex\nДля каждого девелопера приведи: конкретный процент, дату среза, и прямой URL страницы ЕРЗ со статистикой застройщика. Ищи по site:erzrf.ru. Если цифры нет — честно пиши 'нет данных', не придумывай.",
+      "latency_s": 4.37,
+      "cost_usd": 0.014,
+      "status": 200,
+      "hits": 1,
+      "accurate": 1,
+      "off_topic": false,
+      "citations": [
+        "https://erzrf.ru/news/donstroy-proanaliziroval-rezultaty-raboty-s-nachala-goda-prioritety-raboty-i-dostizheniyaa?tag=%D0%9F%D0%B5%D1%80%D0%B5%D0%BD%D0%BE%D1%81+%D1%81%D1%80%D0%BE%D0%BA%D0%BE%D0%B2",
+        "https://erzrf.ru/news/donstroy-zavershil-podnyatiye-vsekh-paryashchikh-mostov-v-proyekte-sobytiye?tag=%D0%9F%D0%B5%D1%80%D0%B5%D0%BD%D0%BE%D1%81+%D1%81%D1%80%D0%BE%D0%BA%D0%BE%D0%B2",
+        "https://erzrf.ru/news/donstroy-investiroval-423-mln-rubley-v-novyy-obrazovatelnyy-tsentr-moskvy?tag=%D0%9F%D0%B5%D1%80%D0%B5%D0%B4%D0%B0%D1%87%D0%B0+%D0%BA%D0%B2%D0%B0%D1%80%D1%82%D0%B8%D1%80%D1%8B",
+        "https://erzrf.ru/news/vyruchka-donstroy-za-devyat-mesyatsev-vyrosla-pochti-na-70?tag=%D0%9F%D0%BE%D1%82%D1%80%D0%B5%D0%B1%D0%B8%D1%82%D0%B5%D0%BB%D1%8C%D1%81%D0%BA%D0%B8%D0%B9+%D1%8D%D0%BA%D1%81%D1%82%D1%80%D0%B5%D0%BC%D0%B8%D0%B7%D0%BC",
+        "https://erzrf.ru/news/donstroy-nachal-peredavat-klyuchi-v-pyatnadtsatom-korpuse-simvola-ranshe-sroka?regions=&tag=%D0%A1%D0%BF%D1%80%D0%BE%D1%81",
+        "https://erzrf.ru/zastroyschiki/brand/donstroj-430278001",
+        "https://erzrf.ru/news/donstroy-i-vtb-proveli-pervyye-ipotechnyye-sdelki-so-stavkoy-65-?tag=%D0%9D%D0%BE%D0%B2%D1%8B%D0%B5+%D0%BF%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B",
+        "https://erzrf.ru/publikacii/trade-in-ot-zastroyshchika-ili-obmen-staroy-kvartiry-na-novostroyku?tag=%D0%90%D0%BD%D0%B0%D0%BB%D0%B8%D1%82%D0%B8%D0%BA%D0%B0",
+        "https://erzrf.ru/zastroyschiki/brand/donstroj-430278001?regionKey=143443001&sortType=ecoclass&costType=1&_escaped_fragment_=&organizationId=430278001",
+        "https://erzrf.ru/zastroyschiki/brand/donstroj-430278001?erid=2SDnjeo5Acv&_escaped_fragment_=&regionKey=143443001&costType=1&sortType=qrooms&gkTab=6&organizationId=430278001"
+      ],
+      "per_dev": {
+        "Донстрой": {
+          "candidates": [
+            0.0,
+            0.0
+          ],
+          "best": 0.0,
+          "truth": 0.0,
+          "hit": true,
+          "accurate": true
+        },
+        "MR Group": {
+          "candidates": [],
+          "best": null,
+          "truth": 5.65,
+          "hit": false,
+          "accurate": false
+        },
+        "Level Group": {
+          "candidates": [],
+          "best": null,
+          "truth": 8.67,
+          "hit": false,
+          "accurate": false
+        },
+        "Эталон": {
+          "candidates": [],
+          "best": null,
+          "truth": 35.46,
+          "hit": false,
+          "accurate": false
+        },
+        "Sminex": {
+          "candidates": [],
+          "best": null,
+          "truth": null,
+          "hit": false,
+          "accurate": false
+        }
+      },
+      "text_preview": "### 1) Донстрой\n- **Доля строительства с переносом срока сдачи:** 0%[6][10].\n- **Дата среза:** последняя доступная на странице (данные по строящимся объектам на момент просмотра, ориентировочно 2025–2026 гг.)[6][10].\n- **URL страницы ЕРЗ со статистикой:** https://erzrf.ru/zastroyschiki/brand/donstroj-430278001[6][10].\n\n### 2) MR Group\n- **Доля строительства с переносом срока сдачи:** нет данных.\n- **Дата среза:** нет данных.\n- **URL страницы ЕРЗ со статистикой:** нет данных в результатах поиска.\n\n### 3) Level Group\n- **Доля строительства с переносом срока сдачи:** нет данных.\n- **Дата среза:** нет данных.\n- **URL страницы ЕРЗ со статистикой:** нет данных в результатах поиска.\n\n### 4) Группа Эталон\n- **Доля строительства с переносом срока сдачи:** нет данных.\n- **Дата среза:** нет данных.\n-"
+    },
+    "B3": {
+      "name": "B3 — Perplexity parallel (5 queries)",
+      "model": "sonar-pro x5",
+      "query": "(5 per-dev queries)",
+      "latency_s": 4.19,
+      "cost_usd": 0.07,
+      "status": [
+        200,
+        200,
+        200,
+        200,
+        200
+      ],
+      "hits": 2,
+      "accurate": 0,
+      "off_topic": false,
+      "citations": [
+        "https://erzrf.ru/news/kak-mozhno-zamedlit-rost-tsen-na-zhilye-mneniye-eksperta?search=%D1%86%D0%B5%D0%BD%D1%8B&tag=%D0%92%D0%B2%D0%BE%D0%B4+%D0%B6%D0%B8%D0%BB%D1%8C%D1%8F",
+        "https://erzrf.ru/news/kommertsiya-v-novostroykakh-kak-rossiyskim-developeram-prevratit-trend-v-konkurentnoye-preimushchestvo?t=&tag=%D0%9C%D0%B8%D0%BD%D1%81%D1%82%D1%80%D0%BE%D0%B9",
+        "https://erzrf.ru/news/opublikovan-top-novostroyek-rossii-po-potrebitelskim-kachestvam-s-izmeneniyami-na-1-oktyabrya-2025-goda?regions=%D0%A0%D0%A4&search=%D0%B5%D1%80%D0%B7&tag=%D0%9A%D1%80%D0%B8%D0%B7%D0%B8%D1%81",
+        "https://erzrf.ru/news/klyuchevyye-soobshcheniya-telegram-kanala-yerzrf-novosti-s-6-po-10-oktyabrya?search=%D0%A6%D0%B5%D0%BD%D1%8B&tag=%D0%92%D0%B2%D0%BE%D0%B4+%D0%B6%D0%B8%D0%BB%D1%8C%D1%8F",
+        "https://profi.erzrf.ru/events/rossiyskaya-stroitelnaya-nedelya-2025-forum-stroim-budushchee-rossii-vmeste/",
+        "https://erzrf.ru/news/zastroyshchikam-nakhodyashchimsya-pod-kontrolem-lits-iz-nedruzhestvennykh-stran-razreshili-sovershat-sdelki-s-nedvizhimym-imushchestvom--?search=%D0%B8%D0%BC%D1%83%D1%89%D0%B5%D1%81%D1%82%D0%B2",
+        "https://erzrf.ru/news/eksperty-s-2027-goda-rost-tsen-na-novostroyki-budet-vdvoye-operezhat-inflyatsiyu?tag=%D0%9F%D0%B5%D1%80%D0%B5%D0%B4%D0%B0%D1%87%D0%B0+%D0%BA%D0%B2%D0%B0%D1%80%D1%82%D0%B8%D1%80%D1%8B",
+        "https://erzrf.ru/publikacii/yerzrf-i-tsian-prognoz-osnovnykh-pokazateley-rossiyskogo-rynka-novostroyek-na-2025-god",
+        "https://erzrf.ru/news/otrasl-na-predele-chto-pokazal-i-kvartal-2025-goda-na-rynke-zhilya-mneniya-analitikov?se=&tag=%D0%9F%D0%B5%D1%80%D0%B5%D0%B4%D0%B0%D1%87%D0%B0+%D0%BA%D0%B2%D0%B0%D1%80%D1%82%D0%B8%D1%80%D1%8B",
+        "https://erzrf.ru/news/opros-bolshe-poloviny-zastroyshchikov-gotovy-svernut-svoi-plany-po-investitsiyam-i-vvodu-obyektov?search=%D0%B2%D0%B2%D0%BE%D0%B4&tag=%D0%9D%D0%BE%D0%B2%D1%8B%D0%B5+%D0%BF%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B",
+        "https://erzrf.ru/news/v-minstroye-dopuskayut-chto-nekotoryye-razrushennyye-v-khode-svo-goroda-vosstanavlivat-ne-budut?tag=%D0%9F%D0%B5%D1%80%D0%B5%D0%B4%D0%B0%D1%87%D0%B0+%D0%BA%D0%B2%D0%B0%D1%80%D1%82%D0%B8%D1%80%D1%8B",
+        "https://erzrf.ru/news/developery-peresmatrivayut-strategii-v-usloviyakh-padeniya-vyvoda-novykh-proyektov-i-usileniya-davleniya-so-storony-bankov?search=%D0%9F&tag=%D0%A1%D0%B5%D1%82%D0%B8",
+        "https://erzrf.ru/news/kak-mozhno-zamedlit-rost-tsen-na-zhilye-mneniye-eksperta?search=%D1%86%D0%B5%D0%BD%D1%8B&tag=%D0%92%D0%B2%D0%BE%D0%B4+%D0%B6%D0%B8%D0%BB%D1%8C%D1%8F",
+        "https://profi.erzrf.ru/events/rossiyskaya-stroitelnaya-nedelya-2025-forum-stroim-budushchee-rossii-vmeste/",
+        "https://erzrf.ru/news/klyuchevyye-soobshcheniya-telegram-kanala-yerzrf-novosti-s-6-po-10-oktyabrya?search=%D0%A6%D0%B5%D0%BD%D1%8B&tag=%D0%92%D0%B2%D0%BE%D0%B4+%D0%B6%D0%B8%D0%BB%D1%8C%D1%8F"
+      ],
+      "per_dev": {
+        "Sminex": {
+          "candidates": [],
+          "best": null,
+          "truth": null,
+          "hit": false,
+          "accurate": false
+        },
+        "Эталон": {
+          "candidates": [],
+          "best": null,
+          "truth": 35.46,
+          "hit": false,
+          "accurate": false
+        },
+        "Level Group": {
+          "candidates": [
+            19.0,
+            19.0
+          ],
+          "best": 19.0,
+          "truth": 8.67,
+          "hit": true,
+          "accurate": false
+        },
+        "Донстрой": {
+          "candidates": [
+            30.0,
+            19.0,
+            30.0,
+            19.0,
+            30.0,
+            19.0,
+            30.0,
+            19.0,
+            30.0,
+            19.0,
+            30.0,
+            19.0
+          ],
+          "best": 19.0,
+          "truth": 0.0,
+          "hit": true,
+          "accurate": false
+        },
+        "MR Group": {
+          "candidates": [],
+          "best": null,
+          "truth": 5.65,
+          "hit": false,
+          "accurate": false
+        }
+      },
+      "per_dev_full": {
+        "Sminex": {
+          "dev": "Sminex",
+          "query": "По данным ЕРЗ (erzrf.ru) — какая доля текущего строительства у застройщика 'Sminex' в Москве с переносом срока сдачи (в процентах)? Нужна последняя доступная дата 2025–2026, конкретный процент и прямой URL страницы застройщика на erzrf.ru. Если цифры нет — скажи 'нет данных'.",
+          "latency_s": 3.48,
+          "status": 200,
+          "candidates": [],
+          "best": null,
+          "truth": null,
+          "hit": false,
+          "accurate": false,
+          "off_topic": false,
+          "citations": [
+            "https://erzrf.ru/news/kak-mozhno-zamedlit-rost-tsen-na-zhilye-mneniye-eksperta?search=%D1%86%D0%B5%D0%BD%D1%8B&tag=%D0%92%D0%B2%D0%BE%D0%B4+%D0%B6%D0%B8%D0%BB%D1%8C%D1%8F",
+            "https://erzrf.ru/news/kommertsiya-v-novostroykakh-kak-rossiyskim-developeram-prevratit-trend-v-konkurentnoye-preimushchestvo?t=&tag=%D0%9C%D0%B8%D0%BD%D1%81%D1%82%D1%80%D0%BE%D0%B9",
+            "https://erzrf.ru/news/opublikovan-top-novostroyek-rossii-po-potrebitelskim-kachestvam-s-izmeneniyami-na-1-oktyabrya-2025-goda?regions=%D0%A0%D0%A4&search=%D0%B5%D1%80%D0%B7&tag=%D0%9A%D1%80%D0%B8%D0%B7%D0%B8%D1%81",
+            "https://erzrf.ru/news/klyuchevyye-soobshcheniya-telegram-kanala-yerzrf-novosti-s-6-po-10-oktyabrya?search=%D0%A6%D0%B5%D0%BD%D1%8B&tag=%D0%92%D0%B2%D0%BE%D0%B4+%D0%B6%D0%B8%D0%BB%D1%8C%D1%8F",
+            "https://profi.erzrf.ru/events/rossiyskaya-stroitelnaya-nedelya-2025-forum-stroim-budushchee-rossii-vmeste/",
+            "https://erzrf.ru/news/zastroyshchikam-nakhodyashchimsya-pod-kontrolem-lits-iz-nedruzhestvennykh-stran-razreshili-sovershat-sdelki-s-nedvizhimym-imushchestvom--?search=%D0%B8%D0%BC%D1%83%D1%89%D0%B5%D1%81%D1%82%D0%B2"
+          ],
+          "text_preview": "**Нет данных.**\n\nВ предоставленных результатах поиска нет информации о доле текущего строительства у застройщика **Sminex** в Москве с переносом срока сдачи (в процентах) по данным ЕРЗ на последнюю доступную дату 2025–2026 годов. Ни один результат не содержит прямой страницы застройщика **Sminex** на erzrf.ru с запрошенными цифрами.[1][2][3][4][5][6][7][8][9][10]"
+        },
+        "Эталон": {
+          "dev": "Эталон",
+          "query": "По данным ЕРЗ (erzrf.ru) — какая доля текущего строительства у застройщика 'Эталон' в Москве с переносом срока сдачи (в процентах)? Нужна последняя доступная дата 2025–2026, конкретный процент и прямой URL страницы застройщика на erzrf.ru. Если цифры нет — скажи 'нет данных'.",
+          "latency_s": 3.8,
+          "status": 200,
+          "candidates": [],
+          "best": null,
+          "truth": 35.46,
+          "hit": false,
+          "accurate": false,
+          "off_topic": false,
+          "citations": [
+            "https://erzrf.ru/news/eksperty-s-2027-goda-rost-tsen-na-novostroyki-budet-vdvoye-operezhat-inflyatsiyu?tag=%D0%9F%D0%B5%D1%80%D0%B5%D0%B4%D0%B0%D1%87%D0%B0+%D0%BA%D0%B2%D0%B0%D1%80%D1%82%D0%B8%D1%80%D1%8B",
+            "https://erzrf.ru/publikacii/yerzrf-i-tsian-prognoz-osnovnykh-pokazateley-rossiyskogo-rynka-novostroyek-na-2025-god",
+            "https://erzrf.ru/news/otrasl-na-predele-chto-pokazal-i-kvartal-2025-goda-na-rynke-zhilya-mneniya-analitikov?se=&tag=%D0%9F%D0%B5%D1%80%D0%B5%D0%B4%D0%B0%D1%87%D0%B0+%D0%BA%D0%B2%D0%B0%D1%80%D1%82%D0%B8%D1%80%D1%8B",
+            "https://erzrf.ru/news/opros-bolshe-poloviny-zastroyshchikov-gotovy-svernut-svoi-plany-po-investitsiyam-i-vvodu-obyektov?search=%D0%B2%D0%B2%D0%BE%D0%B4&tag=%D0%9D%D0%BE%D0%B2%D1%8B%D0%B5+%D0%BF%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B",
+            "https://erzrf.ru/news/v-minstroye-dopuskayut-chto-nekotoryye-razrushennyye-v-khode-svo-goroda-vosstanavlivat-ne-budut?tag=%D0%9F%D0%B5%D1%80%D0%B5%D0%B4%D0%B0%D1%87%D0%B0+%D0%BA%D0%B2%D0%B0%D1%80%D1%82%D0%B8%D1%80%D1%8B",
+            "https://erzrf.ru/news/developery-peresmatrivayut-strategii-v-usloviyakh-padeniya-vyvoda-novykh-proyektov-i-usileniya-davleniya-so-storony-bankov?search=%D0%9F&tag=%D0%A1%D0%B5%D1%82%D0%B8"
+          ],
+          "text_preview": "**Нет данных.**\n\nВ предоставленных результатах поиска нет информации о доле текущего строительства у застройщика 'Эталон' в Москве с переносом сроков сдачи (в процентах) по данным ЕРЗ (erzrf.ru) на последнюю доступную дату 2025–2026 годов. Результаты содержат только общие данные по рынку, такие как средний перенос сроков на 3,7 месяца по состоянию на октябрь 2025 года[1][3][5] или прогнозы по пере"
+        },
+        "Level Group": {
+          "dev": "Level Group",
+          "query": "По данным ЕРЗ (erzrf.ru) — какая доля текущего строительства у застройщика 'Level Group' в Москве с переносом срока сдачи (в процентах)? Нужна последняя доступная дата 2025–2026, конкретный процент и прямой URL страницы застройщика на erzrf.ru. Если цифры нет — скажи 'нет данных'.",
+          "latency_s": 3.92,
+          "status": 200,
+          "candidates": [
+            19.0,
+            19.0
+          ],
+          "best": 19.0,
+          "truth": 8.67,
+          "hit": true,
+          "accurate": false,
+          "off_topic": false,
+          "citations": [
+            "https://erzrf.ru/news/kak-mozhno-zamedlit-rost-tsen-na-zhilye-mneniye-eksperta?search=%D1%86%D0%B5%D0%BD%D1%8B&tag=%D0%92%D0%B2%D0%BE%D0%B4+%D0%B6%D0%B8%D0%BB%D1%8C%D1%8F",
+            "https://profi.erzrf.ru/events/rossiyskaya-stroitelnaya-nedelya-2025-forum-stroim-budushchee-rossii-vmeste/",
+            "https://erzrf.ru/news/klyuchevyye-soobshcheniya-telegram-kanala-yerzrf-novosti-s-6-po-10-oktyabrya?search=%D0%A6%D0%B5%D0%BD%D1%8B&tag=%D0%92%D0%B2%D0%BE%D0%B4+%D0%B6%D0%B8%D0%BB%D1%8C%D1%8F",
+            "https://erzrf.ru/news/eksperty-nazvali-goroda-obognavshiye-moskvu-po-rostu-tsen-na-zhilye?search=%D1%86%D0%B5%D0%BD%D1%8B&tag=%D0%92%D0%B2%D0%BE%D0%B4+%D0%B6%D0%B8%D0%BB%D1%8C%D1%8F",
+            "https://erzrf.ru/news/kakikh-izmeneniy-na-rynke-zhilya-stoit-ozhidat-nyneshney-osenyu-prognozy-ekspertov?search=%D0%BF%D1%80%D0%BE%D0%B3%D0%BD%D0%BE%D0%B7&tag=%D0%9D%D0%BE%D0%B2%D1%8B%D0%B5+%D0%BF%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B",
+            "https://erzrf.ru/news/klyuchevyye-soobshcheniya-telegram-kanala-yerzrf-novosti-s-21-po-25-iyulya?search=%D1%86%D0%B5%D0%BD%D1%8B&tag=%D0%92%D0%B2%D0%BE%D0%B4+%D0%B6%D0%B8%D0%BB%D1%8C%D1%8F"
+          ],
+          "text_preview": "**Нет данных.**\n\nНи один из поисковых результатов не содержит информации о доле текущего строительства у застройщика **'Level Group'** в Москве с переносом срока сдачи (в процентах) по данным ЕРЗ (erzrf.ru) на период 2025–2026 гг. Результаты упоминают общие данные по рынку (например, 19% проектов с переносом сроков по стране в июне[1]), но не касаются конкретного застройщика, Москвы или запрошенно"
+        },
+        "Донстрой": {
+          "dev": "Донстрой",
+          "query": "По данным ЕРЗ (erzrf.ru) — какая доля текущего строительства у застройщика 'Донстрой' в Москве с переносом срока сдачи (в процентах)? Нужна последняя доступная дата 2025–2026, конкретный процент и прямой URL страницы застройщика на erzrf.ru. Если цифры нет — скажи 'нет данных'.",
+          "latency_s": 4.03,
+          "status": 200,
+          "candidates": [
+            30.0,
+            19.0,
+            30.0,
+            19.0,
+            30.0,
+            19.0,
+            30.0,
+            19.0,
+            30.0,
+            19.0,
+            30.0,
+            19.0
+          ],
+          "best": 19.0,
+          "truth": 0.0,
+          "hit": true,
+          "accurate": false,
+          "off_topic": false,
+          "citations": [
+            "https://erzrf.ru/news/v-2025-godu-sebestoimost-stroitelstva-1-kv-m-zhilya-v-stolitsakh-i-primorye-prodolzhila-rost-a-na-severnom-kavkaze--snizilas?search=%D0%BF%D1%80%D0%BE%D0%B5%D0%BA%D1%82&tag=%D0%92%D0%B2%D0%BE%D0%B4+%D0%B6%D0%B8%D0%BB%D1%8C%D1%8F",
+            "https://erzrf.ru/publikacii/chto-takoye-reyting-yerz-i-kak-on-rasschityvayetsya?tag=%D0%9F%D1%80%D0%BE%D0%B3%D0%BD%D0%BE%D0%B7%D1%8B",
+            "https://erzrf.ru/news/stanet-li-bankrotstvo-zastroyshchikov-trendom-v-2025-godu?tag=%D0%91%D0%B0%D0%BD%D0%BA%D1%80%D0%BE%D1%82%D1%81%D1%82%D0%B2%D0%BE",
+            "https://erzrf.ru/news/konstitutsionnyy-sud-organ-mestnogo-samoupravleniya-ne-vprave-otmenyat-raneye-vydannyye-im-razresheniya-na-vvod-posle-registratsii-obyekta-v-yegrn/eksperty-v-i-kvartale-podmoskovnyy-rynok-novostroyek-prodemonstriroval-polozhitelnuyu-dinamiku?search=%D0%9E%D0%9D%D0%A1",
+            "https://erzrf.ru/news/v-ramkakh-programmy-mzhk-nikita-stasishin-pobeseduyet-s-top-menedzherami-developerov-v-formate-otkrytogo-mikrofona?tag=%D0%92%D0%B2%D0%BE%D0%B4+%D0%B6%D0%B8%D0%BB%D1%8C%D1%8F&search=%D0%BF%D1%80%D0%BE",
+            "https://profi.erzrf.ru/events/rossiyskaya-stroitelnaya-nedelya-2025-forum-stroim-budushchee-rossii-vmeste/"
+          ],
+          "text_preview": "**Нет данных.**\n\nПо предоставленным результатам поиска на erzrf.ru нет информации о доле текущего строительства у застройщика 'Донстрой' в Москве с переносом срока сдачи в процентах для периода 2025–2026 годов[1][2][3][5][8]. Упоминания 'Донстрой' касаются общих переносов сроков (например, 30% объектов в отрасли[1], 19% проектов[5]) или других регионов (Ростов-на-Дону[3]), но не конкретно доли для"
+        },
+        "MR Group": {
+          "dev": "MR Group",
+          "query": "По данным ЕРЗ (erzrf.ru) — какая доля текущего строительства у застройщика 'MR Group' в Москве с переносом срока сдачи (в процентах)? Нужна последняя доступная дата 2025–2026, конкретный процент и прямой URL страницы застройщика на erzrf.ru. Если цифры нет — скажи 'нет данных'.",
+          "latency_s": 4.18,
+          "status": 200,
+          "candidates": [],
+          "best": null,
+          "truth": 5.65,
+          "hit": false,
+          "accurate": false,
+          "off_topic": false,
+          "citations": [
+            "https://erzrf.ru/publikacii/zacht-kak-osnovaniye-prekrashcheniya-obyazatelstva-po-oplate-tseny-dogovora-uchastiya-v-dolevom-stroitelstve?erid=2SDnjdsmmry&tag=%D0%9F%D1%80%D0%BE%D0%B3%D0%BD%D0%BE%D0%B7%D1%8B",
+            "https://erzrf.ru/publikacii/potrebitelskiy-terrorizm-v-dolevom?tag=%D0%95%D0%A0%D0%97.%D0%A0%D0%A4",
+            "https://erzrf.ru/publikacii/prishel-uvidel-vnedril-keys-ob-avtomatizatsii-raboty-s-tsenami-v-gk-tochno?tag=%D0%95%D0%A0%D0%97.%D0%A0%D0%A4",
+            "https://erzrf.ru/news/v-podmoskovye-predlozheniye-novostroyek-sokrashchayetsya-pri-etom-spros-i-tseny-rastut/domrf-v-2025-godu-tseny-na-novostroyki-prodolzhat-rasti-na-urovne-inflyatsii-a-obyemy-vvoda-zhilya-upadut-lish-v-2027-m?search=%D1%86%D0%B5%D0%BD%D1%8B&tag=%D0%92%D0%B2%D0%BE%D0%B4+%D0%B6%D0%B8%D0%BB%D1%8C%D1%8F",
+            "https://erzrf.ru/publikacii/kak-tekhnologii-pomogayut-zastroyshchikam-sokratit-raskhody-v-krizis?tag=%D0%9F%D1%80%D0%BE%D0%B3%D0%BD%D0%BE%D0%B7%D1%8B",
+            "https://erzrf.ru/publikacii/dosrochnoye-rastorzheniye-dogovora-arendy-za-i-protiv?costType=1&tag=%D0%9F%D1%80%D0%BE%D0%B3%D0%BD%D0%BE%D0%B7%D1%8B"
+          ],
+          "text_preview": "**Нет данных.**\n\nВ предоставленных результатах поиска нет информации о доле текущего строительства у застройщика **'MR Group'** в Москве с переносом срока сдачи (в процентах) по данным ЕРЗ (erzrf.ru) на последнюю доступную дату 2025–2026 годов[1][2][3][4][5][6][7][8][9][10]. Также отсутствует прямой URL страницы **'MR Group'** на erzrf.ru. Упоминаются общие прогнозы по переносам ввода жилья (напри"
+        }
+      }
+    },
+    "B4": {
+      "name": "B4 — Direct fetch erzrf.ru",
+      "model": "requests (no LLM)",
+      "query": "GET /zastroyschiki/brand/<slug>",
+      "latency_s": 2.79,
+      "cost_usd": 0.0,
+      "status": "reached=3/5, errors=7",
+      "hits": 0,
+      "accurate": 0,
+      "off_topic": false,
+      "citations": [
+        "https://erzrf.ru/zastroyschiki/brand/mr-group-461170001",
+        "https://erzrf.ru/zastroyschiki/brand/461175001",
+        "https://erzrf.ru/zastroyschiki/brand/donstroj-430278001"
+      ],
+      "per_dev": {
+        "MR Group": {
+          "candidates": [],
+          "best": null,
+          "truth": 5.65,
+          "hit": false,
+          "accurate": false
+        },
+        "Sminex": {
+          "candidates": [],
+          "best": null,
+          "truth": null,
+          "hit": false,
+          "accurate": false
+        },
+        "Донстрой": {
+          "candidates": [],
+          "best": null,
+          "truth": 0.0,
+          "hit": false,
+          "accurate": false
+        },
+        "Level Group": {
+          "candidates": [],
+          "best": null,
+          "truth": 8.67,
+          "hit": false,
+          "accurate": false
+        },
+        "Эталон": {
+          "candidates": [],
+          "best": null,
+          "truth": 35.46,
+          "hit": false,
+          "accurate": false
+        }
+      },
+      "per_dev_full": {
+        "MR Group": {
+          "dev": "MR Group",
+          "tried": [
+            {
+              "url": "https://erzrf.ru/zastroyschiki/brand/mr-group-461170001",
+              "status": 200,
+              "bytes": 32465
+            }
+          ],
+          "reached_url": "https://erzrf.ru/zastroyschiki/brand/mr-group-461170001",
+          "status": 200,
+          "bytes": 32465,
+          "candidates": [],
+          "best": null,
+          "truth": 5.65,
+          "hit": false,
+          "accurate": false,
+          "error_modes": [
+            "200:https://erzrf.ru/zastroyschiki/brand/mr-group-461170001:JS-rendered (no static перенос data)"
+          ]
+        },
+        "Sminex": {
+          "dev": "Sminex",
+          "tried": [
+            {
+              "url": "https://erzrf.ru/zastroyschiki/brand/461175001",
+              "status": 200,
+              "bytes": 56256
+            }
+          ],
+          "reached_url": "https://erzrf.ru/zastroyschiki/brand/461175001",
+          "status": 200,
+          "bytes": 56256,
+          "candidates": [],
+          "best": null,
+          "truth": null,
+          "hit": false,
+          "accurate": false,
+          "error_modes": [
+            "200:https://erzrf.ru/zastroyschiki/brand/461175001:JS-rendered (no static перенос data)"
+          ]
+        },
+        "Донстрой": {
+          "dev": "Донстрой",
+          "tried": [
+            {
+              "url": "https://erzrf.ru/zastroyschiki/brand/donstroj-430278001",
+              "status": 200,
+              "bytes": 55757
+            }
+          ],
+          "reached_url": "https://erzrf.ru/zastroyschiki/brand/donstroj-430278001",
+          "status": 200,
+          "bytes": 55757,
+          "candidates": [],
+          "best": null,
+          "truth": 0.0,
+          "hit": false,
+          "accurate": false,
+          "error_modes": [
+            "200:https://erzrf.ru/zastroyschiki/brand/donstroj-430278001:JS-rendered (no static перенос data)"
+          ]
+        },
+        "Level Group": {
+          "dev": "Level Group",
+          "tried": [
+            {
+              "url": "https://erzrf.ru/zastroyschiki/brand/level-group-461174001",
+              "status": 404,
+              "bytes": 39786
+            },
+            {
+              "url": "https://erzrf.ru/zastroyschiki/brand/level-group",
+              "status": 404,
+              "bytes": 39776
+            },
+            {
+              "url": "https://erzrf.ru/search?q=Level+Group",
+              "status": 404,
+              "bytes": 22003
+            }
+          ],
+          "reached_url": null,
+          "status": null,
+          "bytes": 0,
+          "candidates": [],
+          "best": null,
+          "truth": 8.67,
+          "hit": false,
+          "accurate": false,
+          "error_modes": [
+            "404:https://erzrf.ru/zastroyschiki/brand/level-group-461174001",
+            "404:https://erzrf.ru/zastroyschiki/brand/level-group"
+          ]
+        },
+        "Эталон": {
+          "dev": "Эталон",
+          "tried": [
+            {
+              "url": "https://erzrf.ru/zastroyschiki/brand/gruppa-etalon-430279001",
+              "status": 404,
+              "bytes": 39788
+            },
+            {
+              "url": "https://erzrf.ru/zastroyschiki/brand/gruppa-etalon",
+              "status": 404,
+              "bytes": 39778
+            },
+            {
+              "url": "https://erzrf.ru/search?q=Эталон",
+              "status": 404,
+              "bytes": 22049
+            }
+          ],
+          "reached_url": null,
+          "status": null,
+          "bytes": 0,
+          "candidates": [],
+          "best": null,
+          "truth": 35.46,
+          "hit": false,
+          "accurate": false,
+          "error_modes": [
+            "404:https://erzrf.ru/zastroyschiki/brand/gruppa-etalon-430279001",
+            "404:https://erzrf.ru/zastroyschiki/brand/gruppa-etalon"
+          ]
+        }
+      },
+      "error_modes": [
+        "200:https://erzrf.ru/zastroyschiki/brand/mr-group-461170001:JS-rendered (no static перенос data)",
+        "200:https://erzrf.ru/zastroyschiki/brand/461175001:JS-rendered (no static перенос data)",
+        "200:https://erzrf.ru/zastroyschiki/brand/donstroj-430278001:JS-rendered (no static перенос data)",
+        "404:https://erzrf.ru/zastroyschiki/brand/level-group-461174001",
+        "404:https://erzrf.ru/zastroyschiki/brand/level-group",
+        "404:https://erzrf.ru/zastroyschiki/brand/gruppa-etalon-430279001",
+        "404:https://erzrf.ru/zastroyschiki/brand/gruppa-etalon"
+      ]
+    },
+    "B5": {
+      "name": "B5 — Hybrid (pplx discovery + direct fetch)",
+      "model": "sonar-pro + requests",
+      "query": "Для каждого из 5 девелоперов бизнес-класса Москвы (Донстрой, MR Group, Level Group, Группа Эталон, Sminex) дай ТОЛЬКО прямые URL страниц застройщика на erzrf.ru (формат https://erzrf.ru/zastroyschiki/brand/<slug>-<id>). Формат ответа: <девелопер> -> <url>. Только 5 строк, без пояснений.",
+      "latency_s": 4.62,
+      "cost_usd": 0.014,
+      "status": "reached=5/5",
+      "hits": 0,
+      "accurate": 0,
+      "off_topic": false,
+      "citations": [
+        "https://erzrf.ru/zastroyschiki/brand/donstroj-430278001",
+        "https://erzrf.ru/zastroyschiki/brand/mr-group-<id",
+        "https://erzrf.ru/zastroyschiki/brand/gruppa-etalon-<id",
+        "https://erzrf.ru/zastroyschiki/brand/level-group-<id",
+        "https://erzrf.ru/zastroyschiki/brand/sminex-<id"
+      ],
+      "per_dev": {
+        "Донстрой": {
+          "candidates": [],
+          "best": null,
+          "truth": 0.0,
+          "hit": false,
+          "accurate": false
+        },
+        "MR Group": {
+          "candidates": [],
+          "best": null,
+          "truth": 5.65,
+          "hit": false,
+          "accurate": false
+        },
+        "Эталон": {
+          "candidates": [],
+          "best": null,
+          "truth": 35.46,
+          "hit": false,
+          "accurate": false
+        },
+        "Level Group": {
+          "candidates": [],
+          "best": null,
+          "truth": 8.67,
+          "hit": false,
+          "accurate": false
+        },
+        "Sminex": {
+          "candidates": [],
+          "best": null,
+          "truth": null,
+          "hit": false,
+          "accurate": false
+        }
+      },
+      "per_dev_full": {
+        "Донстрой": {
+          "dev": "Донстрой",
+          "urls": [
+            "https://erzrf.ru/zastroyschiki/brand/donstroj-430278001"
+          ],
+          "reached_url": "https://erzrf.ru/zastroyschiki/brand/donstroj-430278001",
+          "candidates": [],
+          "best": null,
+          "truth": 0.0,
+          "hit": false,
+          "accurate": false
+        },
+        "MR Group": {
+          "dev": "MR Group",
+          "urls": [
+            "https://erzrf.ru/zastroyschiki/brand/mr-group-<id"
+          ],
+          "reached_url": "https://erzrf.ru/zastroyschiki/brand/mr-group-<id",
+          "candidates": [],
+          "best": null,
+          "truth": 5.65,
+          "hit": false,
+          "accurate": false
+        },
+        "Эталон": {
+          "dev": "Эталон",
+          "urls": [
+            "https://erzrf.ru/zastroyschiki/brand/gruppa-etalon-<id"
+          ],
+          "reached_url": "https://erzrf.ru/zastroyschiki/brand/gruppa-etalon-<id",
+          "candidates": [],
+          "best": null,
+          "truth": 35.46,
+          "hit": false,
+          "accurate": false
+        },
+        "Level Group": {
+          "dev": "Level Group",
+          "urls": [
+            "https://erzrf.ru/zastroyschiki/brand/level-group-<id"
+          ],
+          "reached_url": "https://erzrf.ru/zastroyschiki/brand/level-group-<id",
+          "candidates": [],
+          "best": null,
+          "truth": 8.67,
+          "hit": false,
+          "accurate": false
+        },
+        "Sminex": {
+          "dev": "Sminex",
+          "urls": [
+            "https://erzrf.ru/zastroyschiki/brand/sminex-<id"
+          ],
+          "reached_url": "https://erzrf.ru/zastroyschiki/brand/sminex-<id",
+          "candidates": [],
+          "best": null,
+          "truth": null,
+          "hit": false,
+          "accurate": false
+        }
+      },
+      "urls_by_dev": {
+        "Донстрой": [
+          "https://erzrf.ru/zastroyschiki/brand/donstroj-430278001"
+        ],
+        "MR Group": [
+          "https://erzrf.ru/zastroyschiki/brand/mr-group-<id"
+        ],
+        "Level Group": [
+          "https://erzrf.ru/zastroyschiki/brand/level-group-<id"
+        ],
+        "Эталон": [
+          "https://erzrf.ru/zastroyschiki/brand/gruppa-etalon-<id"
+        ],
+        "Sminex": [
+          "https://erzrf.ru/zastroyschiki/brand/sminex-<id"
+        ]
+      }
+    }
+  },
+  "stability": {
+    "B2": {
+      "first_hits": 1,
+      "first_accurate": 1,
+      "second_hits": 1,
+      "second_accurate": 0,
+      "same": false
+    }
+  },
+  "total_cost": 0.10300000000000001
+}

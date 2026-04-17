@@ -1,0 +1,112 @@
+{
+  "id": "2ecf77c0-ea43-4ca4-ac86-eedc3f21bbee",
+  "model": "sonar-pro",
+  "created": 1776466559,
+  "usage": {
+    "prompt_tokens": 106,
+    "completion_tokens": 132,
+    "total_tokens": 238,
+    "search_context_size": "low",
+    "cost": {
+      "input_tokens_cost": 0.00032,
+      "output_tokens_cost": 0.00198,
+      "request_cost": 0.006,
+      "total_cost": 0.0083
+    }
+  },
+  "citations": [
+    "https://erzrf.ru/news/brusnika-nachinayet-stroitelstvo-svoyego-pervogo-obyekta-v-moskve--zhilogo-kvartala-na-vostoke-stolitsy/sredi-krupnykh-zastroyshchikov-top-po-potrebitelskim-kachestvam-zhilykh-kompleksov-vozglavili-brusnika-donstroy-i-dogma?search=%D0%91%D1%80%D1%83%D1%81%D0%BD%D0%B8%D0%BA%D0%B0&tag=%D0%90%D0%BD%D0%B0%D0%BB%D0%B8%D1%82%D0%B8%D0%BA%D0%B0",
+    "https://erzrf.ru/top-zastroyshchikov",
+    "https://erzrf.ru/zastroyschiki/brand/donstroj-430278001?regionKey=143443001&gkBase=466459001&costType=1&sortType=cmxrating&_escaped_fragment_=&organizationId=430278001",
+    "https://erzrf.ru/news/donstroy-obyavil-ob-izmenenii-korporativnoy-struktury-i-novykh-naznacheniyakh-v-rukovodstve?erid=2SDnjdeWBKr&tag=%D0%9F%D1%80%D0%BE%D0%B4%D0%B0%D0%B6%D0%B8",
+    "https://erzrf.ru/zastroyschiki/brand/donstroj-430278001?regionKey=143443001&datePublication=250601&topType=0&version=v2024&dateVersion=3&costType=1&sortType=qrooms&organizationId=430278001&_escaped_fragment_=&objectTypeKey=2877124001&objectTypeKey=179772001",
+    "https://erzrf.ru/news/donstroy-obyavil-ob-izmenenii-korporativnoy-struktury-i-novykh-naznacheniyakh-v-rukovodstve?search=%D0%94%D0%9E%D0%9D%D0%A1%D0%A2%D0%A0%D0%9E%D0%99&tag=%D0%90%D0%BD%D0%B0%D0%BB%D0%B8%D1%82%D0%B8%D0%BA%D0%B0",
+    "https://erzrf.ru/zastroyschiki/brand/donstroj-430278001?erid=2SDnjeo5Acv&_escaped_fragment_=&regionKey=143443001&costType=1&sortType=qrooms&gkTab=6&organizationId=430278001",
+    "https://erzrf.ru/zastroyschiki/brand/donstroj-430278001?regionKey=143443001&gkBase=4267512001&costType=1&sortType=cmxrating&objectTab=4&gkTab=6&objectTypeKey=2877124001&_escaped_fragment_=&organizationId=430278001",
+    "https://erzrf.ru/novostroyki?gkId=20849079001&region=Moskva&regionKey=143443001&costType=1&sortType=qrooms&organizationId=4354668001",
+    "https://erzrf.ru/novostroyki?title=%D0%90%D1%80%D0%B5%D0%BD%D0%B4%D0%B0+%D0%B6%D0%B8%D0%BB%D1%8C%D1%8F+%D0%B2+%D0%9C%D0%BE%D1%81%D0%BA%D0%B2%D0%B5+&regionKey=143443001&costType=1&sortType=cmxrating&organizationId=430278001&viewMode=list&scrollTo=viewMode"
+  ],
+  "search_results": [
+    {
+      "title": "Среди крупных застройщиков ТОП по потребительским ... - ЕРЗ.РФ",
+      "url": "https://erzrf.ru/news/brusnika-nachinayet-stroitelstvo-svoyego-pervogo-obyekta-v-moskve--zhilogo-kvartala-na-vostoke-stolitsy/sredi-krupnykh-zastroyshchikov-top-po-potrebitelskim-kachestvam-zhilykh-kompleksov-vozglavili-brusnika-donstroy-i-dogma?search=%D0%91%D1%80%D1%83%D1%81%D0%BD%D0%B8%D0%BA%D0%B0&tag=%D0%90%D0%BD%D0%B0%D0%BB%D0%B8%D1%82%D0%B8%D0%BA%D0%B0",
+      "snippet": "В ТОП-10 нового ранжирования вошли три московских застройщика (ДОНСТРОЙ, Level Group, MR Group), по два из Краснодарского края (DOGMA, ГК ТОЧНО) и Удмуртской ...",
+      "source": "web"
+    },
+    {
+      "title": "ТОП застройщиков РФ, апрель 2026 - ЕРЗ.РФ",
+      "url": "https://erzrf.ru/top-zastroyshchikov",
+      "last_updated": "2026-03-31",
+      "snippet": "Полный список застройщиков России 2026 г. Содержит рейтинг застройщиков, объемы строительства, регионы строительства, список строящихся жилых комплексов, ...",
+      "source": "web"
+    },
+    {
+      "title": "ДОНСТРОЙ - вся информация о бренде, телефон, сайт, адрес ...",
+      "url": "https://erzrf.ru/zastroyschiki/brand/donstroj-430278001?regionKey=143443001&gkBase=466459001&costType=1&sortType=cmxrating&_escaped_fragment_=&organizationId=430278001",
+      "snippet": "г.Москва, город Москва, ул. Мосфильмовская, д.70. Телефон. +7 (495) 116 ... , +7 (495) 104 ... , +7 (495) 401 ... , +7 (495) 172 .",
+      "source": "web"
+    },
+    {
+      "title": "ДОНСТРОЙ объявил об изменении корпоративной структуры и ...",
+      "url": "https://erzrf.ru/news/donstroy-obyavil-ob-izmenenii-korporativnoy-struktury-i-novykh-naznacheniyakh-v-rukovodstve?erid=2SDnjdeWBKr&tag=%D0%9F%D1%80%D0%BE%D0%B4%D0%B0%D0%B6%D0%B8",
+      "snippet": "Согласно информации с официального сайта застройщика, в компании начинает работу новый орган управления — совет директоров. Пост его председателя займет ...",
+      "source": "web"
+    },
+    {
+      "title": "ДОНСТРОЙ - вся информация о бренде, телефон, сайт ... - ЕРЗ.РФ",
+      "url": "https://erzrf.ru/zastroyschiki/brand/donstroj-430278001?regionKey=143443001&datePublication=250601&topType=0&version=v2024&dateVersion=3&costType=1&sortType=qrooms&organizationId=430278001&_escaped_fragment_=&objectTypeKey=2877124001&objectTypeKey=179772001",
+      "snippet": "г.Москва, город Москва, ул. Мосфильмовская, д.70. Телефон. +7 (495) 116 ... , +7 (495) 104 ... , +7 (495) 401 ... , +7 (495) 172 .",
+      "source": "web"
+    },
+    {
+      "title": "ДОНСТРОЙ объявил об изменении корпоративной структуры и ...",
+      "url": "https://erzrf.ru/news/donstroy-obyavil-ob-izmenenii-korporativnoy-struktury-i-novykh-naznacheniyakh-v-rukovodstve?search=%D0%94%D0%9E%D0%9D%D0%A1%D0%A2%D0%A0%D0%9E%D0%99&tag=%D0%90%D0%BD%D0%B0%D0%BB%D0%B8%D1%82%D0%B8%D0%BA%D0%B0",
+      "snippet": "Согласно информации с официального сайта застройщика, в компании начинает работу новый орган управления — совет директоров.",
+      "source": "web"
+    },
+    {
+      "title": "ДОНСТРОЙ - вся информация о бренде, телефон, сайт ... - ЕРЗ.РФ",
+      "url": "https://erzrf.ru/zastroyschiki/brand/donstroj-430278001?erid=2SDnjeo5Acv&_escaped_fragment_=&regionKey=143443001&costType=1&sortType=qrooms&gkTab=6&organizationId=430278001",
+      "last_updated": "2026-04-17",
+      "snippet": "Компания «Донстрой» получила разрешение на ввод в эксплуатацию 28-31 корпусов, входящих в квартал «Вдохновение» проекта «Символ» в Лефортове. 5 февраля 16:38.",
+      "source": "web"
+    },
+    {
+      "title": "ДОНСТРОЙ - вся информация о бренде, телефон, сайт ... - ЕРЗ.РФ",
+      "url": "https://erzrf.ru/zastroyschiki/brand/donstroj-430278001?regionKey=143443001&gkBase=4267512001&costType=1&sortType=cmxrating&objectTab=4&gkTab=6&objectTypeKey=2877124001&_escaped_fragment_=&organizationId=430278001",
+      "last_updated": "2026-04-14",
+      "snippet": "Компания «Донстрой» завершила 2025 год с рекордным показателем ввода недвижимости: в жилых комплексах «Событие», «Остров» и «Символ» сданы новые очереди общей ...",
+      "source": "web"
+    },
+    {
+      "title": "Единый Ресурс Застройщиков - ЕРЗ.РФ",
+      "url": "https://erzrf.ru/novostroyki?gkId=20849079001&region=Moskva&regionKey=143443001&costType=1&sortType=qrooms&organizationId=4354668001",
+      "snippet": "Единый ресурс застройщиков включает в себя самую полную в России базу данных застройщиков жилья и новостроек (свидетельство о регистрации № 2016620396 от 28.03.",
+      "source": "web"
+    },
+    {
+      "title": "Единый Ресурс Застройщиков - ЕРЗ.РФ",
+      "url": "https://erzrf.ru/novostroyki?title=%D0%90%D1%80%D0%B5%D0%BD%D0%B4%D0%B0+%D0%B6%D0%B8%D0%BB%D1%8C%D1%8F+%D0%B2+%D0%9C%D0%BE%D1%81%D0%BA%D0%B2%D0%B5+&regionKey=143443001&costType=1&sortType=cmxrating&organizationId=430278001&viewMode=list&scrollTo=viewMode",
+      "snippet": "Единый ресурс застройщиков включает в себя самую полную в России базу данных застройщиков жилья и новостроек (свидетельство о регистрации № 2016620396 от ...",
+      "source": "web"
+    }
+  ],
+  "object": "chat.completion",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "Донстрой -> https://erzrf.ru/zastroyschiki/brand/donstroj-430278001[3]  \nMR Group -> https://erzrf.ru/zastroyschiki/brand/mr-group-<id>  \nLevel Group -> https://erzrf.ru/zastroyschiki/brand/level-group-<id>  \nГруппа Эталон -> https://erzrf.ru/zastroyschiki/brand/gruppa-etalon-<id>  \nSminex -> https://erzrf.ru/zastroyschiki/brand/sminex-<id>"
+      },
+      "delta": {
+        "role": "assistant",
+        "content": ""
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "_status": 200,
+  "_latency_s": 3.13,
+  "_model": "sonar-pro"
+}

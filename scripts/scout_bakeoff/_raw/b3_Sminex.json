@@ -1,0 +1,113 @@
+{
+  "id": "e063b9c6-d949-4437-85d5-aebc2f08d3ac",
+  "model": "sonar-pro",
+  "created": 1776466553,
+  "usage": {
+    "prompt_tokens": 100,
+    "completion_tokens": 128,
+    "total_tokens": 228,
+    "search_context_size": "low",
+    "cost": {
+      "input_tokens_cost": 0.0003,
+      "output_tokens_cost": 0.00192,
+      "request_cost": 0.006,
+      "total_cost": 0.00822
+    }
+  },
+  "citations": [
+    "https://erzrf.ru/news/kak-mozhno-zamedlit-rost-tsen-na-zhilye-mneniye-eksperta?search=%D1%86%D0%B5%D0%BD%D1%8B&tag=%D0%92%D0%B2%D0%BE%D0%B4+%D0%B6%D0%B8%D0%BB%D1%8C%D1%8F",
+    "https://erzrf.ru/news/kommertsiya-v-novostroykakh-kak-rossiyskim-developeram-prevratit-trend-v-konkurentnoye-preimushchestvo?t=&tag=%D0%9C%D0%B8%D0%BD%D1%81%D1%82%D1%80%D0%BE%D0%B9",
+    "https://erzrf.ru/news/opublikovan-top-novostroyek-rossii-po-potrebitelskim-kachestvam-s-izmeneniyami-na-1-oktyabrya-2025-goda?regions=%D0%A0%D0%A4&search=%D0%B5%D1%80%D0%B7&tag=%D0%9A%D1%80%D0%B8%D0%B7%D0%B8%D1%81",
+    "https://erzrf.ru/news/klyuchevyye-soobshcheniya-telegram-kanala-yerzrf-novosti-s-6-po-10-oktyabrya?search=%D0%A6%D0%B5%D0%BD%D1%8B&tag=%D0%92%D0%B2%D0%BE%D0%B4+%D0%B6%D0%B8%D0%BB%D1%8C%D1%8F",
+    "https://profi.erzrf.ru/events/rossiyskaya-stroitelnaya-nedelya-2025-forum-stroim-budushchee-rossii-vmeste/",
+    "https://erzrf.ru/news/zastroyshchikam-nakhodyashchimsya-pod-kontrolem-lits-iz-nedruzhestvennykh-stran-razreshili-sovershat-sdelki-s-nedvizhimym-imushchestvom--?search=%D0%B8%D0%BC%D1%83%D1%89%D0%B5%D1%81%D1%82%D0%B2",
+    "https://erzrf.ru/news/eksperty-nazvali-goroda-obognavshiye-moskvu-po-rostu-tsen-na-zhilye?search=%D1%86%D0%B5%D0%BD%D1%8B&tag=%D0%92%D0%B2%D0%BE%D0%B4+%D0%B6%D0%B8%D0%BB%D1%8C%D1%8F",
+    "https://erzrf.ru/news/klyuchevyye-soobshcheniya-telegram-kanala-yerzrf-novosti-s-21-po-25-iyulya?search=%D1%86%D0%B5%D0%BD%D1%8B&tag=%D0%92%D0%B2%D0%BE%D0%B4+%D0%B6%D0%B8%D0%BB%D1%8C%D1%8F",
+    "https://profi.erzrf.ru/erzvideo/",
+    "https://erzrf.ru/zastroyschiki/brand/461175001"
+  ],
+  "search_results": [
+    {
+      "title": "Как можно замедлить рост цен на жилье: мнение эксперта",
+      "url": "https://erzrf.ru/news/kak-mozhno-zamedlit-rost-tsen-na-zhilye-mneniye-eksperta?search=%D1%86%D0%B5%D0%BD%D1%8B&tag=%D0%92%D0%B2%D0%BE%D0%B4+%D0%B6%D0%B8%D0%BB%D1%8C%D1%8F",
+      "snippet": "Как рассказал «Ведомостям» вице-премьер Марат Хуснуллин (на фото ниже), срок ввода 19% проектов уже перенесен. В июне, по данным ЕРЗ.РФ, более ...",
+      "source": "web"
+    },
+    {
+      "title": "как российским девелоперам превратить тренд в конкурентное ...",
+      "url": "https://erzrf.ru/news/kommertsiya-v-novostroykakh-kak-rossiyskim-developeram-prevratit-trend-v-konkurentnoye-preimushchestvo?t=&tag=%D0%9C%D0%B8%D0%BD%D1%81%D1%82%D1%80%D0%BE%D0%B9",
+      "snippet": "«Наша доля коммерческой недвижимости в среднем составляет 10%, и это связано с тем, что мы занимаемся комплексным развитием территории, осваиваем собственный ...",
+      "source": "web"
+    },
+    {
+      "title": "В ТОП-20 новостроек России по потребительским качествам на ...",
+      "url": "https://erzrf.ru/news/opublikovan-top-novostroyek-rossii-po-potrebitelskim-kachestvam-s-izmeneniyami-na-1-oktyabrya-2025-goda?regions=%D0%A0%D0%A4&search=%D0%B5%D1%80%D0%B7&tag=%D0%9A%D1%80%D0%B8%D0%B7%D0%B8%D1%81",
+      "snippet": "В ТОП-20 новостроек России по потребительским качествам на 1 октября 2025 года вошел ЖК Фрунзенская набережная, а ЖК Южные кварталы улучшил свою позицию.",
+      "source": "web"
+    },
+    {
+      "title": "Ключевые сообщения телеграм-канала ЕРЗ.РФ НОВОСТИ с 6 по ...",
+      "url": "https://erzrf.ru/news/klyuchevyye-soobshcheniya-telegram-kanala-yerzrf-novosti-s-6-po-10-oktyabrya?search=%D0%A6%D0%B5%D0%BD%D1%8B&tag=%D0%92%D0%B2%D0%BE%D0%B4+%D0%B6%D0%B8%D0%BB%D1%8C%D1%8F",
+      "snippet": "Предлагаем вашему вниманию подборку ключевых новостей официального телеграм-канала Единого ресурса застройщиков за прошедшую неделю. Аналитика ЕРЗ.РФ.",
+      "source": "web"
+    },
+    {
+      "title": "Российская строительная неделя 2025. Форум «Строим ...",
+      "url": "https://profi.erzrf.ru/events/rossiyskaya-stroitelnaya-nedelya-2025-forum-stroim-budushchee-rossii-vmeste/",
+      "last_updated": "2026-03-12",
+      "snippet": "Участники сессии обсудят основные составляющие себестоимости девелоперского проекта и их динамику. Опытные застройщики расскажут о своём опыте планирования и ...",
+      "source": "web"
+    },
+    {
+      "title": "Застройщикам, находящимся под контролем лиц из ... - ЕРЗ",
+      "url": "https://erzrf.ru/news/zastroyshchikam-nakhodyashchimsya-pod-kontrolem-lits-iz-nedruzhestvennykh-stran-razreshili-sovershat-sdelki-s-nedvizhimym-imushchestvom--?search=%D0%B8%D0%BC%D1%83%D1%89%D0%B5%D1%81%D1%82%D0%B2",
+      "snippet": "Основные причины увеличения доли коммерческой недвижимости при строительстве ЖК и ключевые ограничения проанализировал основатель, управляющий партнер компании ...",
+      "source": "web"
+    },
+    {
+      "title": "Эксперты назвали города, обогнавшие Москву по росту цен на ...",
+      "url": "https://erzrf.ru/news/eksperty-nazvali-goroda-obognavshiye-moskvu-po-rostu-tsen-na-zhilye?search=%D1%86%D0%B5%D0%BD%D1%8B&tag=%D0%92%D0%B2%D0%BE%D0%B4+%D0%B6%D0%B8%D0%BB%D1%8C%D1%8F",
+      "snippet": "Москва, по данным экспертов, расположилась на десятом месте. Средняя цена 1 кв. м на рынке готового жилья столицы увеличилась с начала года на 12,7%, до 281,8 ...",
+      "source": "web"
+    },
+    {
+      "title": "Ключевые сообщения телеграм-канала ЕРЗ.РФ НОВОСТИ с 21 ...",
+      "url": "https://erzrf.ru/news/klyuchevyye-soobshcheniya-telegram-kanala-yerzrf-novosti-s-21-po-25-iyulya?search=%D1%86%D0%B5%D0%BD%D1%8B&tag=%D0%92%D0%B2%D0%BE%D0%B4+%D0%B6%D0%B8%D0%BB%D1%8C%D1%8F",
+      "snippet": "✓ Выручка застройщиков «старой» Москвы в I полугодии 2025 года выросла на 3% год к году, до 742 млрд руб. ✓ В Госдуме РФ предлагают ввести в регионах ...",
+      "source": "web"
+    },
+    {
+      "title": "ЕРЗ-видео",
+      "url": "https://profi.erzrf.ru/erzvideo/",
+      "date": "2025-04-10",
+      "last_updated": "2025-04-14",
+      "snippet": "Единый ресурс застройщиков включает в себя самую полную в России базу данных застройщиков жилья и новостроек (свидетельство о регистрации № № 2016620396 от ...",
+      "source": "web"
+    },
+    {
+      "title": "ГК Развитие - вся информация о бренде, телефон, сайт, адрес ...",
+      "url": "https://erzrf.ru/zastroyschiki/brand/461175001",
+      "last_updated": "2026-03-20",
+      "snippet": "В 2025 году компания увеличила объем текущего строительства на 44% - до 876 190 кв.м. Благодаря этому она занимает 14-е место в России по объему ...",
+      "source": "web"
+    }
+  ],
+  "object": "chat.completion",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "**Нет данных.**\n\nВ предоставленных результатах поиска нет информации о доле текущего строительства у застройщика **Sminex** в Москве с переносом срока сдачи (в процентах) по данным ЕРЗ на последнюю доступную дату 2025–2026 годов. Ни один результат не содержит прямой страницы застройщика **Sminex** на erzrf.ru с запрошенными цифрами.[1][2][3][4][5][6][7][8][9][10]"
+      },
+      "delta": {
+        "role": "assistant",
+        "content": ""
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "_status": 200,
+  "_latency_s": 3.48,
+  "_model": "sonar-pro"
+}

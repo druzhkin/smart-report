@@ -1,0 +1,108 @@
+{
+  "id": "1eee9696-e9c4-4158-9ac0-3cf9307327be",
+  "model": "sonar-pro",
+  "created": 1776466553,
+  "usage": {
+    "prompt_tokens": 100,
+    "completion_tokens": 200,
+    "total_tokens": 300,
+    "search_context_size": "low",
+    "cost": {
+      "input_tokens_cost": 0.0003,
+      "output_tokens_cost": 0.003,
+      "request_cost": 0.006,
+      "total_cost": 0.0093
+    }
+  },
+  "citations": [
+    "https://erzrf.ru/news/v-2025-godu-sebestoimost-stroitelstva-1-kv-m-zhilya-v-stolitsakh-i-primorye-prodolzhila-rost-a-na-severnom-kavkaze--snizilas?search=%D0%BF%D1%80%D0%BE%D0%B5%D0%BA%D1%82&tag=%D0%92%D0%B2%D0%BE%D0%B4+%D0%B6%D0%B8%D0%BB%D1%8C%D1%8F",
+    "https://erzrf.ru/publikacii/chto-takoye-reyting-yerz-i-kak-on-rasschityvayetsya?tag=%D0%9F%D1%80%D0%BE%D0%B3%D0%BD%D0%BE%D0%B7%D1%8B",
+    "https://erzrf.ru/news/stanet-li-bankrotstvo-zastroyshchikov-trendom-v-2025-godu?tag=%D0%91%D0%B0%D0%BD%D0%BA%D1%80%D0%BE%D1%82%D1%81%D1%82%D0%B2%D0%BE",
+    "https://erzrf.ru/news/konstitutsionnyy-sud-organ-mestnogo-samoupravleniya-ne-vprave-otmenyat-raneye-vydannyye-im-razresheniya-na-vvod-posle-registratsii-obyekta-v-yegrn/eksperty-v-i-kvartale-podmoskovnyy-rynok-novostroyek-prodemonstriroval-polozhitelnuyu-dinamiku?search=%D0%9E%D0%9D%D0%A1",
+    "https://erzrf.ru/news/v-ramkakh-programmy-mzhk-nikita-stasishin-pobeseduyet-s-top-menedzherami-developerov-v-formate-otkrytogo-mikrofona?tag=%D0%92%D0%B2%D0%BE%D0%B4+%D0%B6%D0%B8%D0%BB%D1%8C%D1%8F&search=%D0%BF%D1%80%D0%BE",
+    "https://profi.erzrf.ru/events/rossiyskaya-stroitelnaya-nedelya-2025-forum-stroim-budushchee-rossii-vmeste/",
+    "https://erzrf.ru/news/brusnika-operezhayushchiye-prodazhi-pozvolyayut-sokhranit-tempy-stroitelstva?tag=%D0%9C%D0%B0%D1%88%D0%B8%D0%BD%D0%BE-%D0%BC%D0%B5%D1%81%D1%82%D0%B0",
+    "https://erzrf.ru/zastroyschiki/brand/461175001",
+    "https://erzrf.ru/news/lidery-rynka-i-ikh-tsifrovyye-ekosistemy-keysy-samoleta-setl-group-i-brusniki-v-efire-vs-o-stroyke?search=%D0%91%D1%80%D1%83%D1%81%D0%BD%D0%B8%D0%BA&tag=%D0%A1%D1%82%D0%B0%D1%82%D0%B8%D1%81%D1%82%D0%B8%D0%BA%D0%B0"
+  ],
+  "search_results": [
+    {
+      "title": "В 2025 году себестоимость строительства 1 кв. м жилья в ...",
+      "url": "https://erzrf.ru/news/v-2025-godu-sebestoimost-stroitelstva-1-kv-m-zhilya-v-stolitsakh-i-primorye-prodolzhila-rost-a-na-severnom-kavkaze--snizilas?search=%D0%BF%D1%80%D0%BE%D0%B5%D0%BA%D1%82&tag=%D0%92%D0%B2%D0%BE%D0%B4+%D0%B6%D0%B8%D0%BB%D1%8C%D1%8F",
+      "snippet": "... сдачи 30% жилых объектов перенесены, а запуск новых проектов снизился на ... Москва) от ДОНСТРОЙ оказался на 13‑м месте. Жилой комплекс площадью 667,5 ...",
+      "source": "web"
+    },
+    {
+      "title": "Что такое рейтинг ЕРЗ и как он расчитывается - Новости ЕРЗ.РФ",
+      "url": "https://erzrf.ru/publikacii/chto-takoye-reyting-yerz-i-kak-on-rasschityvayetsya?tag=%D0%9F%D1%80%D0%BE%D0%B3%D0%BD%D0%BE%D0%B7%D1%8B",
+      "snippet": "Аналитики ЕРЗ.РФ считают, что с 2025-го на последующие годы будет перенесен ввод порядка 6 млн кв. м. Аналитики Циан ожидают перенос ввода в ...",
+      "source": "web"
+    },
+    {
+      "title": "Станет ли банкротство застройщиков трендом в 2025 году",
+      "url": "https://erzrf.ru/news/stanet-li-bankrotstvo-zastroyshchikov-trendom-v-2025-godu?tag=%D0%91%D0%B0%D0%BD%D0%BA%D1%80%D0%BE%D1%82%D1%81%D1%82%D0%B2%D0%BE",
+      "date": "2025-02-20",
+      "last_updated": "2025-02-22",
+      "snippet": "К 2026 году увеличится вероятность банкротства застройщиков. Но как считают специалисты, чьи мнения привела «Российская газета», для покупателей ...",
+      "source": "web"
+    },
+    {
+      "title": "Эксперты: в I квартале подмосковный рынок новостроек ...",
+      "url": "https://erzrf.ru/news/konstitutsionnyy-sud-organ-mestnogo-samoupravleniya-ne-vprave-otmenyat-raneye-vydannyye-im-razresheniya-na-vvod-posle-registratsii-obyekta-v-yegrn/eksperty-v-i-kvartale-podmoskovnyy-rynok-novostroyek-prodemonstriroval-polozhitelnuyu-dinamiku?search=%D0%9E%D0%9D%D0%A1",
+      "snippet": "Аналитики Метриум подсчитали, что в январе — марте 2025 года объем предложения новостроек Московской области вырос на 7,6%.",
+      "source": "web"
+    },
+    {
+      "title": "В рамках программы МЖК Никита Стасишин побеседует с топ ...",
+      "url": "https://erzrf.ru/news/v-ramkakh-programmy-mzhk-nikita-stasishin-pobeseduyet-s-top-menedzherami-developerov-v-formate-otkrytogo-mikrofona?tag=%D0%92%D0%B2%D0%BE%D0%B4+%D0%B6%D0%B8%D0%BB%D1%8C%D1%8F&search=%D0%BF%D1%80%D0%BE",
+      "snippet": "Хотя из-за нехватки оборотных средств в порядка 19% проектов сдвинуты сроки ввода, положение застройщиков остается достаточно устойчивым. Губернаторы следят за ...",
+      "source": "web"
+    },
+    {
+      "title": "Российская строительная неделя 2025. Форум «Строим ...",
+      "url": "https://profi.erzrf.ru/events/rossiyskaya-stroitelnaya-nedelya-2025-forum-stroim-budushchee-rossii-vmeste/",
+      "last_updated": "2026-03-12",
+      "snippet": "Участники сессии обсудят основные составляющие себестоимости девелоперского проекта и их динамику. Опытные застройщики расскажут о своём опыте планирования и ...",
+      "source": "web"
+    },
+    {
+      "title": "Брусника: опережающие продажи позволяют сохранить темпы ...",
+      "url": "https://erzrf.ru/news/brusnika-operezhayushchiye-prodazhi-pozvolyayut-sokhranit-tempy-stroitelstva?tag=%D0%9C%D0%B0%D1%88%D0%B8%D0%BD%D0%BE-%D0%BC%D0%B5%D1%81%D1%82%D0%B0",
+      "date": "2024-10-30",
+      "last_updated": "2025-05-15",
+      "snippet": "Девелопер объявил операционные результаты работы за III квартал и девять месяцев 2024 года. Несмотря на давление высокой ключевой ставки ЦБ ...",
+      "source": "web"
+    },
+    {
+      "title": "ГК Развитие - вся информация о бренде, телефон, сайт, адрес ...",
+      "url": "https://erzrf.ru/zastroyschiki/brand/461175001",
+      "last_updated": "2026-03-20",
+      "snippet": "В 2025 году компания увеличила объем текущего строительства на 44% - до 876 190 кв.м. Благодаря этому она занимает 14-е место в России по объему ...",
+      "source": "web"
+    },
+    {
+      "title": "кейсы Самолета, Setl Group и Брусники в эфире «ВСЁ О СТРОЙКЕ",
+      "url": "https://erzrf.ru/news/lidery-rynka-i-ikh-tsifrovyye-ekosistemy-keysy-samoleta-setl-group-i-brusniki-v-efire-vs-o-stroyke?search=%D0%91%D1%80%D1%83%D1%81%D0%BD%D0%B8%D0%BA&tag=%D0%A1%D1%82%D0%B0%D1%82%D0%B8%D1%81%D1%82%D0%B8%D0%BA%D0%B0",
+      "snippet": "«Цифра» приносит застройщику ощутимые результаты, например, сокращение сроков строительства на 25%. Также цифровые инструменты помогают компании ...",
+      "source": "web"
+    }
+  ],
+  "object": "chat.completion",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "**Нет данных.**\n\nПо предоставленным результатам поиска на erzrf.ru нет информации о доле текущего строительства у застройщика 'Донстрой' в Москве с переносом срока сдачи в процентах для периода 2025–2026 годов[1][2][3][5][8]. Упоминания 'Донстрой' касаются общих переносов сроков (например, 30% объектов в отрасли[1], 19% проектов[5]) или других регионов (Ростов-на-Дону[3]), но не конкретно доли для 'Донстрой' в Москве. Страница застройщика не найдена среди результатов; ближайшая — для ГК Развитие (https://erzrf.ru/zastroyschiki/brand/461175001)[8]."
+      },
+      "delta": {
+        "role": "assistant",
+        "content": ""
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "_status": 200,
+  "_latency_s": 4.03,
+  "_model": "sonar-pro"
+}

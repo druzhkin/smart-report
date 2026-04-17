@@ -1,0 +1,81 @@
+{
+  "urls_by_dev": {
+    "Донстрой": [
+      "https://erzrf.ru/zastroyschiki/brand/donstroj-430278001"
+    ],
+    "MR Group": [
+      "https://erzrf.ru/zastroyschiki/brand/mr-group-<id"
+    ],
+    "Level Group": [
+      "https://erzrf.ru/zastroyschiki/brand/level-group-<id"
+    ],
+    "Эталон": [
+      "https://erzrf.ru/zastroyschiki/brand/gruppa-etalon-<id"
+    ],
+    "Sminex": [
+      "https://erzrf.ru/zastroyschiki/brand/sminex-<id"
+    ]
+  },
+  "per_dev": {
+    "Донстрой": {
+      "dev": "Донстрой",
+      "urls": [
+        "https://erzrf.ru/zastroyschiki/brand/donstroj-430278001"
+      ],
+      "reached_url": "https://erzrf.ru/zastroyschiki/brand/donstroj-430278001",
+      "candidates": [],
+      "best": null,
+      "truth": 0.0,
+      "hit": false,
+      "accurate": false
+    },
+    "MR Group": {
+      "dev": "MR Group",
+      "urls": [
+        "https://erzrf.ru/zastroyschiki/brand/mr-group-<id"
+      ],
+      "reached_url": "https://erzrf.ru/zastroyschiki/brand/mr-group-<id",
+      "candidates": [],
+      "best": null,
+      "truth": 5.65,
+      "hit": false,
+      "accurate": false
+    },
+    "Эталон": {
+      "dev": "Эталон",
+      "urls": [
+        "https://erzrf.ru/zastroyschiki/brand/gruppa-etalon-<id"
+      ],
+      "reached_url": "https://erzrf.ru/zastroyschiki/brand/gruppa-etalon-<id",
+      "candidates": [],
+      "best": null,
+      "truth": 35.46,
+      "hit": false,
+      "accurate": false
+    },
+    "Level Group": {
+      "dev": "Level Group",
+      "urls": [
+        "https://erzrf.ru/zastroyschiki/brand/level-group-<id"
+      ],
+      "reached_url": "https://erzrf.ru/zastroyschiki/brand/level-group-<id",
+      "candidates": [],
+      "best": null,
+      "truth": 8.67,
+      "hit": false,
+      "accurate": false
+    },
+    "Sminex": {
+      "dev": "Sminex",
+      "urls": [
+        "https://erzrf.ru/zastroyschiki/brand/sminex-<id"
+      ],
+      "reached_url": "https://erzrf.ru/zastroyschiki/brand/sminex-<id",
+      "candidates": [],
+      "best": null,
+      "truth": null,
+      "hit": false,
+      "accurate": false
+    }
+  }
+}

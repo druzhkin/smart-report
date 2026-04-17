@@ -1,0 +1,112 @@
+{
+  "id": "2d4ece92-fe68-4bf3-bbdd-3023e5049788",
+  "model": "sonar-pro",
+  "created": 1776466549,
+  "usage": {
+    "prompt_tokens": 166,
+    "completion_tokens": 370,
+    "total_tokens": 536,
+    "search_context_size": "low",
+    "cost": {
+      "input_tokens_cost": 0.0005,
+      "output_tokens_cost": 0.00555,
+      "request_cost": 0.006,
+      "total_cost": 0.01205
+    }
+  },
+  "citations": [
+    "https://erzrf.ru/news/donstroy-proanaliziroval-rezultaty-raboty-s-nachala-goda-prioritety-raboty-i-dostizheniyaa?tag=%D0%9F%D0%B5%D1%80%D0%B5%D0%BD%D0%BE%D1%81+%D1%81%D1%80%D0%BE%D0%BA%D0%BE%D0%B2",
+    "https://erzrf.ru/news/donstroy-zavershil-podnyatiye-vsekh-paryashchikh-mostov-v-proyekte-sobytiye?tag=%D0%9F%D0%B5%D1%80%D0%B5%D0%BD%D0%BE%D1%81+%D1%81%D1%80%D0%BE%D0%BA%D0%BE%D0%B2",
+    "https://erzrf.ru/news/donstroy-investiroval-423-mln-rubley-v-novyy-obrazovatelnyy-tsentr-moskvy?tag=%D0%9F%D0%B5%D1%80%D0%B5%D0%B4%D0%B0%D1%87%D0%B0+%D0%BA%D0%B2%D0%B0%D1%80%D1%82%D0%B8%D1%80%D1%8B",
+    "https://erzrf.ru/news/vyruchka-donstroy-za-devyat-mesyatsev-vyrosla-pochti-na-70?tag=%D0%9F%D0%BE%D1%82%D1%80%D0%B5%D0%B1%D0%B8%D1%82%D0%B5%D0%BB%D1%8C%D1%81%D0%BA%D0%B8%D0%B9+%D1%8D%D0%BA%D1%81%D1%82%D1%80%D0%B5%D0%BC%D0%B8%D0%B7%D0%BC",
+    "https://erzrf.ru/news/donstroy-nachal-peredavat-klyuchi-v-pyatnadtsatom-korpuse-simvola-ranshe-sroka?regions=&tag=%D0%A1%D0%BF%D1%80%D0%BE%D1%81",
+    "https://erzrf.ru/zastroyschiki/brand/donstroj-430278001",
+    "https://erzrf.ru/news/donstroy-i-vtb-proveli-pervyye-ipotechnyye-sdelki-so-stavkoy-65-?tag=%D0%9D%D0%BE%D0%B2%D1%8B%D0%B5+%D0%BF%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B",
+    "https://erzrf.ru/publikacii/trade-in-ot-zastroyshchika-ili-obmen-staroy-kvartiry-na-novostroyku?tag=%D0%90%D0%BD%D0%B0%D0%BB%D0%B8%D1%82%D0%B8%D0%BA%D0%B0",
+    "https://erzrf.ru/zastroyschiki/brand/donstroj-430278001?regionKey=143443001&sortType=ecoclass&costType=1&_escaped_fragment_=&organizationId=430278001",
+    "https://erzrf.ru/zastroyschiki/brand/donstroj-430278001?erid=2SDnjeo5Acv&_escaped_fragment_=&regionKey=143443001&costType=1&sortType=qrooms&gkTab=6&organizationId=430278001"
+  ],
+  "search_results": [
+    {
+      "title": "Донстрой» проанализировал результаты работы с начала года",
+      "url": "https://erzrf.ru/news/donstroy-proanaliziroval-rezultaty-raboty-s-nachala-goda-prioritety-raboty-i-dostizheniyaa?tag=%D0%9F%D0%B5%D1%80%D0%B5%D0%BD%D0%BE%D1%81+%D1%81%D1%80%D0%BE%D0%BA%D0%BE%D0%B2",
+      "snippet": "Переносы планируемых сроков ввода строящихся МКД за год уменьшились в России на 7% ... По состоянию на октябрь 2025 года средний перенос планируемых сроков ввода ...",
+      "source": "web"
+    },
+    {
+      "title": "завершил поднятие всех «парящих» мостов в проекте «Событие»",
+      "url": "https://erzrf.ru/news/donstroy-zavershil-podnyatiye-vsekh-paryashchikh-mostov-v-proyekte-sobytiye?tag=%D0%9F%D0%B5%D1%80%D0%B5%D0%BD%D0%BE%D1%81+%D1%81%D1%80%D0%BE%D0%BA%D0%BE%D0%B2",
+      "snippet": "По сравнению с октябрем 2024 года переносы по строящимся объектам уменьшились на 0,3 месяца, или на 7%, а по остановленным объектам — увеличились на 0,1 месяца, ...",
+      "source": "web"
+    },
+    {
+      "title": "инвестировал 423 млн рублей в новый образовательный центр ...",
+      "url": "https://erzrf.ru/news/donstroy-investiroval-423-mln-rubley-v-novyy-obrazovatelnyy-tsentr-moskvy?tag=%D0%9F%D0%B5%D1%80%D0%B5%D0%B4%D0%B0%D1%87%D0%B0+%D0%BA%D0%B2%D0%B0%D1%80%D1%82%D0%B8%D1%80%D1%8B",
+      "snippet": "По сравнению с октябрем 2024 года переносы по строящимся объектам уменьшились на 0,3 месяца, или на 7%, а по остановленным объектам — увеличились на 0,1 месяца, ...",
+      "source": "web"
+    },
+    {
+      "title": "Выручка ДОНСТРОЙ за девять месяцев выросла почти на 70%",
+      "url": "https://erzrf.ru/news/vyruchka-donstroy-za-devyat-mesyatsev-vyrosla-pochti-na-70?tag=%D0%9F%D0%BE%D1%82%D1%80%D0%B5%D0%B1%D0%B8%D1%82%D0%B5%D0%BB%D1%8C%D1%81%D0%BA%D0%B8%D0%B9+%D1%8D%D0%BA%D1%81%D1%82%D1%80%D0%B5%D0%BC%D0%B8%D0%B7%D0%BC",
+      "snippet": "Выручка ДОНСТРОЙ за девять месяцев выросла почти на 70%. За девять месяцев 2019 года по сравнению с аналогичным периодом прошлого года один из ...",
+      "source": "web"
+    },
+    {
+      "title": "Донстрой начал передавать ключи в пятнадцатом корпусе",
+      "url": "https://erzrf.ru/news/donstroy-nachal-peredavat-klyuchi-v-pyatnadtsatom-korpuse-simvola-ranshe-sroka?regions=&tag=%D0%A1%D0%BF%D1%80%D0%BE%D1%81",
+      "snippet": "Компания Донстрой на девять месяцев раньше срока передачи по ДДУ начала вручать ключи покупателям квартир в корпусе 15 жилого комплекса ...",
+      "source": "web"
+    },
+    {
+      "title": "ДОНСТРОЙ - вся информация о бренде, телефон, сайт ... - ЕРЗ",
+      "url": "https://erzrf.ru/zastroyschiki/brand/donstroj-430278001",
+      "date": "2025-01-01",
+      "last_updated": "2025-12-18",
+      "snippet": "... Доля, %. ЖК/ПТ. Показатели строительства. в т.ч. с переносом сроков. уточнение сроков. Строится. 766 925 м². 0 м². (0%). 0 месяцев. Сдано в 2016. 0 м². 0 м². (0 ...",
+      "source": "web"
+    },
+    {
+      "title": "Донстрой и ВТБ провели первые ипотечные сделки со ставкой 6 ...",
+      "url": "https://erzrf.ru/news/donstroy-i-vtb-proveli-pervyye-ipotechnyye-sdelki-so-stavkoy-65-?tag=%D0%9D%D0%BE%D0%B2%D1%8B%D0%B5+%D0%BF%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B",
+      "snippet": "Оба кредита оформлены на срок 20 лет, пониженная ставка сохраняется на весь срок кредита, что позволит клиентам минимизировать как ежемесячные платежи, так и ...",
+      "source": "web"
+    },
+    {
+      "title": "Trade-in от застройщика, или Обмен старой квартиры на ...",
+      "url": "https://erzrf.ru/publikacii/trade-in-ot-zastroyshchika-ili-obmen-staroy-kvartiry-na-novostroyku?tag=%D0%90%D0%BD%D0%B0%D0%BB%D0%B8%D1%82%D0%B8%D0%BA%D0%B0",
+      "snippet": "Шаг №4. Покупатель новостройки передает застройщику старую квартиру в срок, отведенный договором на переселение из старой квартиры в новую.",
+      "source": "web"
+    },
+    {
+      "title": "ДОНСТРОЙ - вся информация о бренде, телефон, сайт ... - ЕРЗ.РФ",
+      "url": "https://erzrf.ru/zastroyschiki/brand/donstroj-430278001?regionKey=143443001&sortType=ecoclass&costType=1&_escaped_fragment_=&organizationId=430278001",
+      "snippet": "Компания «Донстрой» завершила 2025 год с рекордным показателем ввода недвижимости: в жилых комплексах «Событие», «Остров» и «Символ» сданы новые очереди общей ...",
+      "source": "web"
+    },
+    {
+      "title": "ДОНСТРОЙ - вся информация о бренде, телефон, сайт ... - ЕРЗ.РФ",
+      "url": "https://erzrf.ru/zastroyschiki/brand/donstroj-430278001?erid=2SDnjeo5Acv&_escaped_fragment_=&regionKey=143443001&costType=1&sortType=qrooms&gkTab=6&organizationId=430278001",
+      "last_updated": "2026-04-17",
+      "snippet": "... Доля, %. ЖК/ПТ. Показатели строительства. в т.ч. с переносом сроков. уточнение сроков. Строится. 766 925 м². 0 м². (0%). 0 месяцев. Сдано в 2016. 0 м². 0 м². (0 ...",
+      "source": "web"
+    }
+  ],
+  "object": "chat.completion",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "### 1) Донстрой\n- **Доля строительства с переносом срока сдачи:** 0%[6][10].\n- **Дата среза:** последняя доступная на странице (данные по строящимся объектам на момент просмотра, ориентировочно 2025–2026 гг.)[6][10].\n- **URL страницы ЕРЗ со статистикой:** https://erzrf.ru/zastroyschiki/brand/donstroj-430278001[6][10].\n\n### 2) MR Group\n- **Доля строительства с переносом срока сдачи:** нет данных.\n- **Дата среза:** нет данных.\n- **URL страницы ЕРЗ со статистикой:** нет данных в результатах поиска.\n\n### 3) Level Group\n- **Доля строительства с переносом срока сдачи:** нет данных.\n- **Дата среза:** нет данных.\n- **URL страницы ЕРЗ со статистикой:** нет данных в результатах поиска.\n\n### 4) Группа Эталон\n- **Доля строительства с переносом срока сдачи:** нет данных.\n- **Дата среза:** нет данных.\n- **URL страницы ЕРЗ со статистикой:** нет данных в результатах поиска.\n\n### 5) Sminex\n- **Доля строительства с переносом срока сдачи:** нет данных.\n- **Дата среза:** нет данных.\n- **URL страницы ЕРЗ со статистикой:** нет данных в результатах поиска."
+      },
+      "delta": {
+        "role": "assistant",
+        "content": ""
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "_status": 200,
+  "_latency_s": 4.37,
+  "_model": "sonar-pro"
+}
