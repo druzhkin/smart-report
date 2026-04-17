@@ -136,6 +136,10 @@ class Settings:
     # Tavily calls pass include_domains to filter out blog/marketing noise.
     tavily_include_domains: str = os.getenv("TAVILY_INCLUDE_DOMAINS", "")
 
+    intake_dialog_enabled: bool = os.getenv("INTAKE_DIALOG_ENABLED", "true").lower() in ("1", "true", "yes")
+    intake_model: str = os.getenv("INTAKE_MODEL", "google/gemini-2.5-flash")
+    intake_max_turns: int = int(os.getenv("INTAKE_MAX_TURNS", "4"))
+
     planner_model: str = os.getenv("PLANNER_MODEL", "deepseek/deepseek-chat-v3.1")
     scout_model: str = os.getenv("SCOUT_MODEL", "deepseek/deepseek-chat-v3.1")
     analyst_model: str = os.getenv("ANALYST_MODEL", "google/gemini-2.5-flash")

@@ -59,7 +59,7 @@ _bootstrap_logging()
 log = logging.getLogger("api")
 
 from export import save_all, to_markdown  # noqa: E402
-from models import Report  # noqa: E402
+from models import IntakeContext, IntakeMessage, Report  # noqa: E402
 from orchestrator import (  # noqa: E402
     add_domain,
     connect_domains,
@@ -71,6 +71,19 @@ from orchestrator import (  # noqa: E402
 
 REPORTS_DIR = ROOT / "reports"
 REPORTS_DIR.mkdir(exist_ok=True)
+
+
+def _content_disposition(filename: str) -> str:
+    """RFC 5987-compliant Content-Disposition; safe for non-ASCII filenames.
+
+    Header values must be latin-1; a Cyrillic report_id would raise UnicodeEncodeError
+    when Starlette serialises the response. We provide an ASCII fallback plus a
+    percent-encoded UTF-8 `filename*` parameter that modern browsers prefer.
+    """
+    from urllib.parse import quote
+    ascii_name = filename.encode("ascii", "replace").decode("ascii").replace("?", "_")
+    return f'attachment; filename="{ascii_name}"; filename*=UTF-8\'\'{quote(filename)}'
+
 
 app = FastAPI(title="Smart Report API", version="0.1.0")
 
@@ -99,6 +112,7 @@ class _Job:
         self.task: asyncio.Task | None = None
         self.dismissed_cells: set[str] = set()
         self.events: list[dict[str, Any]] = []
+        self.intake_context: IntakeContext | None = None
 
     def emit(self, event: str, message: str, **extra: Any) -> None:
         payload = {"event": event, "message": message, "ts": time.time(), **extra}
@@ -264,6 +278,8 @@ async def _run_job(job: _Job) -> None:
     log.info("[%s] job START goal=%r depth=%s", job.id[-12:], job.goal[:120], job.depth)
     try:
         report = await run_research(job.goal, progress=progress, depth=job.depth)
+        if job.intake_context is not None:
+            report.intake_context = job.intake_context
         _persist(job.id, report)
         job.status = "done"
         _write_status(job.id, "done", goal=job.goal)
@@ -311,6 +327,135 @@ async def _run_mutation(job: _Job, coro_factory) -> None:
         job.queue.put_nowait({"event": "__end__", "message": ""})
 
 
+# ---------- intake session store ----------
+
+_INTAKE_SESSIONS: dict[str, dict] = {}
+_INTAKE_TTL_SECONDS = 900  # 15 minutes
+
+
+def _prune_intake_sessions() -> None:
+    now = time.time()
+    expired = [sid for sid, s in _INTAKE_SESSIONS.items() if now - s["last_activity"] > _INTAKE_TTL_SECONDS]
+    for sid in expired:
+        del _INTAKE_SESSIONS[sid]
+
+
+def _get_session(session_id: str) -> dict:
+    _prune_intake_sessions()
+    session = _INTAKE_SESSIONS.get(session_id)
+    if session is None:
+        raise HTTPException(404, f"intake session {session_id!r} not found or expired")
+    return session
+
+
+class IntakeStartIn(BaseModel):
+    goal: str = Field(..., min_length=3)
+
+
+class IntakeAnswerIn(BaseModel):
+    session_id: str
+    answer: str
+
+
+class IntakeConfirmIn(BaseModel):
+    session_id: str
+    tier: Literal["quick_take", "investment_brief", "strategy_note", "full_research"]
+    goal: str | None = None  # optional override of enriched_goal
+
+
+@app.post("/api/intake/start")
+async def intake_start(payload: IntakeStartIn) -> dict[str, Any]:
+    from config import settings as _cfg
+    if not _cfg.intake_dialog_enabled:
+        raise HTTPException(503, "Intake dialog is disabled (INTAKE_DIALOG_ENABLED=false)")
+
+    from agents.intake import intake_turn
+    import uuid
+
+    session_id = str(uuid.uuid4())
+    result = await intake_turn(payload.goal, [])
+
+    if result.get("mode") != "question":
+        # Model jumped straight to proposal on empty history — unlikely but handle it.
+        raise HTTPException(500, "Intake agent did not return a question on first turn")
+
+    question = result["question"]
+    now = time.time()
+    _INTAKE_SESSIONS[session_id] = {
+        "goal": payload.goal,
+        "messages": [IntakeMessage(role="assistant", content=question)],
+        "created_at": now,
+        "last_activity": now,
+        "closed": False,
+        "proposal": None,
+    }
+
+    return {"session_id": session_id, "mode": "question", "question": question, "turn": 1}
+
+
+@app.post("/api/intake/answer")
+async def intake_answer(payload: IntakeAnswerIn) -> dict[str, Any]:
+    from agents.intake import intake_turn
+
+    session = _get_session(payload.session_id)
+    if session["closed"]:
+        raise HTTPException(400, "Intake session is already closed (confirmed)")
+
+    session["messages"].append(IntakeMessage(role="user", content=payload.answer))
+    session["last_activity"] = time.time()
+
+    result = await intake_turn(session["goal"], session["messages"])
+    turn = len(session["messages"]) + 1
+
+    if result.get("mode") == "question":
+        question = result["question"]
+        session["messages"].append(IntakeMessage(role="assistant", content=question))
+        return {"session_id": payload.session_id, "mode": "question", "question": question, "turn": turn}
+
+    # proposal
+    proposal = {
+        "tier": result.get("tier", "investment_brief"),
+        "rationale": result.get("rationale", ""),
+        "enriched_goal": result.get("enriched_goal", session["goal"]),
+    }
+    session["proposal"] = proposal
+    session["messages"].append(
+        IntakeMessage(role="assistant", content=proposal["rationale"] or proposal["tier"])
+    )
+    return {"session_id": payload.session_id, "mode": "proposal", "proposal": proposal, "turn": turn}
+
+
+_VALID_TIERS = {"quick_take", "investment_brief", "strategy_note", "full_research"}
+
+
+@app.post("/api/intake/confirm")
+async def intake_confirm(payload: IntakeConfirmIn) -> dict[str, Any]:
+    from config import resolve_tier
+
+    session = _get_session(payload.session_id)
+    if session["closed"]:
+        raise HTTPException(400, "Intake session is already closed")
+
+    proposal = session.get("proposal")
+    effective_goal = payload.goal or (proposal["enriched_goal"] if proposal else session["goal"])
+    depth = resolve_tier(payload.tier)
+
+    intake_ctx = IntakeContext(
+        goal_original=session["goal"],
+        goal_enriched=effective_goal,
+        tier_proposed=proposal["tier"] if proposal else None,
+        tier_chosen=payload.tier,
+        rationale=proposal["rationale"] if proposal else None,
+        messages=list(session["messages"]),
+    )
+
+    job = _create_research_job(effective_goal, depth=depth, intake_context=intake_ctx)
+    session["closed"] = True
+    session["last_activity"] = time.time()
+
+    return {"id": job.id, "status": "pending", "depth": depth}
+
+
 # ---------- endpoints ----------
 
 
@@ -319,14 +464,25 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+def _create_research_job(
+    goal: str,
+    depth: str,
+    intake_context: IntakeContext | None = None,
+) -> _Job:
+    """Create and register a _Job, start background task. Returns the job."""
+    report_id = _make_id(goal)
+    job = _Job(report_id, goal, depth=depth)
+    job.intake_context = intake_context
+    JOBS[report_id] = job
+    _write_status(report_id, "pending", goal=goal)
+    job.task = asyncio.create_task(_run_job(job))
+    return job
+
+
 @app.post("/api/research")
 async def start_research(payload: ResearchStartIn) -> dict[str, str]:
-    report_id = _make_id(payload.goal)
-    job = _Job(report_id, payload.goal, depth=payload.depth)
-    JOBS[report_id] = job
-    _write_status(report_id, "pending", goal=payload.goal)
-    job.task = asyncio.create_task(_run_job(job))
-    return {"id": report_id, "status": "pending", "depth": payload.depth}
+    job = _create_research_job(payload.goal, depth=payload.depth)
+    return {"id": job.id, "status": "pending", "depth": payload.depth}
 
 
 @app.get("/api/research/{report_id}/events")
@@ -505,7 +661,7 @@ async def export_md(report_id: str) -> StreamingResponse:
         iter([md.encode("utf-8")]),
         media_type="text/markdown; charset=utf-8",
         headers={
-            "Content-Disposition": f'attachment; filename="{report_id}.md"',
+            "Content-Disposition": _content_disposition(f"{report_id}.md"),
         },
     )
 

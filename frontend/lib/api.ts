@@ -183,3 +183,66 @@ export const exportUrl = (
 
 export const gammaExportUrl = (id: string, format: "pptx" | "pdf") =>
   `/api/research/${id}/export/gamma?format=${format}`;
+
+export type IntakeTier =
+  | "quick_take"
+  | "investment_brief"
+  | "strategy_note"
+  | "full_research";
+
+export type IntakeStartResult = {
+  session_id: string;
+  mode: "question";
+  question: string;
+  turn: number;
+};
+
+export type IntakeAnswerResult =
+  | { session_id: string; mode: "question"; question: string; turn: number }
+  | {
+      session_id: string;
+      mode: "proposal";
+      proposal: {
+        tier: IntakeTier;
+        rationale: string;
+        enriched_goal: string;
+      };
+      turn: number;
+    };
+
+export async function intakeStart(
+  goal: string
+): Promise<IntakeStartResult | null> {
+  const res = await fetch("/api/intake/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ goal }),
+  });
+  if (res.status === 503) return null;
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`${res.status} ${res.statusText}: ${text}`);
+  }
+  return res.json();
+}
+
+export async function intakeAnswer(
+  session_id: string,
+  answer: string
+): Promise<IntakeAnswerResult> {
+  return j<IntakeAnswerResult>("/api/intake/answer", {
+    method: "POST",
+    body: JSON.stringify({ session_id, answer }),
+  });
+}
+
+export async function intakeConfirm(
+  session_id: string,
+  tier: string,
+  goal?: string
+): Promise<{ id: string; status: string; depth: string }> {
+  return j<{ id: string; status: string; depth: string }>("/api/intake/confirm", {
+    method: "POST",
+    body: JSON.stringify({ session_id, tier, ...(goal ? { goal } : {}) }),
+  });
+}

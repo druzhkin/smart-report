@@ -259,6 +259,20 @@ class BlockInversions(BaseModel):
     unfalsifiable_flag: bool = Field(default=False, description="True если ни одно допущение не critical — вывод нефальсифицируем")
 
 
+class IntakeMessage(BaseModel):
+    role: Literal["assistant", "user"]
+    content: str
+
+
+class IntakeContext(BaseModel):
+    goal_original: str
+    goal_enriched: str | None = None
+    tier_proposed: str | None = None
+    tier_chosen: str | None = None
+    rationale: str | None = None
+    messages: list[IntakeMessage] = []
+
+
 class Report(BaseModel):
     goal: str
     matrix: Matrix
@@ -270,3 +284,4 @@ class Report(BaseModel):
     causal_chains: list[CausalChain] = Field(default_factory=list)
     scenario_cone: ScenarioCone | None = None  # Cone of Plausibility — generated for predictive questions
     assumption_inversions: list[BlockInversions] = Field(default_factory=list)  # Quadrant Crunch — CIA SAT
+    intake_context: IntakeContext | None = None
