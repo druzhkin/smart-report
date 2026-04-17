@@ -10,6 +10,7 @@ from export_pptx import export_pptx
 
 r = Report(
     goal="Тестовая цель для проверки инфографики и экспорта",
+    planner_question_type="exploratory",
     matrix=Matrix(
         goal="Тестовая цель",
         domains=[
