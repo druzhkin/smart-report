@@ -7,21 +7,29 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Awaitable, Callable, TypeVar
 
 from agents.analyst import analyst
 from agents.bisociator import bisociate_pair, bisociator
+from agents.contrarian import critique_block
 from agents.planner import plan_deepen, plan_new_domain, planner
+from agents.quant_extractor import extract_quants
 from agents.scout import scout
 from agents.summarizer import summarize
 from config import (
     depth_profile,
     model_for,
+    profile_bool,
     profile_int,
+    profile_list,
+    profile_str,
     set_active_profile,
     settings,
 )
+from corpus_fetch import Corpus, fetch_corpus
+from corpus_mapper import MappedFinding, map_corpus_to_cells
 from llm import LLMAuthError, call_text, reset_meter
 from models import (
     Block,
@@ -130,6 +138,254 @@ async def _rewrite_task_pivot(task: ScoutTask) -> ScoutTask:
         return task
 
 
+# ---------- corpus-first flow (Variant E) ------------------------------------
+
+
+def _build_strategy(matrix: Matrix) -> str:
+    """2-5 sentence research strategy fed into DR backends so they don't drift too broad."""
+    domain_names = [d.name for d in matrix.domains]
+    layer_lines: list[str] = []
+    for d in matrix.domains:
+        for l in d.layers:
+            layer_lines.append(f"- {d.name} / {l.name}: {l.description}")
+    layers_block = "\n".join(layer_lines[:20])  # cap for Valyu's 15k char limit
+    return (
+        f"Исследование цели: «{matrix.goal}». "
+        f"Покрыть домены: {', '.join(domain_names)}. "
+        f"По каждому домену найти конкретные факты, цифры, кейсы и первичные источники "
+        f"(отчёты, статистику, академические работы) по следующим слоям:\n{layers_block}\n"
+        f"Приоритет: русскоязычные первичные источники (Росстат, ЦБ, ВШЭ, Ведомости, РБК), "
+        f"международные бенчмарки (McKinsey, OECD, Knight Frank, CBRE) и академические статьи "
+        f"с цитируемостью. Избегай блогов и маркетинговых материалов."
+    )
+
+
+_ACADEMIC_URL_RE = re.compile(
+    r"(doi\.org|arxiv\.org|pubmed|ncbi\.nlm|nature\.com|sciencedirect|springer|"
+    r"wiley\.com|tandfonline|scholar\.google|jstor|openalex|semanticscholar|"
+    r"crossref|europepmc|ssrn|mdpi\.com|elibrary\.ru|cyberleninka|core\.ac\.uk|"
+    r"researchgate|\.edu/|hse\.ru/data/|ranepa\.ru/|economy\.gov\.ru/material)",
+    re.I,
+)
+_OFFICIAL_URL_RE = re.compile(
+    r"(rosstat\.gov|cbr\.ru|minstroyrf|\.gov\.ru/|government\.ru|kremlin\.ru|"
+    r"oecd\.org|worldbank\.org|imf\.org|un\.org|iea\.org|bis\.org|ecb\.europa|"
+    r"mos\.ru/stroi|stroi\.mos\.ru)",
+    re.I,
+)
+_RESEARCH_HOUSE_RE = re.compile(
+    r"(knightfrank|savills|cbre\.com|jll\.|cushmanwakefield|colliers\.com|"
+    r"statista|mckinsey\.com|bcg\.com|pwc\.com|deloitte\.com|kpmg\.com|ey\.com)",
+    re.I,
+)
+
+
+def _classify_source(url: str, corpus_backend_by_url: dict[str, str]) -> tuple[str, str]:
+    """Return (source_type, source_db) from URL pattern + corpus backend lookup.
+
+    synth://<backend>  → secondary, synth_<backend>
+    academic domains   → primary_academic, academic
+    gov/official       → primary_official, official
+    research houses    → primary_data, research_house
+    else               → secondary, <backend>|web
+    """
+    u = (url or "").strip()
+    low = u.lower()
+    if low.startswith("synth://"):
+        backend = low[len("synth://"):] or "unknown"
+        return "secondary", f"synth_{backend}"
+    if _ACADEMIC_URL_RE.search(low):
+        return "primary_academic", "academic"
+    if _OFFICIAL_URL_RE.search(low):
+        return "primary_official", "official"
+    if _RESEARCH_HOUSE_RE.search(low):
+        return "primary_data", "research_house"
+    backend = corpus_backend_by_url.get(low.rstrip("/"))
+    return "secondary", backend or "web"
+
+
+def _mapped_to_scout_result(
+    cell: str,
+    findings: list[MappedFinding],
+    corpus_backend_by_url: dict[str, str] | None = None,
+) -> ScoutResult:
+    """Adapter: MappedFinding (from corpus) → ScoutResult (what analyst expects)."""
+    task = ScoutTask(
+        cell=cell,
+        query_focus=f"corpus_mapping: {cell}",
+        source_hints="corpus",
+        search_type="both",
+    )
+    if not findings:
+        return ScoutResult(task=task, findings=[])
+    lookup = corpus_backend_by_url or {}
+    out: list[Finding] = []
+    for mf in findings:
+        has_numbers = bool(mf.numbers)
+        stype, sdb = _classify_source(mf.source_url, lookup)
+        out.append(Finding(
+            claim=mf.claim,
+            source=mf.source_url,
+            source_label=mf.source_title or mf.source_url,
+            source_type=stype,
+            source_db=sdb,
+            has_numbers=has_numbers,
+            numeric_values=mf.numbers,
+            verbatim_quote=(mf.surrounding_context or None),
+        ))
+    return ScoutResult(task=task, findings=out, notes=f"mapped from corpus ({len(out)} findings)")
+
+
+async def _gap_fill_low_coverage(
+    by_cell: dict[str, list[ScoutResult]],
+    matrix: Matrix,
+    progress: ProgressCb,
+    threshold: int,
+) -> None:
+    """For cells below `threshold` findings, run the existing 3-level scout fallback."""
+    low: list[str] = []
+    for cp in matrix.cell_plans:
+        n = sum(len(sr.findings) for sr in by_cell.get(cp.cell, []))
+        if n < threshold:
+            low.append(cp.cell)
+    if not low:
+        progress("gap_fill", f"все ячейки покрыты ≥{threshold} findings")
+        return
+
+    progress("gap_fill", f"низкое покрытие у {len(low)} ячеек (<{threshold} findings) — запускаю scouts")
+
+    # Seed tasks: prefer existing CellPlan task for the cell, else synthesize
+    source_tasks: dict[str, ScoutTask] = {}
+    for cp in matrix.cell_plans:
+        if cp.cell in low and cp.tasks:
+            t = cp.tasks[0]
+            if not t.cell:
+                t = t.model_copy(update={"cell": cp.cell})
+            source_tasks[cp.cell] = t
+    for cell in low:
+        source_tasks.setdefault(
+            cell,
+            ScoutTask(cell=cell, query_focus=cell, source_hints=""),
+        )
+
+    # Round 1 — original tasks
+    round1 = await _run_scouts_for_tasks(list(source_tasks.values()), progress)
+    for sr in round1:
+        by_cell.setdefault(sr.task.cell, []).append(sr)
+
+    still_low = [
+        c for c in low
+        if sum(len(sr.findings) for sr in by_cell.get(c, [])) < threshold
+    ]
+
+    # Rounds 2-4 — broader / international / pivot fallbacks
+    for tag, rewriter in (
+        ("L1", _rewrite_task_broader),
+        ("L2", _rewrite_task_international),
+        ("L3", _rewrite_task_pivot),
+    ):
+        if not still_low:
+            break
+        progress("gap_fill", f"fallback {tag} для {len(still_low)} ячеек")
+        retry: list[ScoutTask] = []
+        for cell in still_low:
+            retry.append(await rewriter(source_tasks[cell]))
+        try:
+            results = await _run_scouts_for_tasks(retry, progress)
+            for sr in results:
+                by_cell.setdefault(sr.task.cell, []).append(sr)
+        except Exception as err:
+            progress("gap_fill", f"fallback {tag} failed: {err}")
+        still_low = [
+            c for c in still_low
+            if sum(len(sr.findings) for sr in by_cell.get(c, [])) < threshold
+        ]
+
+    if still_low:
+        progress("gap_fill", f"{len(still_low)} ячеек остались пустыми — ставлю stub")
+        for cell in still_low:
+            if not any(sr.findings for sr in by_cell.get(cell, [])):
+                by_cell.setdefault(cell, []).append(ScoutResult(
+                    task=ScoutTask(cell=cell, query_focus="stub", source_hints=""),
+                    findings=[Finding(
+                        claim="Данные по этой ячейке не найдены ни в корпусе, ни в дополнительных поисках.",
+                        source="system",
+                        source_label="system",
+                        source_type="opinion",
+                        has_numbers=False,
+                    )],
+                    notes="empty-cell stub",
+                ))
+
+
+async def _run_corpus_flow(
+    goal: str,
+    matrix: Matrix,
+    progress: ProgressCb,
+) -> tuple[dict[str, list[ScoutResult]], Corpus] | None:
+    """Variant E: fetch_corpus → map_corpus_to_cells → gap-fill → (by_cell, corpus).
+
+    Returns None to signal fallback-to-legacy when corpus is genuinely empty.
+    The Corpus is returned alongside so _finalize can build consensus from synth_reports.
+    """
+    strategy = _build_strategy(matrix)
+    valyu_mode = profile_str("valyu_mode", settings.corpus_valyu_mode)
+    backends = profile_list("corpus_backends", ["valyu", "sonar_dr", "gpt_researcher"])
+    progress("corpus", f"fetch_corpus starting (valyu_mode={valyu_mode}, backends={backends})")
+    try:
+        corpus: Corpus = await fetch_corpus(
+            goal=goal,
+            strategy=strategy,
+            backends=backends,
+            valyu_mode=valyu_mode,
+        )
+    except Exception as err:
+        progress("corpus", f"fetch_corpus ОШИБКА: {err}")
+        return None
+
+    meta = corpus.fetch_metadata or {}
+    progress(
+        "corpus",
+        f"backends={meta.get('enabled_backends', [])} sources={len(corpus.sources)} "
+        f"synth_reports={len(corpus.synth_reports)} total_words={corpus.total_words}",
+    )
+
+    if not corpus.sources and not corpus.synth_reports:
+        progress("corpus", "корпус пустой — fallback на legacy scout-fanout")
+        return None
+
+    progress("corpus_mapper", "картирую корпус на ячейки матрицы")
+    try:
+        mapped = await map_corpus_to_cells(corpus, matrix)
+    except Exception as err:
+        progress("corpus_mapper", f"ОШИБКА: {err}")
+        return None
+
+    # URL → backend lookup so the adapter can tag source_db with the real DR backend.
+    backend_by_url: dict[str, str] = {
+        (s.url or "").strip().lower().rstrip("/"): s.backend
+        for s in (corpus.sources or [])
+        if (s.url or "").strip()
+    }
+
+    by_cell: dict[str, list[ScoutResult]] = {}
+    for cp in matrix.cell_plans:
+        findings = mapped.get(cp.cell, [])
+        by_cell[cp.cell] = [_mapped_to_scout_result(cp.cell, findings, backend_by_url)]
+    progress(
+        "corpus_mapper",
+        f"картировано: {sum(len(v) for v in mapped.values())} findings по "
+        f"{sum(1 for v in mapped.values() if v)} ячейкам (из {len(matrix.cell_plans)})",
+    )
+
+    threshold = max(1, settings.corpus_min_findings_per_cell)
+    await _gap_fill_low_coverage(by_cell, matrix, progress, threshold=threshold)
+    return by_cell, corpus
+
+
+# ---------- legacy scout-fanout helpers (shared with corpus flow's gap-fill) ---
+
+
 async def _run_scouts_for_tasks(
     tasks: list[ScoutTask], progress: ProgressCb
 ) -> list[ScoutResult]:
@@ -160,8 +416,19 @@ async def _analyze_cells(
             progress("analyst", f"[{cell}] пусто — пропущен")
             return None
         try:
-            block = await analyst(cell, results)
+            quant_metrics = await extract_quants(cell, results)
+            if quant_metrics:
+                progress("quant", f"[{cell}] метрик: {len(quant_metrics)}")
+            block = await analyst(cell, results, quant_metrics=quant_metrics)
+            block = block.model_copy(update={"quant_metrics": quant_metrics})
             progress("analyst", f"[{cell}] готов: {len(block.findings)} источников, {len(block.gaps)} пробелов")
+            if profile_bool("contrarian_enabled", settings.use_contrarian_pass):
+                block = await critique_block(block)
+                progress(
+                    "contrarian",
+                    f"[{cell}] слабостей: {len(block.contrarian_critique)}; "
+                    f"strongest={'+' if block.strongest_point else '-'}",
+                )
             return block
         except LLMAuthError:
             raise
@@ -181,6 +448,7 @@ async def _finalize(
     matrix: Matrix,
     blocks: list[Block],
     progress: ProgressCb,
+    corpus: Corpus | None = None,
 ) -> Report:
     connections: list[Connection] = []
     if len(blocks) >= 2:
@@ -291,6 +559,16 @@ async def run_research(
             f"{sum(len(d.layers) for d in matrix.domains)} ячеек, "
             f"{sum(len(cp.tasks) for cp in matrix.cell_plans)} заданий",
         )
+
+    # Variant E corpus-first flow — feature-flagged. Falls back to legacy fanout
+    # if disabled, if no DR backend keys are present, or if the corpus is empty.
+    if settings.use_corpus_flow:
+        corpus_result = await _run_corpus_flow(goal, matrix, progress)
+        if corpus_result is not None:
+            by_cell_corpus, corpus = corpus_result
+            blocks = await _analyze_cells(by_cell_corpus, progress)
+            return await _finalize(goal, matrix, blocks, progress, corpus=corpus)
+        progress("corpus", "corpus flow недоступен — используется legacy scout-fanout")
 
     all_tasks: list[ScoutTask] = []
     for cp in matrix.cell_plans:

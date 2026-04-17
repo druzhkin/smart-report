@@ -5,7 +5,7 @@ import json
 
 from config import load_prompt, model_for, settings
 from llm import call_json
-from models import Analogy, Block, Finding, IndicatorWarning, ScoutResult
+from models import Analogy, Block, Finding, IndicatorWarning, QuantMetric, ScoutResult
 from pydantic import BaseModel, Field
 from validators import stamp_block, strip_unverified_numerics
 
@@ -23,7 +23,12 @@ class _AnalystPayload(BaseModel):
     decision_point: str | None = None
 
 
-async def analyst(cell: str, scout_results: list[ScoutResult]) -> Block:
+async def analyst(
+    cell: str,
+    scout_results: list[ScoutResult],
+    *,
+    quant_metrics: list[QuantMetric] | None = None,
+) -> Block:
     findings_blob = json.dumps(
         [
             {
@@ -36,10 +41,22 @@ async def analyst(cell: str, scout_results: list[ScoutResult]) -> Block:
         ensure_ascii=False,
         indent=2,
     )
+    quant_block = ""
+    if quant_metrics:
+        quant_block = (
+            "\n\nСтруктурированные метрики, извлечённые Quant Extractor'ом "
+            "(используй эти числа в summary дословно, не изобретай свои):\n"
+            + json.dumps(
+                [m.model_dump() for m in quant_metrics],
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
     user = (
         f"Ячейка матрицы: {cell}\n\n"
         "Материал от Scout'ов (несколько пачек по разным заданиям):\n"
-        f"{findings_blob}\n\n"
+        f"{findings_blob}"
+        f"{quant_block}\n\n"
         "Собери проработанный блок по контракту из system prompt. Только JSON."
     )
     payload = await call_json(

@@ -154,6 +154,39 @@ class ScoutResult(BaseModel):
     notes: str | None = None
 
 
+class QuantMetric(BaseModel):
+    """Structured numeric metric extracted per cell before the Analyst runs.
+
+    Decoupled from Finding so the Analyst can reference clean, normalized numbers
+    without re-parsing free-text. `value` is a string to preserve units, ranges,
+    and non-numeric qualifiers («~15%», «8–12», «<0.05»).
+    """
+    name: str = Field(..., description="Что измеряется — «премия за близость школы», «средний чек», «CTR»")
+    value: str = Field(..., description="Значение с единицей — «15.7%», «$2.4B», «n=1842», «3–7%»")
+    unit: str = Field(default="", description="%, USD, RUB, count, x, ratio, year, …")
+    context: str = Field(..., description="1–2 предложения вокруг метрики из источника, дословно")
+    confidence: str = Field(default="medium", description="high | medium | low")
+    bias_type: BiasType = Field(default="opinion")
+    source_url: str
+    source_title: str = ""
+
+
+class CorpusManifest(BaseModel):
+    """Metadata about a corpus-flow fetch. Saved alongside raw corpus dump when
+    save_raw_corpus=True so debugging / replay can reason about what went in.
+    """
+    goal: str
+    fetched_at: str = Field(..., description="ISO-8601 timestamp")
+    backends: list[str] = Field(default_factory=list, description="Which DR backends contributed")
+    total_findings: int = 0
+    by_backend: dict[str, int] = Field(
+        default_factory=dict,
+        description="findings-per-backend counts",
+    )
+    cost_usd: float = 0.0
+    duration_sec: float = 0.0
+
+
 class Block(BaseModel):
     cell: str
     summary: str = Field(..., description="Structured mini-report, not a list of facts")
@@ -173,6 +206,18 @@ class Block(BaseModel):
             "Числа из summary, которые не удалось сопоставить ни с одним finding "
             "через fuzzy-матчинг. UI помечает их знаком ∑ как «синтезированные»."
         ),
+    )
+    quant_metrics: list[QuantMetric] = Field(
+        default_factory=list,
+        description="Structured numeric metrics extracted for this cell before analysis",
+    )
+    contrarian_critique: list[str] = Field(
+        default_factory=list,
+        description="Weaknesses / counter-evidence produced by the Contrarian Pass agent",
+    )
+    strongest_point: str | None = Field(
+        default=None,
+        description="Single sentence: what in this block would be hardest to refute",
     )
 
 
