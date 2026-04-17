@@ -415,6 +415,10 @@ class IntakeContext(BaseModel):
 class Report(BaseModel):
     goal: str
     matrix: Matrix
+    planner_question_type: QuestionType = Field(
+        ...,
+        description="Planner's question_type for this run — required for A/B gate",
+    )
     blocks: list[Block]
     connections: list[Connection]
     exec_summary: ExecutiveSummary | None = None

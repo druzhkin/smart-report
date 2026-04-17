@@ -573,6 +573,7 @@ async def _finalize(
     return Report(
         goal=goal,
         matrix=matrix,
+        planner_question_type=matrix.question_type,
         blocks=blocks,
         connections=connections,
         exec_summary=exec_summary,
@@ -718,6 +719,8 @@ def _fix_source_types(data: dict) -> dict:
 def load_report(path: Path) -> Report:
     data = json.loads(path.read_text(encoding="utf-8"))
     data = _fix_source_types(data)
+    if "planner_question_type" not in data:
+        data["planner_question_type"] = data.get("matrix", {}).get("question_type", "exploratory")
     return Report.model_validate(data)
 
 

@@ -20,7 +20,10 @@ class _ExpanderPayload(BaseModel):
     cell_plans: list[CellPlan]
 
 
-async def planner(goal: str, depth: str = "standard") -> Matrix:
+async def planner(
+    goal: str,
+    depth: str = "standard",
+) -> Matrix:
     prof = depth_profile(depth)
     d_lo, d_hi = prof["domains"]
     l_lo, l_hi = prof["layers"]
@@ -42,7 +45,7 @@ async def planner(goal: str, depth: str = "standard") -> Matrix:
         system=SYSTEM,
         user=user,
         schema=Matrix,
-        temperature=0.4,
+        temperature=0.0,
     )
     if not matrix.goal:
         matrix = matrix.model_copy(update={"goal": goal})
