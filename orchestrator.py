@@ -7,7 +7,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import re
 from pathlib import Path
 from typing import Awaitable, Callable, TypeVar
 
@@ -30,7 +29,7 @@ from config import (
     settings,
 )
 from corpus_fetch import Corpus, fetch_corpus
-from corpus_mapper import MappedFinding, map_corpus_to_cells
+from corpus_mapper import MappedFinding, classify_url, map_corpus_to_cells
 from llm import LLMAuthError, call_text, reset_meter
 from models import (
     Block,
@@ -161,46 +160,28 @@ def _build_strategy(matrix: Matrix) -> str:
     )
 
 
-_ACADEMIC_URL_RE = re.compile(
-    r"(doi\.org|arxiv\.org|pubmed|ncbi\.nlm|nature\.com|sciencedirect|springer|"
-    r"wiley\.com|tandfonline|scholar\.google|jstor|openalex|semanticscholar|"
-    r"crossref|europepmc|ssrn|mdpi\.com|elibrary\.ru|cyberleninka|core\.ac\.uk|"
-    r"researchgate|\.edu/|hse\.ru/data/|ranepa\.ru/|economy\.gov\.ru/material)",
-    re.I,
-)
-_OFFICIAL_URL_RE = re.compile(
-    r"(rosstat\.gov|cbr\.ru|minstroyrf|\.gov\.ru/|government\.ru|kremlin\.ru|"
-    r"oecd\.org|worldbank\.org|imf\.org|un\.org|iea\.org|bis\.org|ecb\.europa|"
-    r"mos\.ru/stroi|stroi\.mos\.ru)",
-    re.I,
-)
-_RESEARCH_HOUSE_RE = re.compile(
-    r"(knightfrank|savills|cbre\.com|jll\.|cushmanwakefield|colliers\.com|"
-    r"statista|mckinsey\.com|bcg\.com|pwc\.com|deloitte\.com|kpmg\.com|ey\.com)",
-    re.I,
-)
-
-
 def _classify_source(url: str, corpus_backend_by_url: dict[str, str]) -> tuple[str, str]:
-    """Return (source_type, source_db) from URL pattern + corpus backend lookup.
+    """Fallback adapter used only when a MappedFinding arrives without direct metadata
+    (mock/legacy paths). `map_corpus_to_cells` already enriches findings inline; this
+    function exists so the adapter below stays robust for off-pipeline callers.
 
     synth://<backend>  → secondary, synth_<backend>
-    academic domains   → primary_academic, academic
-    gov/official       → primary_official, official
-    research houses    → primary_data, research_house
-    else               → secondary, <backend>|web
+    URL pattern match  → classify_url(url), 'academic'|'official'|'research_house'
+    else               → secondary, corpus_backend_by_url[url] or 'web'
     """
     u = (url or "").strip()
     low = u.lower()
     if low.startswith("synth://"):
         backend = low[len("synth://"):] or "unknown"
         return "secondary", f"synth_{backend}"
-    if _ACADEMIC_URL_RE.search(low):
-        return "primary_academic", "academic"
-    if _OFFICIAL_URL_RE.search(low):
-        return "primary_official", "official"
-    if _RESEARCH_HOUSE_RE.search(low):
-        return "primary_data", "research_house"
+    stype = classify_url(u)
+    sdb_by_type = {
+        "primary_academic": "academic",
+        "primary_official": "official",
+        "primary_data": "research_house",
+    }
+    if stype in sdb_by_type:
+        return stype, sdb_by_type[stype]
     backend = corpus_backend_by_url.get(low.rstrip("/"))
     return "secondary", backend or "web"
 
@@ -210,7 +191,13 @@ def _mapped_to_scout_result(
     findings: list[MappedFinding],
     corpus_backend_by_url: dict[str, str] | None = None,
 ) -> ScoutResult:
-    """Adapter: MappedFinding (from corpus) → ScoutResult (what analyst expects)."""
+    """Adapter: MappedFinding (from corpus) → ScoutResult (what analyst expects).
+
+    Prefers the direct metadata populated by `_enrich_with_corpus_metadata`
+    (`source_type`, `source_backend`, `publication_year`, `citation_count`).
+    Falls back to URL-regex classification only if those fields are absent —
+    which now happens only for off-pipeline/test inputs.
+    """
     task = ScoutTask(
         cell=cell,
         query_focus=f"corpus_mapping: {cell}",
@@ -223,13 +210,28 @@ def _mapped_to_scout_result(
     out: list[Finding] = []
     for mf in findings:
         has_numbers = bool(mf.numbers)
-        stype, sdb = _classify_source(mf.source_url, lookup)
+        if mf.source_type is not None:
+            stype = mf.source_type
+            if mf.metadata_source == "synth":
+                sdb = f"synth_{mf.source_backend or 'unknown'}"
+            elif mf.source_backend:
+                sdb = mf.source_backend
+            else:
+                sdb = {
+                    "primary_academic": "academic",
+                    "primary_official": "official",
+                    "primary_data": "research_house",
+                }.get(stype, "web")
+        else:
+            stype, sdb = _classify_source(mf.source_url, lookup)
         out.append(Finding(
             claim=mf.claim,
             source=mf.source_url,
             source_label=mf.source_title or mf.source_url,
             source_type=stype,
             source_db=sdb,
+            citation_count=mf.citation_count,
+            year=mf.publication_year,
             has_numbers=has_numbers,
             numeric_values=mf.numbers,
             verbatim_quote=(mf.surrounding_context or None),

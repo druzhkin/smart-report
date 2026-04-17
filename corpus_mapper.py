@@ -23,6 +23,7 @@ Scaling strategy:
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -33,6 +34,50 @@ from llm import call_json
 from models import Matrix
 
 log = logging.getLogger("corpus_mapper")
+
+
+# ---------- shared URL classifier (source-type by domain pattern) ------
+# Also imported by orchestrator's adapter as the fallback path when a
+# MappedFinding URL can't be matched to any CorpusSource.
+
+ACADEMIC_URL_RE = re.compile(
+    r"(doi\.org|arxiv\.org|pubmed|ncbi\.nlm|nature\.com|sciencedirect|springer|"
+    r"wiley\.com|tandfonline|scholar\.google|jstor|openalex|semanticscholar|"
+    r"crossref|europepmc|ssrn|mdpi\.com|elibrary\.ru|cyberleninka|core\.ac\.uk|"
+    r"researchgate|\.edu/|hse\.ru/data/|ranepa\.ru/|economy\.gov\.ru/material)",
+    re.I,
+)
+OFFICIAL_URL_RE = re.compile(
+    r"(rosstat\.gov|cbr\.ru|minstroyrf|\.gov\.ru/|government\.ru|kremlin\.ru|"
+    r"oecd\.org|worldbank\.org|imf\.org|un\.org|iea\.org|bis\.org|ecb\.europa|"
+    r"mos\.ru/stroi|stroi\.mos\.ru)",
+    re.I,
+)
+RESEARCH_HOUSE_URL_RE = re.compile(
+    r"(knightfrank|savills|cbre\.com|jll\.|cushmanwakefield|colliers\.com|"
+    r"statista|mckinsey\.com|bcg\.com|pwc\.com|deloitte\.com|kpmg\.com|ey\.com)",
+    re.I,
+)
+
+
+def classify_url(url: str) -> str:
+    """URL pattern → source_type. Returns 'secondary' for non-matches.
+
+    synth://<backend> is NOT handled here — caller decides whether to treat
+    synth findings as primary/secondary based on the underlying backend.
+    """
+    low = (url or "").strip().lower()
+    if ACADEMIC_URL_RE.search(low):
+        return "primary_academic"
+    if OFFICIAL_URL_RE.search(low):
+        return "primary_official"
+    if RESEARCH_HOUSE_URL_RE.search(low):
+        return "primary_data"
+    return "secondary"
+
+
+def _normalize_url(url: str) -> str:
+    return (url or "").strip().lower().rstrip("/")
 
 # Rough word→token ratio for Russian+English mixed text. Conservative so we
 # under-utilise rather than overflow the context window.
@@ -77,6 +122,17 @@ class MappedFinding(BaseModel):
         default_factory=list,
         description="Другие ячейки, куда этот finding тоже релевантен",
     )
+    # Metadata enriched post-LLM from the matching CorpusSource. The LLM does not
+    # emit these (they'd be hallucinated); `_enrich_with_corpus_metadata` fills
+    # them before returning. `metadata_source` records where each finding's
+    # classification came from so downstream metrics can distinguish direct
+    # (URL-in-corpus) from fallback (URL-regex-only, incl. synth:// & LLM-mangled).
+    source_backend: str | None = None
+    source_type: str | None = None
+    is_peer_reviewed: bool | None = None
+    citation_count: int | None = None
+    publication_year: int | None = None
+    metadata_source: str = "fallback"  # "direct" | "fallback" | "synth"
 
 
 class CellMapping(BaseModel):
@@ -209,6 +265,96 @@ _USER_TEMPLATE = """# Цель исследования
 # ---------- main entry point --------------------------------------------
 
 
+def _enrich_with_corpus_metadata(
+    mapped: dict[str, list[MappedFinding]],
+    corpus: Corpus,
+) -> dict[str, list[MappedFinding]]:
+    """Populate MappedFinding metadata fields from the matching CorpusSource.
+
+    Resolution strategy per finding URL:
+      - `synth://<backend>` → metadata_source="synth", source_backend=<backend>,
+        source_type="secondary" (synth reports are never primary).
+      - URL present in corpus.sources → metadata_source="direct", pull backend /
+        year / citation_count / is_peer_reviewed straight from CorpusSource;
+        source_type from `classify_url` (still URL-pattern-based — CorpusSource
+        doesn't carry that field yet).
+      - Otherwise → metadata_source="fallback", source_backend=None,
+        source_type from `classify_url`. Counts as "URL-regex-only" in the log.
+
+    A one-shot INFO log is emitted summarising direct vs fallback counts so the
+    synthetic-URL metadata-loss regression stays visible.
+    """
+    by_url: dict[str, CorpusSource] = {
+        _normalize_url(s.url): s for s in (corpus.sources or []) if (s.url or "").strip()
+    }
+
+    n_total = 0
+    n_direct = 0
+    n_fallback = 0
+    n_synth = 0
+
+    for cell, findings in mapped.items():
+        enriched: list[MappedFinding] = []
+        for mf in findings:
+            n_total += 1
+            url = (mf.source_url or "").strip()
+            low = url.lower()
+
+            if low.startswith("synth://"):
+                backend = low[len("synth://") :] or "unknown"
+                enriched.append(
+                    mf.model_copy(
+                        update={
+                            "source_backend": backend,
+                            "source_type": "secondary",
+                            "is_peer_reviewed": None,
+                            "citation_count": None,
+                            "publication_year": None,
+                            "metadata_source": "synth",
+                        }
+                    )
+                )
+                n_synth += 1
+                continue
+
+            match = by_url.get(_normalize_url(url))
+            if match is not None:
+                enriched.append(
+                    mf.model_copy(
+                        update={
+                            "source_backend": match.backend,
+                            "source_type": classify_url(url),
+                            "is_peer_reviewed": match.is_peer_reviewed,
+                            "citation_count": match.citation_count,
+                            "publication_year": match.year,
+                            "metadata_source": "direct",
+                        }
+                    )
+                )
+                n_direct += 1
+            else:
+                enriched.append(
+                    mf.model_copy(
+                        update={
+                            "source_backend": None,
+                            "source_type": classify_url(url),
+                            "is_peer_reviewed": None,
+                            "citation_count": None,
+                            "publication_year": None,
+                            "metadata_source": "fallback",
+                        }
+                    )
+                )
+                n_fallback += 1
+        mapped[cell] = enriched
+
+    log.info(
+        "corpus_mapper: %d findings, %d with direct metadata, %d via URL fallback (synth=%d)",
+        n_total, n_direct, n_fallback + n_synth, n_synth,
+    )
+    return mapped
+
+
 async def map_corpus_to_cells(
     corpus: Corpus,
     matrix: Matrix,
@@ -243,9 +389,12 @@ async def map_corpus_to_cells(
                 "corpus_mapper: single-call returned 0 findings — retrying with per-domain batching"
             )
             result = await _per_domain_call(corpus_text, matrix, model_id)
-        return result
+        return _enrich_with_corpus_metadata(result, corpus)
 
-    return await _per_domain_call(corpus_text, matrix, model_id)
+    return _enrich_with_corpus_metadata(
+        await _per_domain_call(corpus_text, matrix, model_id),
+        corpus,
+    )
 
 
 async def _call_json_with_fallback(
