@@ -993,6 +993,29 @@ async def _gpt_researcher_call(query: str) -> dict[str, Any] | None:
         return None
 
 
+async def _deep_call(vendor: str, query: str) -> dict[str, Any] | None:
+    """Dispatch to one of the deep-research backends in search_deep.py.
+
+    Lazy-imported so a missing optional SDK never breaks `search`. Any exception
+    is swallowed — the orchestrator falls through to the cheap_web chain.
+    """
+    try:
+        import search_deep
+    except ImportError:
+        log.warning("search: deep-research module missing; disable USE_%s", vendor.upper())
+        return None
+    try:
+        if vendor == "tavily_deep":
+            return await search_deep.tavily_deep_research(query)
+        if vendor == "parallel":
+            return await search_deep.parallel_research(query)
+        if vendor == "valyu":
+            return await search_deep.valyu_research(query)
+    except Exception as err:
+        log.warning("search: %s deep-research error: %s", vendor, err)
+    return None
+
+
 async def _web_only(query: str) -> dict[str, Any]:
     """Perplexity-only pipeline (no academic bundle). Same fallback chain."""
     pp = await _perplexity_raw(query)
@@ -1057,8 +1080,15 @@ async def _search_impl(query: str, focus: str, search_type: str) -> dict[str, An
         web_tasks.append(("perplexity", _perplexity_raw(query)))
     if settings.use_gpt_researcher:
         web_tasks.append(("gpt_researcher", _gpt_researcher_call(query)))
-    if settings.use_tavily and settings.tavily_api_key:
+    if settings.use_tavily and settings.tavily_api_key and not settings.use_tavily_deep:
+        # Skip legacy /search when deep-research variant is active — one Tavily channel is enough.
         web_tasks.append(("tavily", _tavily_search(query)))
+    if settings.use_tavily_deep and settings.tavily_api_key:
+        web_tasks.append(("tavily_deep", _deep_call("tavily_deep", query)))
+    if settings.use_parallel and settings.parallel_api_key:
+        web_tasks.append(("parallel", _deep_call("parallel", query)))
+    if settings.use_valyu and settings.valyu_api_key:
+        web_tasks.append(("valyu", _deep_call("valyu", query)))
 
     academic_coro = _academic_branch(query, focus) if include_academic else None
     gathered = await asyncio.gather(

@@ -444,6 +444,32 @@ async def _analyze_cells(
     return [b for b in out if b is not None]
 
 
+async def _run_doubt_cycle(
+    blocks: list[Block],
+    progress: ProgressCb,
+    corpus: Corpus | None = None,
+) -> list[Block]:
+    """Scaffolded hook for doubt_formulator → gap-scout → refiner cycle (Изменение 2).
+
+    Runs only when `doubt_cycle_enabled` is True in the active depth profile.
+    Current state: STUB — emits the lifecycle events so the SSE pipeline registers
+    them, but does NOT invoke doubt_formulator/refiner yet. Blocks pass through
+    unchanged. Flip the flag in DEPTH_PROFILES + fill in the body to activate.
+
+    Events emitted (when enabled, once implemented):
+      - doubt_raised       — per block, after doubt_formulator returns >=1 doubt
+      - gap_fill_started   — per gap_question, before running scout
+      - block_refined      — per block, after refiner rewrites it
+    """
+    if not profile_bool("doubt_cycle_enabled", False):
+        return blocks
+    progress(
+        "doubt_cycle",
+        f"scaffolded (stub) — обработка {len(blocks)} блоков пропущена; hook не реализован",
+    )
+    return blocks
+
+
 async def _finalize(
     goal: str,
     matrix: Matrix,
@@ -590,6 +616,7 @@ async def run_research(
         if corpus_result is not None:
             by_cell_corpus, corpus = corpus_result
             blocks = await _analyze_cells(by_cell_corpus, progress)
+            blocks = await _run_doubt_cycle(blocks, progress, corpus=corpus)
             return await _finalize(goal, matrix, blocks, progress, corpus=corpus)
         progress("corpus", "corpus flow недоступен — используется legacy scout-fanout")
 
@@ -659,6 +686,7 @@ async def run_research(
             by_cell.setdefault(cell, []).append(stub)
 
     blocks = await _analyze_cells(by_cell, progress)
+    blocks = await _run_doubt_cycle(blocks, progress)
     return await _finalize(goal, matrix, blocks, progress)
 
 

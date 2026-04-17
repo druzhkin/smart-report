@@ -823,6 +823,89 @@ def _scenarios_section(doc, report: Report) -> None:
             r.font.size = Pt(10)
 
 
+def _consensus_section(doc, report: Report) -> None:
+    """Premium-only: cross-backend meta-analysis (agreements / disagreements / verdict)."""
+    layer = getattr(report, "consensus_layer", None)
+    if not layer:
+        return
+    _heading(doc, "Cross-backend мета-анализ", level=1)
+
+    backends = getattr(layer, "backends_consulted", []) or []
+    if backends:
+        p = doc.add_paragraph()
+        r = p.add_run("Консультированы бэкенды: ")
+        r.font.name = FONT; r.font.bold = True; r.font.color.rgb = NAVY
+        r = p.add_run(", ".join(backends))
+        r.font.name = FONT
+
+    conf = getattr(layer, "overall_confidence", "medium") or "medium"
+    conf_color = (
+        RGBColor(0x27, 0xAE, 0x60) if conf == "high"
+        else RGBColor(0xD9, 0x77, 0x06) if conf == "medium"
+        else RGBColor(0xC0, 0x39, 0x2B)
+    )
+    p = doc.add_paragraph()
+    r = p.add_run(f"Интегральная уверенность: {conf}")
+    r.font.name = FONT; r.font.bold = True; r.font.color.rgb = conf_color
+
+    verdict = getattr(layer, "verdict", "") or ""
+    if verdict:
+        _heading(doc, "Вердикт", level=2)
+        p = doc.add_paragraph()
+        _set_paragraph_left_border(p, NAVY_HEX, size_pt=24)
+        r = p.add_run(verdict)
+        r.font.name = FONT; r.font.size = Pt(11)
+
+    agreements = getattr(layer, "agreements", []) or []
+    if agreements:
+        _heading(doc, f"Согласия ({len(agreements)})", level=2)
+        for a in agreements:
+            p = doc.add_paragraph()
+            _set_paragraph_left_border(p, GREEN_HEX, size_pt=20)
+            r = p.add_run(a.claim)
+            r.font.name = FONT; r.font.size = Pt(11); r.font.bold = True
+            meta_p = doc.add_paragraph()
+            r = meta_p.add_run(
+                f"Бэкенды ({a.backend_count}): {', '.join(a.backends)}  ·  уверенность: {a.confidence}"
+            )
+            r.font.name = FONT; r.font.size = Pt(9); r.font.italic = True
+            r.font.color.rgb = GREY_TXT
+            for ev in (a.evidence or [])[:4]:
+                ep = doc.add_paragraph(style="List Bullet")
+                r = ep.add_run(ev)
+                r.font.name = FONT; r.font.size = Pt(10)
+            doc.add_paragraph()
+
+    disagreements = getattr(layer, "disagreements", []) or []
+    if disagreements:
+        _heading(doc, f"Расхождения ({len(disagreements)})", level=2)
+        for d in disagreements:
+            p = doc.add_paragraph()
+            _set_paragraph_left_border(p, RED_HEX, size_pt=20)
+            r = p.add_run(d.topic)
+            r.font.name = FONT; r.font.size = Pt(11); r.font.bold = True
+            for pos in (d.positions or []):
+                pp = doc.add_paragraph(style="List Bullet")
+                backend = pos.get("backend", "?") if isinstance(pos, dict) else getattr(pos, "backend", "?")
+                position = pos.get("position", "") if isinstance(pos, dict) else getattr(pos, "position", "")
+                ev = pos.get("evidence_summary", "") if isinstance(pos, dict) else getattr(pos, "evidence_summary", "")
+                r = pp.add_run(f"[{backend}] ")
+                r.font.name = FONT; r.font.size = Pt(10); r.font.bold = True; r.font.color.rgb = NAVY
+                r = pp.add_run(position)
+                r.font.name = FONT; r.font.size = Pt(10)
+                if ev:
+                    r = pp.add_run(f" — {ev}")
+                    r.font.name = FONT; r.font.size = Pt(9); r.font.italic = True; r.font.color.rgb = GREY_TXT
+            res = getattr(d, "likely_resolution", "") or ""
+            if res:
+                rp = doc.add_paragraph()
+                r = rp.add_run("Вероятная разрешающая интерпретация: ")
+                r.font.name = FONT; r.font.size = Pt(10); r.font.bold = True; r.font.color.rgb = NAVY
+                r = rp.add_run(res)
+                r.font.name = FONT; r.font.size = Pt(10)
+            doc.add_paragraph()
+
+
 def _appendix_sources(doc, report: Report) -> None:
     _heading(doc, "Приложение A. Список источников", level=1)
     # group by type
@@ -911,6 +994,11 @@ def export_mckinsey_docx(report: Report, path: Path, images: dict[str, Path] | N
     if getattr(report, "scenario_cone", None):
         doc.add_page_break()
         _scenarios_section(doc, report)
+
+    # 9a. Cross-backend consensus (premium tier)
+    if getattr(report, "consensus_layer", None):
+        doc.add_page_break()
+        _consensus_section(doc, report)
 
     # 10. Appendices
     doc.add_page_break()

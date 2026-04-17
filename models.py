@@ -171,6 +171,54 @@ class QuantMetric(BaseModel):
     source_title: str = ""
 
 
+DoubtType = Literal[
+    "unverified_number",
+    "conflicting_evidence",
+    "weak_source",
+    "missing_qualifier",
+    "assumption_gap",
+]
+
+
+class Doubt(BaseModel):
+    """Structured doubt raised by the doubt_formulator agent against a block claim.
+
+    Designed to be resolvable via one search query (`gap_question`). Severity
+    drives which doubts the refiner must address vs. those it can leave open.
+    """
+    block_cell: str = Field(..., description="'Domain / Layer' — which block this refers to")
+    claim_focus: str = Field(..., description="Phrase from block summary that the doubt targets (≤120 chars)")
+    doubt: str = Field(..., description="What exactly is in question and why (1–2 sentences)")
+    doubt_type: DoubtType
+    severity: Literal["high", "medium", "low"] = "medium"
+    gap_question: str = Field(..., description="Short search query that would resolve the doubt (≤150 chars)")
+    resolved: bool = Field(
+        default=False,
+        description="True once a gap-fill finding answered the question (set by refiner)",
+    )
+
+
+class NumberCitation(BaseModel):
+    """Clickable citation for a numeric value — links a number in rendered text
+    back to the finding + verbatim quote + source URL. Populated post-analysis
+    when the export layer scans block summaries for numbers present in quant_metrics.
+    """
+    value: str = Field(..., description="As rendered in text — '15.7%', '$2.4B', '3–7%'")
+    unit: str = Field(default="", description="%, USD, RUB, count, x, ratio, year, …")
+    source_url: str
+    source_label: str = Field(default="", description="Human-readable — 'Росстат, 2025'")
+    source_type: SourceType = "secondary"
+    finding_claim: str = Field(
+        default="",
+        description="Claim from the finding that contains this number",
+    )
+    verbatim_quote: str = Field(
+        default="",
+        description="Exact quote from source supporting the number",
+    )
+    confidence: str = Field(default="medium", description="high | medium | low")
+
+
 class CorpusManifest(BaseModel):
     """Metadata about a corpus-flow fetch. Saved alongside raw corpus dump when
     save_raw_corpus=True so debugging / replay can reason about what went in.
@@ -218,6 +266,18 @@ class Block(BaseModel):
     strongest_point: str | None = Field(
         default=None,
         description="Single sentence: what in this block would be hardest to refute",
+    )
+    doubts_raised: list[Doubt] = Field(
+        default_factory=list,
+        description="Doubts produced by doubt_formulator; populated only when doubt_cycle_enabled",
+    )
+    confidence_score: float | None = Field(
+        default=None,
+        description="0.0–1.0, set by refiner after doubt cycle. None = cycle not run.",
+    )
+    changed_after_doubt: bool = Field(
+        default=False,
+        description="True if refiner modified summary/findings in response to doubts",
     )
 
 

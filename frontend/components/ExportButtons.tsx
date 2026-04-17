@@ -5,11 +5,11 @@ import { exportUrl, gammaExportUrl } from "@/lib/api";
 import { FileDown, ChevronDown, FileText, FileSpreadsheet, FileCode, Presentation, Sparkles, Loader2, LayoutTemplate } from "lucide-react";
 
 type Item =
-  | { kind: "file"; fmt: "md" | "docx" | "pptx" | "json" | "onepager"; label: string; Icon: any; accent: string }
+  | { kind: "file"; fmt: "md" | "docx" | "pptx" | "json" | "onepager" | "onepager.docx"; label: string; Icon: any; accent: string }
   | { kind: "gamma"; format: "pptx" | "pdf"; label: string; Icon: any; accent: string };
 
 const ITEMS: Item[] = [
-  { kind: "file", fmt: "onepager", label: "One-pager (HTML / PDF)", Icon: LayoutTemplate, accent: "text-[#1B3A5C]" },
+  { kind: "file", fmt: "onepager.docx", label: "One-pager (Word, 1 стр.)", Icon: LayoutTemplate, accent: "text-[#1B3A5C]" },
   { kind: "gamma", format: "pptx", label: "✨ Gamma Presentation (.pptx)", Icon: Sparkles, accent: "text-fuchsia-600" },
   { kind: "gamma", format: "pdf", label: "✨ Gamma Presentation (.pdf)", Icon: Sparkles, accent: "text-fuchsia-600" },
   { kind: "file", fmt: "docx", label: "Word Document (.docx)", Icon: FileText, accent: "text-blue-600" },

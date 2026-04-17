@@ -210,6 +210,41 @@ _SIGNAL_UNITS = {
     "currency_gbp", "currency_jpy", "currency_other",
 }
 
+# Отвечают за «срезание» диапазона `20–47%` → `20%`, если один из концов
+# неверифицирован. Без этого в summary остаются уродливые остатки вида
+# `20–[число удалено: не в источниках]`.
+_RANGE_DASH_BEFORE = re.compile(r"\d[\s\u00a0]*[–—\-][\s\u00a0]*$")
+_RANGE_DASH_AFTER = re.compile(r"^[\s\u00a0]*[–—\-][\s\u00a0]*\d")
+_DASH_TAIL = re.compile(r"[\s\u00a0]*[–—\-][\s\u00a0]*$")
+_DASH_HEAD = re.compile(r"^[\s\u00a0]*[–—\-][\s\u00a0]*")
+_NUM_HEAD = re.compile(rf"^({_NUM})")
+
+
+def _shrink_range(
+    summary: str, start: int, end: int, raw: str
+) -> tuple[int, int, bool]:
+    """Если `raw` — одна половина диапазона `a–b`, расширить span так, чтобы
+    после замены пустой строкой осталась читаемая вторая половина.
+
+    Правая половина (`... 20 – |47%|`): съедаем `–` и только цифровую часть
+    `raw`, сохраняя хвост единицы (`%`, `млрд`, `$` и т.п.) — он «перетечёт»
+    на левое число.
+
+    Левая половина (`|20| – 47% ...`): съедаем весь `raw` + `–` целиком; правое
+    число уже несёт свою единицу.
+    """
+    left = summary[:start]
+    if _RANGE_DASH_BEFORE.search(left):
+        dash_m = _DASH_TAIL.search(left)
+        num_m = _NUM_HEAD.match(raw)
+        digit_len = num_m.end() if num_m else (end - start)
+        return start - len(dash_m.group(0)), start + digit_len, True
+    right = summary[end:]
+    if _RANGE_DASH_AFTER.match(right):
+        dash_m = _DASH_HEAD.match(right)
+        return start, end + len(dash_m.group(0)), True
+    return start, end, False
+
 
 def validate_block_numbers(block: Block) -> list[str]:
     """Return raw strings of summary numbers with no fuzzy match in findings."""
@@ -301,11 +336,13 @@ def strip_unverified_numerics(block: Block) -> Block:
     # Применяем замены справа налево — иначе сдвинутся индексы.
     replacements.sort(key=lambda x: x[0], reverse=True)
     seen_ranges: set[tuple[int, int]] = set()
-    for start, end, _ in replacements:
+    for start, end, raw in replacements:
         if (start, end) in seen_ranges:
             continue
         seen_ranges.add((start, end))
-        new_summary = new_summary[:start] + "[число удалено: не в источниках]" + new_summary[end:]
+        new_start, new_end, shrunk = _shrink_range(block.summary, start, end, raw)
+        replacement = "" if shrunk else "[число удалено: не в источниках]"
+        new_summary = new_summary[:new_start] + replacement + new_summary[new_end:]
 
     block.summary = new_summary
     block.unverified_numerics = unverified_raws
