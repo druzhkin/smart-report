@@ -23,7 +23,7 @@ ROLE_MODELS: dict[str, str] = {
 }
 
 # Perplexity retrieval model (citations + content)
-PERPLEXITY_MODEL = os.getenv("PERPLEXITY_MODEL", "sonar")
+PERPLEXITY_MODEL = os.getenv("PERPLEXITY_MODEL", "sonar-pro")
 
 # ---- Orchestration constants ----------------------------------------------
 MAX_PARALLEL_CELLS = int(os.getenv("MAX_PARALLEL_CELLS", "4"))
