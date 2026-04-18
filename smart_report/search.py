@@ -78,7 +78,7 @@ async def search(
     assistant = data["choices"][0]["message"]["content"]
     citations = data.get("citations") or []
     results = _parse_or_fallback(assistant, citations)
-    _log(log_dir, query, cell_id, results, time.monotonic() - t0, mocked=False)
+    _log(log_dir, query, cell_id, results, time.monotonic() - t0, mocked=False, citations=citations)
     return results
 
 
@@ -109,13 +109,29 @@ def _filter_to_domains(sources: list[str] | None) -> list[str]:
 
 def _parse_or_fallback(text: str, citations: list[str]) -> list[dict]:
     import json as _json
+    import re
 
+    body = (text or "").strip()
+    # Strip ```json / ``` code fences that sonar-pro frequently wraps around arrays.
+    if body.startswith("```"):
+        body = re.sub(r"^```[a-zA-Z]*\s*\n?", "", body)
+        body = re.sub(r"\n?```\s*$", "", body).strip()
+
+    parsed = None
     try:
-        parsed = _json.loads(text)
-        if isinstance(parsed, list):
-            return parsed
+        parsed = _json.loads(body)
     except Exception:
-        pass
+        # second attempt: locate first '[' ... last ']'
+        l, r = body.find("["), body.rfind("]")
+        if l != -1 and r > l:
+            try:
+                parsed = _json.loads(body[l : r + 1])
+            except Exception:
+                parsed = None
+
+    if isinstance(parsed, list):
+        return _reconcile_urls_with_citations(parsed, citations)
+
     # minimal fallback — keep pipeline flowing even if scout returns prose
     return [
         {
@@ -126,6 +142,33 @@ def _parse_or_fallback(text: str, citations: list[str]) -> list[dict]:
             "verbatim_quote": None,
         }
     ]
+
+
+def _reconcile_urls_with_citations(findings: list[dict], citations: list[str]) -> list[dict]:
+    """If a finding's source_url is not in Perplexity's citations, replace it.
+
+    Sonar-pro frequently invents plausible-looking URLs inside the JSON body while the
+    `citations` array (what it actually retrieved) is authoritative. When the two
+    disagree, prefer a citation over a hallucinated URL.
+    """
+    if not citations:
+        return findings
+    cite_set = {c.strip().rstrip("/") for c in citations if isinstance(c, str)}
+    out = []
+    for f in findings:
+        if not isinstance(f, dict):
+            continue
+        url = (f.get("source_url") or "").strip().rstrip("/")
+        if url and url in cite_set:
+            out.append(f)
+            continue
+        # fabricated or missing — pin to first citation and downgrade source_type
+        replaced = dict(f)
+        replaced["source_url"] = citations[0]
+        if replaced.get("source_type") not in ("other",):
+            replaced["source_type"] = "other"
+        out.append(replaced)
+    return out
 
 
 def _mock_results(cell_id: str, query: str) -> list[dict]:
@@ -151,6 +194,7 @@ def _log(
     latency: float,
     *,
     mocked: bool,
+    citations: list[str] | None = None,
 ) -> None:
     if log_dir is None:
         return
@@ -164,5 +208,6 @@ def _log(
             "latency_s": round(latency, 3),
             "n_results": len(results),
             "results": results,
+            "citations": citations or [],
         },
     )
