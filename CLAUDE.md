@@ -9,6 +9,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 If the user says "v3" or cites `smart_report/...`, they mean the sibling repo, not this one.
 
+### Remote mapping (2026-04-18)
+
+Both repos share one GitHub remote `druzhkin/smart-report`:
+- `main` branch — this v2 repo. Connected to Railway production (Node.js build for `frontend/`).
+- `v3` branch — the `smart-report-mvp-v3/` sibling. **Not** auto-deployed; deploying v3 requires a new Railway service (Python FastAPI) and is a deliberate future task.
+
+v2 prod on Railway is effectively unused — primary usage is local dev.
+
 ## Common commands
 
 ```bash
