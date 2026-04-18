@@ -128,3 +128,26 @@ See `scripts/baseline_eval/manual_checks.md` for full notes. Summary:
 - **Audit bisociator prompt**: force top-K selection over the full pair space, not a free-form emission. Target ≥9 links to match OpenAI DR.
 - **Cover missing domains** (`product`, `brand`, `speed`, `service`) to break through Coverage=10. Currently dispersed across adjacent cells but not called out as first-class domains — a Planner prompt change.
 - **Practical target for v3**: beat OpenAI DR on Coverage (>10 requires adding a new domain), hold Groundedness≥85, beat Perplexity on Honesty (>82) while holding non-triviality ≤5, and exceed OpenAI DR on Cross-domain (>9).
+
+## Iteration log (post-baseline)
+
+Initial `Smart Report v3` column above was scored on **smoke 04** (run `20260418T070420Z`). Subsequent smokes revealed that the groundedness=90 figure was partly inflated by **fabricated URLs inside Sonar-pro's JSON body** — the model invents plausible paths like `irn.ru/news/2024-03-15/defekty-v-novostroykakh-moskvy-2023.html` that pass a surface-level judge check but don't resolve. The fix discipline landed three correctness improvements that trade score-board prettiness for honest output:
+
+| smoke | commit at HEAD                                        | cov | ground | hon | nontriv | cross | notes |
+|:-----:|:-----------------------------------------------------:|:---:|:------:|:---:|:-------:|:-----:|:------|
+| 04    | `1175635` (baseline)                                  | 7   | **90** | 78  | 5       | 2     | Sonar URLs fabricated but well-formed, judge couldn't tell |
+| 05    | `d18a88e` (Planner emits real TLDs)                   | 7   | 55     | 72  | 3       | 4     | Richer retrieval on `erzrf.ru/dom.rf/cbr.ru`; Analyst still forwarded Sonar's fabricated URLs |
+| 06    | `c40a6f1` (code-fence strip + URL↔citation reconcile) | —   | —      | —   | —       | 0     | Aborted: Sonar-deep-research `.env` override (line 22 shadowing line 8) caused 13/14 cells to return `<think>` reasoning instead of JSON |
+| 07    | `546c0d1` (`<think>` strip + citation salvage + .env) | 7   | 62     | 72  | 4       | 2     | Sonar-pro reinstated; 12/14 clean JSON parses, 2 citation-salvage placeholders; 2 cross-links on real data (387–583 k₽/m² locational spread; котлован vs готовое 9.7% discount) |
+
+**What changed in the pipeline (upstream-first order):**
+1. **Planner TLD contract** (`d18a88e`, `prompts/planner.md` rule 6 + 15-row mapping table): `target_sources` now always contains ASCII TLDs Perplexity's `search_domain_filter` accepts.
+2. **URL↔citation reconciliation** (`c40a6f1`, `smart_report/search.py`): findings whose `source_url` is not in Perplexity's returned `citations` array get pinned to the first citation and downgraded to `source_type=other`. Code-fence stripping for ```json wrappers. `citations[]` now logged alongside `results[]` for audit.
+3. **`<think>` handling + citation salvage** (`546c0d1`, same file): strip `<think>...</think>` blocks before JSON parse; when parse fails but retrieval returned ≥3 citations, emit one placeholder per top-5 citation so Analyst works with real URLs instead of a raw-text blob.
+4. **`.env` cleanup**: commented out stale `PERPLEXITY_MODEL=sonar-deep-research` override at line 22 that shadowed the intended `sonar-pro` (commit `08f8943`). Dotenv's last-value-wins semantics had silently activated the reasoning model.
+
+**Reading the regression honestly.** Smoke 04's groundedness=90 was partly a judging artifact — the judge's URL-spot-check couldn't distinguish a plausible-but-hallucinated path from a real one. Smoke 07 at groundedness=62 reflects a pipeline that ONLY narrates over URLs that Perplexity actually retrieved. Two cells still use placeholder findings because Sonar-pro returned prose instead of JSON for them; this is a Perplexity-side instability, not a pipeline bug, and the citation-salvage path at least preserves retrieval signal for the Analyst to acknowledge.
+
+**Cross-domain dynamics.** 4→2 between smokes 05 and 07 is not a Bisociator regression — smoke 05's 4 links were partly built on Sonar-fabricated numbers (e.g., a `1990%` margin artifact that looked like a striking paradox). Smoke 07's 2 links both rest on real, verifiable numbers from Metrium/Donstroy pages that Perplexity actually cited. Quality traded against count.
+
+**Next-step call:** the upstream-first rule still applies. Before touching Bisociator prompt (to push from 2 toward OpenAI DR's 9), the next bottleneck is Scout density — 7/14 blocks still report `strongest_number=null`. Improving that lifts the shared-variable pool Bisociator ranks over, and then a top-K prompt adjustment has calibrated input to respond to.
