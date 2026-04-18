@@ -265,3 +265,21 @@ PYTHONUTF8=1 REQUEST_TIMEOUT_S=240 python run.py "Что сейчас проис
 - Step 2 (если был задуман) — не начат, Step 1 съел выделенный бюджет времени.
 - Bisociator tuning — осознанно отложен до universality check на втором домене (см. Open question выше).
 
+
+---
+
+## Remote & Deployment Status (2026-04-18)
+
+- **v3 code** → `druzhkin/smart-report` branch `v3` (**new branch**, pushed from local `main` renamed to `v3`). HEAD: `61b7755` + все предыдущие коммиты Step 1 сессии.
+- **main repo (frontend)** → `druzhkin/smart-report` branch `main`, fast-forward `29206d6..1957557`. Единственный новый коммит — `1957557 feat(frontend): v3 API client + side-by-side /v3/* routes`.
+- **Railway auto-deploy:** branch `main` (v2, Node.js Next.js build) подхватит push автоматически. Статус deployment не проверен CLI (token ограничен area `project` — `railway list` → Unauthorized, GraphQL project query → Not Authorized). **Проверить вручную на dashboard**, если важно. Коммит — чистое добавление `/v3/*` routes + `CLAUDE.md`, в существующий build process не вмешивается.
+- **v3 НЕ auto-deployed.** Deploy v3 в прод в будущем потребует:
+  1. Новый Railway service (Python FastAPI), текущий = Node.js.
+  2. Переключить "Branch connected to production" с `main` на `v3` (или создать отдельный environment).
+  3. Env vars: `OPENROUTER_API_KEY`, `PERPLEXITY_API_KEY`, `VALYU_API_KEY` и т.д. (полный список — `config.py`).
+- **v2 prod на Railway = unused** — основной пользователь работает локально. Можно остановить отдельной задачей.
+
+**Remote branches на druzhkin/smart-report после push:**
+- `main` (v2, connected to Railway production)
+- `v3` (новая, не авто-деплой)
+- `codex/fix-report-table-formatting`, `codex/smart-report-v2-railway` (существовали до push'а, не трогал)
