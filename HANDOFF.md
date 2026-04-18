@@ -234,3 +234,34 @@ PYTHONUTF8=1 REQUEST_TIMEOUT_S=240 python run.py "Что сейчас проис
 
 Это решение зависит от цифры, которую получим завтра. Не тюнить Bisociator до этого момента.
 
+---
+
+## Step 1 — API + фронт-интеграция (2026-04-18)
+
+**Что сделано:**
+
+- **Part A — Summarizer (5-й агент).** `summarizer.py` + `prompts/summarizer.md`. Выход — `ExecutiveSummary {main_finding, top_numbers[], key_tensions[], open_questions[]}`. `Report.summary` заполняется в конце `orchestrator.run`. Экспорт в markdown рендерит summary над матрицей. Mock в `_stub_data.MOCK_EXECUTIVE_SUMMARY`.
+- **Part B — EventEmitter.** `events.py` — Protocol + NullEmitter + ListEmitter. `orchestrator.run(..., emitter=...)` + `_cell_pipeline(..., emitter=...)` эмитят события на границах фаз. Сообщения совместимы с текущими regex фронта: scout `[cell_id] ...`, analyst `Блок ... готов`, bisociator `Найдено связей: N`. Фазы в whitelist: `status|planner|scout|analyst|bisociator|summarizer|done|error`.
+- **Part C — FastAPI.** `smart_report/api/` — `main.py` + `jobs.py` + `models.py`. Эндпоинты: `POST /api/research`, `GET /events` (long-poll, clamped [0,30]s), `GET /stream` (SSE fallback), `GET /api/research/{id}` (с on-disk fallback), `GET /api/reports`, `GET /health`. Джобы в `dict[id, Job]` с `asyncio.Event` на каждую. CORS whitelist :3000-:3003.
+- **Part D — Фронт.** В main-репе `smart-report-mvp`: `frontend/lib/apiV3.ts` (типы + fetch), `frontend/lib/useV3Events.ts` (long-poll hook), `frontend/app/v3/new/page.tsx` (форма), `frontend/app/v3/report/[id]/page.tsx` (live feed + render). Абсолютные URL к `NEXT_PUBLIC_V3_API_BASE` (default :8010) — не трогают `next.config.mjs` rewrite. Side-by-side с v2.
+- **Part E — Smoke.** Эталонный вопрос («Что определяет успех девелопера в бизнес-сегменте Москвы — бренд, скорость или продукт?») прошёл end-to-end за **209 s**: 7 доменов, 14 ячеек, 14 блоков, 83 находки суммарно, **2 cross-links**, executive summary с 5 top_numbers / 2 tensions / 5 open questions. Все 3 regex контракта зелёные (28 scout msgs, 28 analyst msgs, 2 bisoc msgs). Фронт-страницы `/v3/new` и `/v3/report/{id}` отдают 200 с корректным контентом.
+
+**Тесты:** 47/47 green (6 API + 9 events + остальное).
+
+**Commits:**
+- v3: `daffbf1 feat(api+summarizer+events): Step 1 A+B+C`
+- main: `1957557 feat(frontend): v3 API client + side-by-side /v3/* routes` + `CLAUDE.md`
+
+**Known issues / punch list:**
+
+1. **Bisociator всё ещё упирается в 2 cross-links** на этом материале. Это совпадает со «Смок 9/11 давали 2–3, ceiling?». Universality check не был частью Step 1 — нужен отдельный прогон на другом домене.
+2. **2 дублирующих джоба** запустились из-за того что первая попытка скрипта упала на UnicodeEncodeError *после* POST, POST к API успел пройти. В отчёты попали оба. API не имеет cancel endpoint — backlog.
+3. **Browser E2E** не сделан — проверил только через `curl` к фронт-страницам и прямые вызовы API. Страницы компилируются и отдают 200, но клик-флоу в реальном браузере Claude-у недоступен. Оставил HTML-snapshot'ы `_frontend_v3_new.html` и `_frontend_v3_report.html` в main-репе.
+4. **Windows proxy-trap** — системный HTTP proxy перехватывает localhost. `curl --noproxy '*'` обходит. Добавил в `memory/windows_bash_utf8_curl_trap.md` ранее (трап для UTF-8), но proxy — отдельный. Фронт в Node не страдает, curl из bash — страдает.
+5. **CORS** широкий (3000-3003) — для dev ок, для продакшна сузить.
+6. **Frontend landed on :3003** — первый вакантный порт. `.env.local` с `NEXT_PUBLIC_V3_API_BASE=http://localhost:8010` для продакшна.
+
+**Не сделано (из утреннего плана) и почему:**
+- Step 2 (если был задуман) — не начат, Step 1 съел выделенный бюджет времени.
+- Bisociator tuning — осознанно отложен до universality check на втором домене (см. Open question выше).
+
