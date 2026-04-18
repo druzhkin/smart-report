@@ -24,6 +24,7 @@ from .jobs import (
     register,
 )
 from .models import JobSummary, ResearchIn, ResearchOut
+from .v4_endpoints import router as v4_router
 
 log = logging.getLogger("smart_report.api")
 
@@ -45,6 +46,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(v4_router)
 
 
 # ---------- runtime ----------

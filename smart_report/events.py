@@ -15,6 +15,11 @@ ALLOWED_PHASES = {
     "summarizer",
     "done",
     "error",
+    # v4 meta-analysis phases
+    "prompt_master",
+    "external_research",
+    "analyzer",
+    "synthesizer",
 }
 
 
