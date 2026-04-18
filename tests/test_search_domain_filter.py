@@ -90,3 +90,31 @@ async def test_empty_target_sources_omits_filter(monkeypatch) -> None:
     assert "search_domain_filter" not in sent, (
         "empty target_sources must not send search_domain_filter"
     )
+
+
+@pytest.mark.asyncio
+async def test_org_names_are_filtered_out_domains_pass(monkeypatch) -> None:
+    """Planner currently mixes org names and domains in target_sources.
+    Only TLD-shaped strings must reach Perplexity's search_domain_filter — otherwise
+    the API 400s (this is the actual bug that hit the first live smoke)."""
+    import httpx
+
+    import smart_report.search as search_mod
+
+    monkeypatch.setattr(search_mod, "PERPLEXITY_API_KEY", "test-key-nonempty")
+    monkeypatch.setattr(httpx, "AsyncClient", _CapturingClient)
+    _CapturingClient.captured = {}
+
+    task = ScoutTask(
+        cell_id="construction:deadlines",
+        query="перенос срока ЕРЗ",
+        # Real v3 planner output mixed with a hand-added domain
+        target_sources=["ЦБ РФ", "Frank RG", "ЕРЗ.РФ", "erzrf.ru", "https://dom.rf/reports"],
+    )
+    await scout(task, mock=False, log_dir=None)
+
+    sent = _CapturingClient.captured
+    assert sent, "post() never reached"
+    assert sent.get("search_domain_filter") == ["erzrf.ru", "dom.rf"], (
+        f"only TLD-shaped strings should propagate; got {sent.get('search_domain_filter')}"
+    )

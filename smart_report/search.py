@@ -55,8 +55,9 @@ async def search(
         ],
         "return_citations": True,
     }
-    if target_sources:
-        payload["search_domain_filter"] = list(target_sources)
+    domains = _filter_to_domains(target_sources)
+    if domains:
+        payload["search_domain_filter"] = domains
     headers = {
         "Authorization": f"Bearer {PERPLEXITY_API_KEY}",
         "Content-Type": "application/json",
@@ -79,6 +80,31 @@ async def search(
     results = _parse_or_fallback(assistant, citations)
     _log(log_dir, query, cell_id, results, time.monotonic() - t0, mocked=False)
     return results
+
+
+def _filter_to_domains(sources: list[str] | None) -> list[str]:
+    """Keep only strings that look like TLDs: ASCII, contains a dot, no whitespace.
+
+    Planner's current `target_sources` is a mix of org names ("ЦБ РФ", "Frank RG")
+    and occasional domains ("erzrf.ru"). Perplexity's `search_domain_filter` rejects
+    non-domain strings with 400. Until Planner emits a dedicated domain list, we
+    forward only the shapes Perplexity can actually consume.
+    """
+    if not sources:
+        return []
+    out: list[str] = []
+    for s in sources:
+        if not isinstance(s, str):
+            continue
+        cand = s.strip().lower()
+        if not cand or not cand.isascii() or " " in cand or "." not in cand:
+            continue
+        # Strip leading protocol/slash if someone ever sends a URL
+        cand = cand.removeprefix("https://").removeprefix("http://").removeprefix("www.")
+        cand = cand.split("/", 1)[0]
+        if "." in cand and cand not in out:
+            out.append(cand)
+    return out
 
 
 def _parse_or_fallback(text: str, citations: list[str]) -> list[dict]:
