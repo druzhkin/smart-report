@@ -20,6 +20,7 @@ ROLE_MODELS: dict[str, str] = {
     "scout": os.getenv("SCOUT_MODEL", "anthropic/claude-haiku-4.5"),
     "analyst": os.getenv("ANALYST_MODEL", "anthropic/claude-sonnet-4.6"),
     "bisociator": os.getenv("BISOCIATOR_MODEL", "anthropic/claude-opus-4"),
+    "summarizer": os.getenv("SUMMARIZER_MODEL", "anthropic/claude-sonnet-4.6"),
 }
 
 # Perplexity retrieval model (citations + content)
@@ -35,6 +36,7 @@ ROLE_TEMPERATURE: dict[str, float] = {
     "scout": 0.2,
     "analyst": 0.3,
     "bisociator": 0.4,
+    "summarizer": 0.3,
 }
 
 

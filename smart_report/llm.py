@@ -138,6 +138,8 @@ def _mock_response(role: str, messages: list[dict]) -> str:
         return _json.dumps(block, ensure_ascii=False)
     if role == "bisociator":
         return _json.dumps(_stub_data.MOCK_CROSS_LINKS, ensure_ascii=False)
+    if role == "summarizer":
+        return _json.dumps(_stub_data.MOCK_EXECUTIVE_SUMMARY, ensure_ascii=False)
     if role == "scout":
         # Scout in our design leans on search.search(); if ever invoked as llm, return empty list
         return "[]"

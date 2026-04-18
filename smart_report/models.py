@@ -82,9 +82,29 @@ class CrossLink(_Base):
     evidence_pointers: list[str] = Field(default_factory=list)
 
 
+class TopNumber(_Base):
+    value: str
+    context: str
+    source_url: str
+
+
+class KeyTension(_Base):
+    tension: str
+    pole_a: str
+    pole_b: str
+
+
+class ExecutiveSummary(_Base):
+    main_finding: str
+    top_numbers: list[TopNumber] = Field(default_factory=list)
+    key_tensions: list[KeyTension] = Field(default_factory=list)
+    open_questions: list[str] = Field(default_factory=list)
+
+
 class Report(_Base):
     question: Question
     matrix: Matrix
     blocks: list[Block]
     cross_links: list[CrossLink]
+    summary: ExecutiveSummary | None = None
     metadata: dict = Field(default_factory=dict)

@@ -83,9 +83,34 @@ def write_markdown_report(path: Path, report_dict: dict) -> None:
     q = report_dict.get("question", {})
     blocks = report_dict.get("blocks", [])
     cross = report_dict.get("cross_links", [])
+    summary = report_dict.get("summary") or {}
     lines: list[str] = []
     lines.append(f"# Report: {q.get('text', '')}\n")
     lines.append(f"_question_id: `{q.get('id', '')}`_\n")
+    if summary.get("main_finding"):
+        lines.append("## Executive Summary\n")
+        lines.append(summary["main_finding"] + "\n")
+        if summary.get("top_numbers"):
+            lines.append("**Top numbers:**")
+            for tn in summary["top_numbers"]:
+                lines.append(
+                    f"- `{tn.get('value','')}` — {tn.get('context','')} "
+                    f"([src]({tn.get('source_url','')}))"
+                )
+            lines.append("")
+        if summary.get("key_tensions"):
+            lines.append("**Key tensions:**")
+            for kt in summary["key_tensions"]:
+                lines.append(
+                    f"- {kt.get('tension','')} — A: {kt.get('pole_a','')} / "
+                    f"B: {kt.get('pole_b','')}"
+                )
+            lines.append("")
+        if summary.get("open_questions"):
+            lines.append("**Open questions:**")
+            for oq in summary["open_questions"]:
+                lines.append(f"- {oq}")
+            lines.append("")
     lines.append("## Matrix blocks\n")
     for b in blocks:
         lines.append(f"### Cell `{b['cell_id']}`")
