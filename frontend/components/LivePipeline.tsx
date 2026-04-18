@@ -16,15 +16,23 @@ import {
   Search,
   FileText,
   Link2,
+  ExternalLink,
 } from "lucide-react";
 import type { SSEEvent } from "@/lib/useSSE";
 
 const PHASES = [
-  { key: "planner", label: "Декомпозиция цели", icon: Target },
-  { key: "scout", label: "Разведка источников", icon: Radar },
-  { key: "analyst", label: "Синтез блоков", icon: Brain },
-  { key: "bisociator", label: "Поиск связей", icon: GitBranch },
-  { key: "summarizer", label: "Финальная сборка", icon: Sparkles },
+  { key: "planner", label: "Декомпозиция цели", icon: Target, pending: false },
+  { key: "scout", label: "Разведка источников", icon: Radar, pending: false },
+  { key: "analyst", label: "Синтез блоков", icon: Brain, pending: false },
+  { key: "bisociator", label: "Поиск связей", icon: GitBranch, pending: false },
+  { key: "summarizer", label: "Финальная сборка", icon: Sparkles, pending: false },
+] as const;
+
+export const V4_PHASES = [
+  { key: "prompt_master", label: "Генерирую research-промт", icon: Target, pending: false },
+  { key: "external_research", label: "Ожидаю ваши отчёты", icon: ExternalLink, pending: true },
+  { key: "analyzer", label: "Анализирую отчёты", icon: Brain, pending: false },
+  { key: "synthesizer", label: "Собираю финал", icon: Sparkles, pending: false },
 ] as const;
 
 const ICONS: Record<string, any> = {
@@ -39,6 +47,10 @@ const ICONS: Record<string, any> = {
   status: Loader2,
   depth: FileText,
   connect: Link2,
+  prompt_master: Target,
+  external_research: ExternalLink,
+  analyzer: Brain,
+  synthesizer: Sparkles,
 };
 
 const COLORS: Record<string, string> = {
@@ -52,6 +64,10 @@ const COLORS: Record<string, string> = {
   error: "text-rose-500",
   depth: "text-zinc-500",
   connect: "text-teal-500",
+  prompt_master: "text-violet-500",
+  external_research: "text-blue-500",
+  analyzer: "text-emerald-500",
+  synthesizer: "text-indigo-500",
 };
 
 function extractDomain(msg: string): string | null {
@@ -64,16 +80,26 @@ function extractCell(msg: string): string | null {
   return m ? m[1] : null;
 }
 
-export function LivePipeline({ events, goal }: { events: SSEEvent[]; goal?: string }) {
+export function LivePipeline({
+  events,
+  goal,
+  mode = "v3",
+}: {
+  events: SSEEvent[];
+  goal?: string;
+  mode?: "v3" | "v4";
+}) {
+  const phases = mode === "v4" ? V4_PHASES : PHASES;
+
   const currentPhase = useMemo(() => {
     for (let i = events.length - 1; i >= 0; i--) {
       const e = events[i].event;
-      if (PHASES.some((p) => p.key === e)) return e;
+      if (phases.some((p) => p.key === e)) return e;
     }
-    return "planner";
-  }, [events]);
+    return phases[0].key;
+  }, [events, phases]);
 
-  const phaseIndex = PHASES.findIndex((p) => p.key === currentPhase);
+  const phaseIndex = phases.findIndex((p) => p.key === currentPhase);
 
   const stats = useMemo(() => {
     let scouts = 0;
@@ -116,14 +142,18 @@ export function LivePipeline({ events, goal }: { events: SSEEvent[]; goal?: stri
 
       {/* Phase tracker */}
       <div className="paper-panel">
-        <div className="grid grid-cols-5 gap-2 md:gap-4">
-          {PHASES.map((p, i) => {
+        <div
+          className="grid gap-2 md:gap-4"
+          style={{ gridTemplateColumns: `repeat(${phases.length}, minmax(0, 1fr))` }}
+        >
+          {phases.map((p, i) => {
             const done = i < phaseIndex;
             const active = i === phaseIndex;
+            const pending = !!(p as any).pending && active;
             const Icon = p.icon;
             return (
               <div key={p.key} className="flex flex-col items-center text-center relative">
-                {i < PHASES.length - 1 && (
+                {i < phases.length - 1 && (
                   <div
                     className="absolute top-5 left-1/2 w-full h-px -z-0"
                     style={{ background: done ? "#3b82f6" : "#e4e4e7" }}
@@ -132,14 +162,18 @@ export function LivePipeline({ events, goal }: { events: SSEEvent[]; goal?: stri
                 <div
                   className={
                     "relative z-10 w-10 h-10 rounded-full flex items-center justify-center transition-all " +
-                    (active
+                    (pending
+                      ? "bg-amber-100 text-amber-600 ring-2 ring-amber-300"
+                      : active
                       ? "bg-blue-500 text-white shadow-lg shadow-blue-500/30 scale-110"
                       : done
                       ? "bg-blue-500 text-white"
                       : "bg-zinc-100 text-zinc-400")
                   }
                 >
-                  {active ? (
+                  {pending ? (
+                    <Icon size={16} />
+                  ) : active ? (
                     <Loader2 size={16} className="animate-spin" />
                   ) : done ? (
                     <CheckCircle2 size={18} />
@@ -161,13 +195,15 @@ export function LivePipeline({ events, goal }: { events: SSEEvent[]; goal?: stri
         </div>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Stat label="Scout-задач" value={stats.scouts} icon={Radar} />
-        <Stat label="Блоков собрано" value={stats.blocks} icon={Brain} />
-        <Stat label="Доменов в поиске" value={stats.domains} icon={Search} />
-        <Stat label="Связей" value={stats.connections} icon={Link2} />
-      </div>
+      {/* Stats (v3 only — v4 has no scout/connection metrics) */}
+      {mode !== "v4" && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <Stat label="Scout-задач" value={stats.scouts} icon={Radar} />
+          <Stat label="Блоков собрано" value={stats.blocks} icon={Brain} />
+          <Stat label="Доменов в поиске" value={stats.domains} icon={Search} />
+          <Stat label="Связей" value={stats.connections} icon={Link2} />
+        </div>
+      )}
 
       {/* Live feed */}
       <div className="paper-panel">
