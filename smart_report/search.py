@@ -46,9 +46,17 @@ async def search(
             {
                 "role": "system",
                 "content": (
-                    "You are a retrieval scout. Return a JSON array of findings, each with keys: "
-                    "claim, number (string or null), source_url, source_type "
-                    "(one of: academic, official, industry, media, other), verbatim_quote."
+                    "You are a retrieval scout. Output is a JSON array ONLY — no prose before or "
+                    "after, no markdown code fences (no ```), no reasoning blocks (no <think>), "
+                    "no commentary. Each element must have exactly these keys: "
+                    "claim (string, concrete factual statement tied to the query), "
+                    "number (string with units, or null — extract even approximate figures when the source states one), "
+                    "source_url (string, a URL from your retrieved sources), "
+                    "source_type (one of: academic, official, industry, media, other), "
+                    "verbatim_quote (short string copied from the source, or null). "
+                    "Emit one finding per retrieved source that is topically relevant. "
+                    "If a source discusses the topic but lacks a specific number, still emit a finding with number=null. "
+                    "Prefer surfacing partial/approximate/adjacent data over returning nothing."
                 ),
             },
             {"role": "user", "content": query},
