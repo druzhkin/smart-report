@@ -10,10 +10,15 @@ from pathlib import Path
 from .analyst import analyze
 from .bisociator import bisociate
 from .config import MAX_PARALLEL_CELLS
-from .io import make_run_dir, write_json, write_markdown_report
-from .models import Block, Cell, Question, Report
+from .io import append_jsonl, make_run_dir, write_json, write_markdown_report
+from .models import Block, Cell, Finding, Question, Report
 from .planner import plan
 from .scout import scout
+from .scrape import (
+    ERZ_MOSCOW_TOP_URL,
+    erz_rows_as_findings,
+    fetch_erz_moscow_developer_rows,
+)
 
 __version__ = "0.3.0"
 
@@ -22,6 +27,59 @@ def _question_id(text: str) -> str:
     slug = re.sub(r"\W+", "-", text.lower(), flags=re.UNICODE).strip("-")[:48] or "q"
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     return f"{ts}-{slug}"
+
+
+_ERZ_TRIGGER_TOKENS = ("срок", "перенос", "ввод", "deadline", "ерз", "erz")
+
+
+def _should_enrich_with_erz(cell: Cell) -> bool:
+    """True when this cell is about construction deadlines — ЕРЗ has per-developer
+    transfer-delay % and monthly slip data that Perplexity cannot extract reliably.
+
+    Conservative trigger: target_sources must include erzrf.ru AND query/layer must
+    mention срок/перенос/ввод tokens. We don't want to bolt ЕРЗ onto unrelated cells.
+    """
+    sources = cell.scout_task.target_sources or []
+    if not any("erzrf.ru" in (s or "").lower() for s in sources):
+        return False
+    haystack = f"{cell.layer} {cell.scout_task.query} {cell.id}".lower()
+    return any(tok in haystack for tok in _ERZ_TRIGGER_TOKENS)
+
+
+async def _enrich_with_erz(cell: Cell, *, log_dir: Path, mock: bool) -> list[Finding]:
+    """Fetch ЕРЗ Moscow developer ranking and materialise as Finding objects.
+
+    Failure-soft: if Jina Reader / ЕРЗ is unreachable or the table shape drifts,
+    log the exception and return [] so the pipeline degrades to pure-Perplexity
+    output instead of aborting.
+    """
+    if mock:
+        return []
+    try:
+        rows = await fetch_erz_moscow_developer_rows(top_n=10)
+    except Exception as e:  # network, 4xx, parse regression
+        append_jsonl(
+            log_dir / "llm_log.jsonl",
+            {
+                "kind": "scrape_error",
+                "cell_id": cell.id,
+                "source": ERZ_MOSCOW_TOP_URL,
+                "error": f"{type(e).__name__}: {e}",
+            },
+        )
+        return []
+    dicts = erz_rows_as_findings(rows)
+    append_jsonl(
+        log_dir / "llm_log.jsonl",
+        {
+            "kind": "scrape",
+            "cell_id": cell.id,
+            "source": ERZ_MOSCOW_TOP_URL,
+            "n_rows": len(rows),
+            "findings": dicts,
+        },
+    )
+    return [Finding(**d) for d in dicts]
 
 
 async def _cell_pipeline(
@@ -33,6 +91,8 @@ async def _cell_pipeline(
 ) -> Block:
     async with sem:
         findings = await scout(cell.scout_task, mock=mock, log_dir=log_dir)
+        if _should_enrich_with_erz(cell):
+            findings = findings + await _enrich_with_erz(cell, log_dir=log_dir, mock=mock)
         return await analyze(cell, findings, mock=mock, log_dir=log_dir)
 
 
