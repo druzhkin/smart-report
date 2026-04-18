@@ -33,7 +33,24 @@ class PlannerInput(BaseModel):
    - называть искомую метрику с единицей (%, руб/м², мес., кол-во);
    - задавать временной/географический контекст.
 
-6. **target_sources: 2–4 типа авторитетных источников.** Предпочитай регуляторов / статистику / отраслевые БД над vendor research (Knight Frank/Savills/CBRE — разрешены, но не в одиночку). Смешивай типы: (a) регулятор/гос, (b) отраслевая БД, (c) корпоративная отчётность, (d) академия/СМИ.
+6. **target_sources: 2–4 реальных доменов (TLD), а не отображаемых названий.** Это поле напрямую уходит в Perplexity `search_domain_filter`, который ожидает ASCII-домены вида `erzrf.ru`, `dom.rf`, `cbr.ru`. Кириллические отображаемые имена («ЕРЗ.РФ», «наш.дом.рф», «ЦБ РФ») и названия организаций («Frank RG», «Knight Frank») **будут отброшены фильтром** и Scout останется без доменного хинта — это приводит к нерелевантным результатам. Используй реальные домены сайтов:
+   - ЕРЗ.РФ → `erzrf.ru`
+   - наш.дом.рф / ДОМ.РФ → `dom.rf` (или `наш.дом.рф` если нужен IDN — но предпочитай punycode-эквивалент `xn--d1aqf.xn--p1ai`, если не уверен — `dom.rf`)
+   - ЦБ РФ → `cbr.ru`
+   - Росреестр → `rosreestr.gov.ru`
+   - Мосгосстройнадзор → `stroinadzor.mos.ru`
+   - Nikoliers → `nikoliers.ru`
+   - CORE.XP → `core-xp.ru`
+   - Metrium → `metrium.ru`
+   - NF Group → `nfgroup.ru`
+   - РБК Недвижимость → `realty.rbc.ru`
+   - Ведомости → `vedomosti.ru`
+   - ЦИАН Аналитика → `cian.ru`
+   - Forbes → `forbes.ru`
+   - Коммерсантъ → `kommersant.ru`
+   - Stroygaz / Stroygazeta → `stroygaz.ru`
+   - InterRos / Novostroy-M → `novostroy-m.ru`
+   Предпочитай регуляторов / статистику / отраслевые БД над vendor research (Knight Frank `knightfrank.ru`, Savills `savills.ru`, CBRE `cbre.ru` — разрешены, но не в одиночку). Смешивай типы: (a) регулятор/гос, (b) отраслевая БД, (c) корпоративная отчётность, (d) академия/СМИ. **Если не знаешь точный домен организации — не выдумывай, опусти её из списка** и добавь тот, в котором уверен.
 
 7. **Покрытие сравниваемых сущностей.** Если вопрос сравнивает бренд/скорость/продукт:
    - «Бренд» покрывается через *Покупатель → премия за бренд*, *Конкуренция → доверие и повторные покупки*.
@@ -101,7 +118,7 @@ class PlannerInput(BaseModel):
       "scout_task": {
         "cell_id": "macro-finance/mortgage-mix",
         "query": "доля ипотечных сделок в бизнес-классе Москвы 2023-2024 (%), средняя ставка (%), доля семейной/IT-ипотеки в выдачах",
-        "target_sources": ["ЦБ РФ", "ДОМ.РФ", "Frank RG", "Росреестр"]
+        "target_sources": ["cbr.ru", "dom.rf", "frankrg.com", "rosreestr.gov.ru"]
       }
     },
     {
@@ -111,7 +128,7 @@ class PlannerInput(BaseModel):
       "scout_task": {
         "cell_id": "buyer/decision-factors",
         "query": "топ-5 факторов выбора ЖК бизнес-класса Москвы 2024: вес бренда/локации/планировок (%), готовность переплатить за бренд (₽/м²)",
-        "target_sources": ["NF Group", "ВЦИОМ", "Metrium", "Яндекс.Недвижимость"]
+        "target_sources": ["nfgroup.ru", "wciom.ru", "metrium.ru", "realty.yandex.ru"]
       }
     },
     {
@@ -121,7 +138,7 @@ class PlannerInput(BaseModel):
       "scout_task": {
         "cell_id": "construction/deadline-discipline",
         "query": "процент проектов с переносом ПДД среди топ-10 девелоперов бизнес-класса Москвы 2022-2024 (%), средняя задержка (мес.)",
-        "target_sources": ["ЕРЗ.РФ", "наш.дом.рф", "Мосгосстройнадзор", "годовые отчёты Эталон/ПИК"]
+        "target_sources": ["erzrf.ru", "dom.rf", "stroinadzor.mos.ru"]
       }
     },
     {
@@ -131,7 +148,7 @@ class PlannerInput(BaseModel):
       "scout_task": {
         "cell_id": "competition/brand-trust",
         "query": "рейтинг доверия топ-10 девелоперов Москвы 2024 (%), NPS-оценки, доля повторных покупок (%)",
-        "target_sources": ["ВЦИОМ", "Romir", "NF Group", "отчёты девелоперов"]
+        "target_sources": ["wciom.ru", "romir.ru", "nfgroup.ru", "forbes.ru"]
       }
     },
     {
@@ -141,7 +158,7 @@ class PlannerInput(BaseModel):
       "scout_task": {
         "cell_id": "regulation/parking-norms",
         "query": "нормативы машиномест для бизнес-класса Москвы 2024 (м/м на квартиру), средняя обеспеченность в новых проектах, стоимость м/м (млн ₽)",
-        "target_sources": ["ППМ 1521", "Мосгосстройнадзор", "ЦИАН Аналитика", "данные ПИК/Эталон"]
+        "target_sources": ["mos.ru", "stroinadzor.mos.ru", "cian.ru", "metrium.ru"]
       }
     }
   ]
