@@ -176,9 +176,23 @@ def _reconcile_urls_with_citations(findings: list[dict], citations: list[str]) -
     Sonar-pro frequently invents plausible-looking URLs inside the JSON body while the
     `citations` array (what it actually retrieved) is authoritative. When the two
     disagree, prefer a citation over a hallucinated URL.
+
+    **Zero-citation case:** Perplexity returned no retrieval, but Sonar still emitted
+    "findings" with plausible URLs. These are pure fabrications — drop all substantive
+    fields and return a single no-retrieval marker so Analyst knows Scout got nothing.
     """
     if not citations:
-        return findings
+        # Pure fabrication case — retrieval returned no sources, so any URL/number
+        # in the findings is invented. Collapse to one honest marker.
+        return [
+            {
+                "claim": "Retrieval returned no citations; model-emitted URLs are fabrications and have been discarded.",
+                "number": None,
+                "source_url": "https://perplexity.ai/",
+                "source_type": "other",
+                "verbatim_quote": None,
+            }
+        ]
     cite_set = {c.strip().rstrip("/") for c in citations if isinstance(c, str)}
     out = []
     for f in findings:

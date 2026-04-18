@@ -107,3 +107,31 @@ def test_think_only_no_citations_uses_prose_fallback() -> None:
     out = _parse_or_fallback(text, citations=[])
     assert len(out) == 1
     assert out[0]["source_url"] == "https://perplexity.ai/"
+
+
+def test_parsed_findings_with_zero_citations_collapse_to_honest_marker() -> None:
+    """Sonar parsed valid JSON but citations=[] — every URL is fabricated.
+    Parser must discard all findings and emit one honest no-retrieval marker
+    so Analyst knows Scout got nothing real. Seen on smoke 07 quality-control cell."""
+    body = json.dumps(
+        [
+            {
+                "claim": "Plausible claim 1",
+                "number": "42",
+                "source_url": "https://plausible-but-fake.ru/article-1",
+                "source_type": "media",
+            },
+            {
+                "claim": "Plausible claim 2",
+                "number": "7.5%",
+                "source_url": "https://also-fake.gov.ru/report",
+                "source_type": "official",
+            },
+        ]
+    )
+    out = _parse_or_fallback(body, citations=[])
+    assert len(out) == 1
+    assert "fabrications" in out[0]["claim"].lower() or "no citations" in out[0]["claim"].lower()
+    assert out[0]["number"] is None
+    assert out[0]["source_type"] == "other"
+    assert out[0]["source_url"] == "https://perplexity.ai/"
