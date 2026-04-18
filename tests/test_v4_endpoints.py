@@ -110,11 +110,165 @@ def test_events_route_returns_prompt_master_events(mock_llm):
     assert "prompt_master" in phases
 
 
-def test_track_b_stubs_return_501():
+def test_v4_full_cycle(monkeypatch, tmp_path):
+    """upload-reports → analyze → synthesize → export?format=md, all LLMs mocked."""
+    from smart_report import analyzer as analyzer_module
+    from smart_report import prompt_master as pm_module
+    from smart_report import synthesizer as synth_module
+
+    analyzer_payload = {
+        "per_source_summary": [
+            {"source": "perplexity", "summary": "s1", "strengths": "", "weaknesses": ""}
+        ],
+        "consensus": [
+            {"claim": "shared claim", "supporting_sources": ["perplexity", "openai_dr"], "confidence": "high"}
+        ],
+        "conflicts": [
+            {
+                "topic": "mortgage",
+                "source_a": "perplexity",
+                "claim_a": "55%",
+                "source_b": "openai_dr",
+                "claim_b": "68%",
+                "resolution_hint": "cross-check ERZ",
+                "importance": "critical",
+            }
+        ],
+        "gaps": [
+            {"topic": "delivery", "why_critical": "speed", "what_to_find": "%", "candidate_sources": ["erzrf.ru"]}
+        ],
+        "unverified_numbers": [],
+        "quality_notes": "ok",
+        "followup_prompts": [
+            {
+                "prompt_id": "fp_01",
+                "intent": "fill_gap",
+                "prompt": "Find delay % on erzrf.ru for PIK, Donstroy.",
+                "target_info": "delay",
+                "suggested_tool": "perplexity",
+                "suggested_source_site": "erzrf.ru",
+                "priority": "must",
+                "linked_to": "gap:delivery",
+            }
+        ],
+    }
+
+    synth_payload = {
+        "session_id": "ignored",
+        "question": "Q",
+        "research_prompt_used": "R",
+        "executive_summary": {
+            "main_answer": "Product > speed > brand.",
+            "ranking": "Продукт > скорость > бренд",
+            "top_findings": ["Top-5 47%", "Mortgage 55%"],
+            "key_numbers": [{"value": "47%", "metric": "top-5 share", "subject": "2024", "source_url": ""}],
+            "confidence_note": "medium",
+            "what_meta_adds": "resolved mortgage-share skew",
+        },
+        "main_synthesis": "## Позиция\n\nПродукт > скорость > бренд.",
+        "consensus_section": "all agree on top-3.",
+        "conflicts_section": "55 vs 68 — pick 55.",
+        "gaps_filled_section": "delivery open.",
+        "all_sources": [
+            {"title": "ERZ", "url": "https://erzrf.ru/", "tool": "perplexity", "reliability": "high"}
+        ],
+        "metadata": {},
+    }
+
+    async def _pm_stub(*a, **kw):
+        return json.dumps(
+            {
+                "full_prompt": "X" * 250,
+                "reasoning": "r",
+                "expected_structure": ["s1"],
+                "key_entities": ["PIK"],
+                "tips_for_search": "Perplexity",
+            },
+            ensure_ascii=False,
+        )
+
+    async def _an_stub(*a, **kw):
+        return json.dumps(analyzer_payload, ensure_ascii=False)
+
+    async def _syn_stub(*a, **kw):
+        return json.dumps(synth_payload, ensure_ascii=False)
+
+    monkeypatch.setattr(pm_module, "chat", _pm_stub)
+    monkeypatch.setattr(analyzer_module, "chat", _an_stub)
+    monkeypatch.setattr(synth_module, "chat", _syn_stub)
+
+    client = TestClient(app)
+    sid = client.post(
+        "/api/v4/sessions", json={"question": "what drives success"}
+    ).json()["session_id"]
+
+    r = client.post(f"/api/v4/sessions/{sid}/generate-prompt")
+    assert r.status_code == 200, r.text
+
+    # Upload two source reports.
+    files = [
+        ("files", ("perplexity.md", b"# Perplexity sonar report\nPIK, Donstroy.", "text/markdown")),
+        ("files", ("claude.md", b"# Claude analysis\nBusiness-class Moscow.", "text/markdown")),
+    ]
+    r = client.post(f"/api/v4/sessions/{sid}/upload-reports", files=files)
+    assert r.status_code == 200, r.text
+    uploaded = r.json()
+    assert len(uploaded) == 2
+    assert uploaded[0]["detected_tool"] in {"perplexity", "other"}
+    assert uploaded[1]["detected_tool"] in {"claude", "other"}
+
+    r = client.post(f"/api/v4/sessions/{sid}/analyze")
+    assert r.status_code == 200, r.text
+    analysis = r.json()
+    assert len(analysis["consensus"]) == 1
+    assert len(analysis["conflicts"]) == 1
+    assert len(analysis["gaps"]) == 1
+    assert len(analysis["followup_prompts"]) == 1
+
+    r = client.post(f"/api/v4/sessions/{sid}/synthesize")
+    assert r.status_code == 200, r.text
+    final = r.json()
+    assert final["session_id"] == sid
+    assert final["executive_summary"]["main_answer"]
+    assert final["executive_summary"]["ranking"].startswith("Продукт")
+
+    # Export md
+    r = client.get(f"/api/v4/sessions/{sid}/export", params={"format": "md"})
+    assert r.status_code == 200, r.text
+    assert "Продукт" in r.text or "Product" in r.text
+
+    # Export json — also confirms content-type routing.
+    r = client.get(f"/api/v4/sessions/{sid}/export", params={"format": "json"})
+    assert r.status_code == 200
+    # Export gamma-pdf stub.
+    r = client.get(f"/api/v4/sessions/{sid}/export", params={"format": "gamma-pdf"})
+    assert r.status_code == 200
+    # Unknown format.
+    r = client.get(f"/api/v4/sessions/{sid}/export", params={"format": "foo"})
+    assert r.status_code == 400
+
+    # Final session view.
+    r = client.get(f"/api/v4/sessions/{sid}")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "synthesized"
+    assert body["final_report"] is not None
+
+
+def test_track_b_endpoints_are_wired():
+    """Track B has shipped — analyze/synthesize/upload routes exist (body behaviour
+    is covered by test_v4_full_cycle / test_analyzer / test_synthesizer)."""
     client = TestClient(app)
     sid = client.post("/api/v4/sessions", json={"question": "what drives it"}).json()["session_id"]
-    for path in ("upload-reports", "analyze", "upload-followup", "synthesize"):
-        r = client.post(f"/api/v4/sessions/{sid}/{path}")
-        assert r.status_code == 501, f"{path} returned {r.status_code}"
-    r = client.get(f"/api/v4/sessions/{sid}/export")
-    assert r.status_code == 501
+    # analyze with no uploads → 400 (not 501)
+    r = client.post(f"/api/v4/sessions/{sid}/analyze")
+    assert r.status_code == 400, r.text
+    # synthesize before analyze → 400
+    r = client.post(f"/api/v4/sessions/{sid}/synthesize")
+    assert r.status_code == 400, r.text
+    # upload-reports without files → 422 (FastAPI rejects missing multipart)
+    r = client.post(f"/api/v4/sessions/{sid}/upload-reports")
+    assert r.status_code == 422, r.text
+    # export before final_report exists → 409
+    r = client.get(f"/api/v4/sessions/{sid}/export", params={"format": "md"})
+    assert r.status_code == 409, r.text

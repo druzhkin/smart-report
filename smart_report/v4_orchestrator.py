@@ -25,7 +25,9 @@ from .models import (
     UploadedMarkdown,
     V4Session,
 )
+from .analyzer import analyze_reports
 from .prompt_master import generate_research_prompt
+from .synthesizer import synthesize_final_report
 
 if TYPE_CHECKING:  # pragma: no cover
     pass
@@ -103,23 +105,37 @@ class V4Orchestrator:
         self.store.update(session)
         return prompt
 
-    # --- step 2: Analyzer (Track B) ---
+    # --- step 2: Analyzer ---
     async def analyze(
         self,
         session_id: str,
-        reports: list[UploadedMarkdown],
+        reports: list[UploadedMarkdown] | None = None,
     ) -> AnalysisOutput:
-        # Touching the session here so Track B starts with state already attached.
         session = self.store.get(session_id)
         if reports:
             session.source_reports = list(reports)
-            session.status = "reports_uploaded"
-            self.store.update(session)
-        raise NotImplementedError(
-            "v4_orchestrator.analyze is owned by Track B (smart_report/analyzer.py)"
-        )
+        if not session.source_reports:
+            raise ValueError(
+                f"session {session_id}: no source_reports to analyze — "
+                "upload reports first"
+            )
+        session.status = "reports_uploaded"
+        self.store.update(session)
 
-    # --- step 3: Synthesizer (Track B) ---
+        analysis = await analyze_reports(
+            question=session.raw_question,
+            research_prompt=session.research_prompt,
+            source_reports=session.source_reports,
+            emitter=self.emitter,
+            log_dir=self.log_dir,
+            mock=self.mock,
+        )
+        session.analysis = analysis
+        session.status = "analyzed"
+        self.store.update(session)
+        return analysis
+
+    # --- step 3: Synthesizer ---
     async def synthesize(
         self,
         session_id: str,
@@ -130,9 +146,21 @@ class V4Orchestrator:
             session.followup_reports = list(followup)
             session.status = "dobor_uploaded"
             self.store.update(session)
-        raise NotImplementedError(
-            "v4_orchestrator.synthesize is owned by Track B (smart_report/synthesizer.py)"
+        if session.analysis is None:
+            raise ValueError(
+                f"session {session_id}: analyze must run before synthesize"
+            )
+
+        final = await synthesize_final_report(
+            session,
+            emitter=self.emitter,
+            log_dir=self.log_dir,
+            mock=self.mock,
         )
+        session.final_report = final
+        session.status = "synthesized"
+        self.store.update(session)
+        return final
 
     # --- cost accounting ---
     def _accumulate_cost(self, session: V4Session, llm_result_cost_rub: float) -> V4Session:
