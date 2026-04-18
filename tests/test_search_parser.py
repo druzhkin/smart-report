@@ -69,3 +69,41 @@ def test_trailing_text_after_json_recoverable() -> None:
     out = _parse_or_fallback(text, citations=["https://c.ru"])
     assert len(out) == 1
     assert out[0]["claim"] == "z"
+
+
+def test_think_block_stripped_then_json_parsed() -> None:
+    """Sonar-pro leaks <think>...</think> reasoning blocks; recover JSON after."""
+    text = (
+        "<think>Let me think about this...</think>\n"
+        '[{"claim":"real finding","source_url":"https://a.ru","source_type":"media"}]'
+    )
+    out = _parse_or_fallback(text, citations=["https://a.ru"])
+    assert len(out) == 1
+    assert out[0]["claim"] == "real finding"
+
+
+def test_openended_think_falls_back_to_citation_salvage() -> None:
+    """When response is only open-ended <think> but retrieval was real (many citations),
+    salvage by emitting one placeholder per top citation instead of a raw-text blob."""
+    text = "<think>I'm reasoning and didn't close the tag..."
+    cites = [
+        "https://metrium.ru/news/biznes-2024",
+        "https://cbr.ru/statistics/mortgage",
+        "https://erzrf.ru/publikacii/perenos-srokov",
+        "https://dom.rf/reports/2024",
+    ]
+    out = _parse_or_fallback(text, citations=cites)
+    # one per top citation (up to 5)
+    assert len(out) == 4
+    assert {f["source_url"] for f in out} == set(cites)
+    for f in out:
+        assert f["source_type"] == "other"
+        assert "Retrieval returned prose" in f["claim"]
+
+
+def test_think_only_no_citations_uses_prose_fallback() -> None:
+    """With no citations, no salvage possible — keep legacy prose fallback."""
+    text = "<think>open reasoning..."
+    out = _parse_or_fallback(text, citations=[])
+    assert len(out) == 1
+    assert out[0]["source_url"] == "https://perplexity.ai/"

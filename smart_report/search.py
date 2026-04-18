@@ -112,25 +112,51 @@ def _parse_or_fallback(text: str, citations: list[str]) -> list[dict]:
     import re
 
     body = (text or "").strip()
+
+    # Strip reasoning-model <think>...</think> blocks. Sonar occasionally leaks its
+    # chain-of-thought into the content field; if the closing tag is present we can
+    # recover the JSON that follows. If it's open-ended, body becomes empty and we
+    # fall through to citation-salvage below.
+    body = re.sub(r"<think>.*?</think>\s*", "", body, flags=re.DOTALL).strip()
+    if body.startswith("<think>"):
+        body = ""
+
     # Strip ```json / ``` code fences that sonar-pro frequently wraps around arrays.
     if body.startswith("```"):
         body = re.sub(r"^```[a-zA-Z]*\s*\n?", "", body)
         body = re.sub(r"\n?```\s*$", "", body).strip()
 
     parsed = None
-    try:
-        parsed = _json.loads(body)
-    except Exception:
-        # second attempt: locate first '[' ... last ']'
-        l, r = body.find("["), body.rfind("]")
-        if l != -1 and r > l:
-            try:
-                parsed = _json.loads(body[l : r + 1])
-            except Exception:
-                parsed = None
+    if body:
+        try:
+            parsed = _json.loads(body)
+        except Exception:
+            # second attempt: locate first '[' ... last ']'
+            l, r = body.find("["), body.rfind("]")
+            if l != -1 and r > l:
+                try:
+                    parsed = _json.loads(body[l : r + 1])
+                except Exception:
+                    parsed = None
 
     if isinstance(parsed, list):
         return _reconcile_urls_with_citations(parsed, citations)
+
+    # Rich-citation salvage: parsing failed but Perplexity did real retrieval —
+    # emit one placeholder finding per top citation so Analyst gets real URLs
+    # instead of a single raw-text blob. This happens when the model leaks a
+    # <think> trace or answers in prose instead of JSON.
+    if len(citations) >= 3:
+        return [
+            {
+                "claim": f"Retrieval returned prose/reasoning; raw source cited for Analyst review: {c}",
+                "number": None,
+                "source_url": c,
+                "source_type": "other",
+                "verbatim_quote": None,
+            }
+            for c in citations[:5]
+        ]
 
     # minimal fallback — keep pipeline flowing even if scout returns prose
     return [
