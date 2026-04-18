@@ -18,6 +18,7 @@ async def scout(
     raw = await search(
         task.query,
         cell_id=task.cell_id,
+        target_sources=task.target_sources or None,
         mock=mock,
         log_dir=log_dir,
     )

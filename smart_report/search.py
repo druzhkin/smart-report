@@ -22,6 +22,7 @@ async def search(
     query: str,
     *,
     cell_id: str | None = None,
+    target_sources: list[str] | None = None,
     mock: bool = False,
     log_dir: Path | None = None,
     model: str | None = None,
@@ -54,6 +55,8 @@ async def search(
         ],
         "return_citations": True,
     }
+    if target_sources:
+        payload["search_domain_filter"] = list(target_sources)
     headers = {
         "Authorization": f"Bearer {PERPLEXITY_API_KEY}",
         "Content-Type": "application/json",
