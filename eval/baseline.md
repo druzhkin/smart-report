@@ -151,3 +151,16 @@ Initial `Smart Report v3` column above was scored on **smoke 04** (run `20260418
 **Cross-domain dynamics.** 4→2 between smokes 05 and 07 is not a Bisociator regression — smoke 05's 4 links were partly built on Sonar-fabricated numbers (e.g., a `1990%` margin artifact that looked like a striking paradox). Smoke 07's 2 links both rest on real, verifiable numbers from Metrium/Donstroy pages that Perplexity actually cited. Quality traded against count.
 
 **Next-step call:** the upstream-first rule still applies. Before touching Bisociator prompt (to push from 2 toward OpenAI DR's 9), the next bottleneck is Scout density — 7/14 blocks still report `strongest_number=null`. Improving that lifts the shared-variable pool Bisociator ranks over, and then a top-K prompt adjustment has calibrated input to respond to.
+
+| smoke | commit at HEAD                                         | cov | ground | hon | nontriv | cross | notes |
+|:-----:|:------------------------------------------------------:|:---:|:------:|:---:|:-------:|:-----:|:------|
+| 08    | (stricter prompt — "return [] if nothing relevant")    | —   | —      | —   | —       | —     | **Regression**: 9/14 null sn (from 7), 9 cells emitted empty arrays. Prompt permission was abused. |
+| 09    | `c9b4417` (balanced prompt, no "return []" permission) | —   | —      | —   | —       | 3     | **3/14 null sn** (-57% vs smoke 07); 0 prose-salvage; 3 cross-links all on real variables (эскроу↔sales, market-share↔redevelopment, brand↔velocity) |
+
+**Density fix (commits `ea6fa75` + `c9b4417`).** Two separate Scout-side improvements landed after smoke 07:
+- `ea6fa75`: zero-citation fabrication drop. When Perplexity retrieval returns 0 sources but Sonar still emits plausible JSON, collapse to a single honest no-retrieval marker instead of forwarding fabrications (bug was visible in smoke 07 `quality-control` cell: 0 citations, 5 invented URLs passed through).
+- `c9b4417`: tightened system prompt. Explicit "JSON only — no prose, no fences, no <think>" plus "prefer surfacing partial/approximate data over returning nothing" and "emit one finding per retrieved source that's topically relevant". Previous wording was too terse and let Sonar drift into prose-salvage when the exact metric was absent.
+
+**Honest caveat on signal (a).** ЕРЗ transfer-delay numbers: smoke 07's `deadline-discipline` hit 10 `erzrf.ru` citations (including the ratings methodology page) but in prose mode — numbers lost. Smoke 09's retrieval for the same cell returned **zero** citations, triggering the fabrication collapse. Perplexity retrieval on that specific query is non-deterministic; the ЕРЗ-numbers-per-developer signal remains blocked on a Firecrawl-style HTML extractor pass over known-good citation pages, not on prompt tuning.
+
+**Signals (b) and (c) green on smoke 09.** Matrix includes `redevelopment-zones`, `parking-norms`, `planning-approvals`, `sales-velocity`, `margin-structure` — all outside `{product, brand, speed}`. All 3 Bisociator cross-links connect cells through named numeric variables (объём эскроу ↔ объём продаж; доля бизнес-класса ↔ доля редевелопмента; концентрация топ-10 ↔ объём продаж), not via topical surface matching.
