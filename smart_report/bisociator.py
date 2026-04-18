@@ -62,9 +62,11 @@ async def bisociate(
 
 
 def _coerce_list(raw: str) -> list[dict]:
+    from .io import extract_json
+
     try:
-        parsed = json.loads(raw)
-    except json.JSONDecodeError:
+        parsed = extract_json(raw)
+    except (ValueError, json.JSONDecodeError):
         return []
     if isinstance(parsed, list):
         return parsed

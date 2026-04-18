@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .io import load_prompt
+from .io import extract_json, load_prompt
 from .llm import chat
 from .models import Block, Cell, Finding
 
@@ -35,7 +35,9 @@ async def analyze(
         log_dir=log_dir,
         response_format={"type": "json_object"} if not mock else None,
     )
-    data = json.loads(raw)
+    data = extract_json(raw)
+    if not isinstance(data, dict):
+        data = {}
     return Block(
         cell_id=cell.id,
         conclusion=data.get("conclusion", ""),

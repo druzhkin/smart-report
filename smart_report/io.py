@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,37 @@ RUNS_DIR = REPO_ROOT / "runs"
 
 def _ts() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def extract_json(raw: str) -> Any:
+    """Tolerant JSON extraction: strips ```json fences, finds first balanced {...} or [...].
+
+    Claude on OpenRouter frequently wraps JSON in markdown fences even when asked
+    for strict JSON via response_format. v2 Planner failed for this exact reason.
+    """
+    if raw is None:
+        raise ValueError("empty LLM response")
+    text = raw.strip()
+    # Strip ```json ... ``` or ``` ... ```
+    text = re.sub(r"^```(?:json)?\s*", "", text)
+    text = re.sub(r"\s*```$", "", text)
+    text = text.strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    # Fallback: pick outermost {...} or [...]
+    first_obj = text.find("{")
+    first_arr = text.find("[")
+    candidates = [c for c in (first_obj, first_arr) if c != -1]
+    if not candidates:
+        raise ValueError(f"no JSON object/array found in LLM response: {text[:200]!r}")
+    start = min(candidates)
+    closer = "}" if start == first_obj else "]"
+    end = text.rfind(closer)
+    if end == -1 or end <= start:
+        raise ValueError(f"unbalanced JSON in LLM response: {text[start : start + 200]!r}")
+    return json.loads(text[start : end + 1])
 
 
 def load_prompt(name: str) -> str:

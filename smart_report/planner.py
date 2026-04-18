@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
-from .io import load_prompt
+from .io import extract_json, load_prompt
 from .llm import chat
 from .models import Cell, Matrix, Question, ScoutTask
 
@@ -32,7 +31,7 @@ async def plan(
         log_dir=log_dir,
         response_format={"type": "json_object"} if not mock else None,
     )
-    data = json.loads(raw)
+    data = extract_json(raw)
 
     cells: list[Cell] = []
     for c in data.get("cells", []):
