@@ -62,3 +62,4 @@ v3 untouched except allow-list: `api/main.py` (mount v4 router), `events.py` (ph
 - Analyzer returns 0 gaps/conflicts on real data
 - Export adapter incompatible
 - Synthesizer weaker than inputs
+[23:38] Track C: 6 screens + 4 components + apiV4.ts + apiV4Stubs.ts done. tsc clean, all routes 200, v3 untouched. STUB_MODE smoke OK. Files: 12 new, 1 extended (LivePipeline +mode prop). Committing on v4.
