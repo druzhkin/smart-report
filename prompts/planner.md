@@ -71,7 +71,33 @@ class PlannerInput(BaseModel):
 ```
 Это **пример**, не жёсткий шаблон. Для другого вопроса — другая раскладка.
 
-9. **Эмитируй строго JSON по output schema.** Никакой прозы вокруг, никаких markdown-блоков — голый JSON-объект.
+9. **Для каждой ячейки — выбери стратегию retrieval'а.** В каждом `scout_task` эмитируй поле `strategy`:
+
+   - **`"search"`** (по умолчанию) — топик-эксплорация через поисковик. Используй, когда задача сформулирована как «понять X», «обзор Y», «что известно про Z», и данные размазаны по множеству источников.
+
+   - **`"extract"`** — целевая вытяжка структурированных данных со страницы, про которую ты уже знаешь. Используй, только если одновременно:
+     (a) задача требует конкретные числовые/табличные данные по списку сущностей (а не обзор), **и**
+     (b) существует авторитетный отраслевой источник, который систематически публикует эти данные в одной таблице/индексной странице, **и**
+     (c) ты знаешь точный URL этой страницы (не выдумываешь его).
+
+     Когда выбираешь `extract` — обязательно эмитируй `target_urls`: массив конкретных URL для загрузки (обычно 1–2).
+
+### Нейтральный пример выбора стратегии
+
+Задача: «Текущая рыночная капитализация топ-5 публичных компаний сектора X».
+→ `strategy: "extract"`, `target_urls: ["<authoritative-finance-source>/sector-x/market-cap"]` — данные систематически публикуются в одной таблице, URL известен.
+
+Задача: «Динамика сектора X за 2023–2025: драйверы, риски, регуляторные сдвиги».
+→ `strategy: "search"` — нарративное понимание, не таблица; размазано по отраслевым СМИ и отчётам.
+
+### Anti-patterns стратегии (забить намертво)
+
+❌ Не выбирай `extract` без конкретного URL. «Вероятно, есть страница где-то» — это `search`.
+❌ Не выбирай `extract` для нарративного понимания. `extract` — для чисел/таблиц, не для «расскажи про индустрию».
+❌ Не придумывай URL'ы. Если не знаешь реальный URL индексной страницы — используй `search` с правильным TLD в `target_sources`.
+❌ Не используй `extract` как способ «сконцентрировать поиск на одном сайте». Для этого уже есть `target_sources` (домены).
+
+10. **Эмитируй строго JSON по output schema.** Никакой прозы вокруг, никаких markdown-блоков — голый JSON-объект.
 
 ## Output schema
 
@@ -87,7 +113,9 @@ class PlannerInput(BaseModel):
       "scout_task": {
         "cell_id": "str",             // совпадает с id
         "query": "str",               // конкретный поисковый запрос с метрикой, единицей, временем, геогр.
-        "target_sources": ["str", "..."]  // 2-4 типа источников, смешать регуляторов/БД/корп/академию
+        "target_sources": ["str", "..."], // 2-4 реальных TLD; см. правило 6
+        "strategy": "search" | "extract", // правило 9
+        "target_urls": ["str", "..."]  // ОБЯЗАТЕЛЬНО если strategy="extract", иначе []
       }
     }
   ]
@@ -118,7 +146,9 @@ class PlannerInput(BaseModel):
       "scout_task": {
         "cell_id": "macro-finance/mortgage-mix",
         "query": "доля ипотечных сделок в бизнес-классе Москвы 2023-2024 (%), средняя ставка (%), доля семейной/IT-ипотеки в выдачах",
-        "target_sources": ["cbr.ru", "dom.rf", "frankrg.com", "rosreestr.gov.ru"]
+        "target_sources": ["cbr.ru", "dom.rf", "frankrg.com", "rosreestr.gov.ru"],
+        "strategy": "search",
+        "target_urls": []
       }
     },
     {
@@ -128,7 +158,9 @@ class PlannerInput(BaseModel):
       "scout_task": {
         "cell_id": "buyer/decision-factors",
         "query": "топ-5 факторов выбора ЖК бизнес-класса Москвы 2024: вес бренда/локации/планировок (%), готовность переплатить за бренд (₽/м²)",
-        "target_sources": ["nfgroup.ru", "wciom.ru", "metrium.ru", "realty.yandex.ru"]
+        "target_sources": ["nfgroup.ru", "wciom.ru", "metrium.ru", "realty.yandex.ru"],
+        "strategy": "search",
+        "target_urls": []
       }
     },
     {
@@ -137,8 +169,10 @@ class PlannerInput(BaseModel):
       "layer": "Соблюдение сроков ввода",
       "scout_task": {
         "cell_id": "construction/deadline-discipline",
-        "query": "процент проектов с переносом ПДД среди топ-10 девелоперов бизнес-класса Москвы 2022-2024 (%), средняя задержка (мес.)",
-        "target_sources": ["erzrf.ru", "dom.rf", "stroinadzor.mos.ru"]
+        "query": "процент строящихся м² с переносом срока и среднее уточнение срока (мес.) по топ-10 девелоперам Москвы из рейтинга ЕРЗ",
+        "target_sources": ["erzrf.ru"],
+        "strategy": "extract",
+        "target_urls": ["https://erzrf.ru/top-zastroyshchikov/moskva?topType=0"]
       }
     },
     {
@@ -148,7 +182,9 @@ class PlannerInput(BaseModel):
       "scout_task": {
         "cell_id": "competition/brand-trust",
         "query": "рейтинг доверия топ-10 девелоперов Москвы 2024 (%), NPS-оценки, доля повторных покупок (%)",
-        "target_sources": ["wciom.ru", "romir.ru", "nfgroup.ru", "forbes.ru"]
+        "target_sources": ["wciom.ru", "romir.ru", "nfgroup.ru", "forbes.ru"],
+        "strategy": "search",
+        "target_urls": []
       }
     },
     {
@@ -158,7 +194,9 @@ class PlannerInput(BaseModel):
       "scout_task": {
         "cell_id": "regulation/parking-norms",
         "query": "нормативы машиномест для бизнес-класса Москвы 2024 (м/м на квартиру), средняя обеспеченность в новых проектах, стоимость м/м (млн ₽)",
-        "target_sources": ["mos.ru", "stroinadzor.mos.ru", "cian.ru", "metrium.ru"]
+        "target_sources": ["mos.ru", "stroinadzor.mos.ru", "cian.ru", "metrium.ru"],
+        "strategy": "search",
+        "target_urls": []
       }
     }
   ]

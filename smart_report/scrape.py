@@ -12,11 +12,14 @@ JavaScript-rendered content. Firecrawl would be a paid upgrade path.
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from typing import Iterable
 
 import httpx
 
 from .config import REQUEST_TIMEOUT_S
+from .io import append_jsonl
+from .models import Finding
 
 JINA_READER = "https://r.jina.ai/"
 
@@ -111,3 +114,97 @@ async def fetch_erz_moscow_developer_rows(top_n: int = 10) -> list[dict]:
     """End-to-end: pull the ЕРЗ Moscow ranking and return top-N developer rows."""
     md = await fetch_markdown(ERZ_MOSCOW_TOP_URL)
     return parse_erz_moscow_ranking(md, top_n=top_n)
+
+
+# --- Generic URL extractor ---------------------------------------------------
+
+def _extract_erzrf_moscow(md: str) -> list[dict]:
+    rows = parse_erz_moscow_ranking(md, top_n=10)
+    return erz_rows_as_findings(rows)
+
+
+def _extract_generic(md: str, url: str) -> list[dict]:
+    """Fallback: wrap the rendered markdown as a single 'other'-typed finding.
+
+    Analyst will read the snippet and cite verbatim. Truncated to keep token
+    budget bounded — Jina output can be many KB for content-heavy pages.
+    """
+    snippet = md.strip()[:2000]
+    if not snippet:
+        return []
+    return [
+        {
+            "claim": snippet,
+            "number": None,
+            "source_url": url,
+            "source_type": "other",
+            "verbatim_quote": None,
+        }
+    ]
+
+
+def _pick_parser(url: str):
+    """Route a URL to a source-specific parser if we have one."""
+    low = url.lower()
+    if "erzrf.ru" in low and "top-zastroyshchikov" in low:
+        return _extract_erzrf_moscow
+    return None
+
+
+async def extract_via_jina(
+    target_urls: Iterable[str],
+    *,
+    focus: str | None = None,
+    cell_id: str | None = None,
+    log_dir: Path | None = None,
+) -> list[Finding]:
+    """Fetch each URL via Jina Reader and return Finding objects.
+
+    For known sources (erzrf.ru Moscow ranking) a source-specific parser turns
+    the rendered markdown into per-row structured findings. For anything else,
+    the markdown is wrapped as a single 'other' finding so Analyst can still
+    cite and quote from it — the extract strategy does not *require* a custom
+    parser, it just benefits from one when structure is known.
+
+    Failure-soft per URL: a fetch/parse exception is logged and skipped, the
+    remaining URLs still contribute.
+    """
+    urls = [u for u in target_urls if u]
+    findings: list[Finding] = []
+    for url in urls:
+        try:
+            md = await fetch_markdown(url)
+        except Exception as e:
+            if log_dir is not None:
+                append_jsonl(
+                    log_dir / "llm_log.jsonl",
+                    {
+                        "kind": "extract_error",
+                        "cell_id": cell_id,
+                        "url": url,
+                        "error": f"{type(e).__name__}: {e}",
+                    },
+                )
+            continue
+
+        parser = _pick_parser(url)
+        dicts = parser(md) if parser else _extract_generic(md, url)
+
+        if log_dir is not None:
+            append_jsonl(
+                log_dir / "llm_log.jsonl",
+                {
+                    "kind": "extract",
+                    "cell_id": cell_id,
+                    "url": url,
+                    "parser": parser.__name__ if parser else "generic",
+                    "focus": focus,
+                    "n_findings": len(dicts),
+                },
+            )
+        for d in dicts:
+            try:
+                findings.append(Finding(**d))
+            except Exception:
+                continue
+    return findings

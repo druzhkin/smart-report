@@ -162,3 +162,33 @@
 - `runs/` — gitignore'd, появится когда прогоним реальный end-to-end
 
 Удачи утром.
+
+---
+
+## What changed in smoke 11 (2026-04-18, afternoon)
+
+**Planner теперь явно выбирает retrieval-инструмент.** До этой итерации `orchestrator.py` содержал hardcoded enrichment gate (`_should_enrich_with_erz` + `_enrich_with_erz`), который подмешивал Jina Reader → ЕРЗ-парсер post-Scout только для ячеек, где target_sources содержат `erzrf.ru` И query упоминает `срок/перенос/ввод`. Это работало, но было скрытым контрактом: Planner по-прежнему думал, что единственный инструмент — `search`.
+
+**Что теперь:**
+- `ScoutTask` в `smart_report/models.py` получил `strategy: Literal["search", "extract"] = "search"` и `target_urls: list[str] = []`. `model_validator` запрещает `strategy="extract"` без URL.
+- `smart_report/scrape.py` — публичная `extract_via_jina(target_urls, *, focus, cell_id, log_dir) -> list[Finding]`. Регистр source-specific парсеров через `_pick_parser(url)` (сейчас только `erzrf.ru` Moscow-top → ЕРЗ-regex). Остальные URL → generic-wrapper с первыми 2 KB markdown как `source_type="other"` finding.
+- `smart_report/orchestrator.py` — `_gather_findings(cell)` маршрутизирует на `extract_via_jina` при `strategy="extract"`, иначе на `scout(task)`. Hardcoded ЕРЗ-gate удалён полностью, версия бампнута до 0.4.0.
+- `smart_report/planner.py` — прокидывает `strategy`/`target_urls` из LLM JSON в `ScoutTask`. Если LLM эмитнул `strategy="extract"` без URL, спускаемся на `"search"` (soft-degrade вместо падения).
+- `prompts/planner.md` — добавлены правило 9 (выбор стратегии с критериями a/b/c), нейтральный пример (market-cap сектора X), anti-patterns, обновлён output schema. В примере matrix у `construction/deadline-discipline` теперь `strategy="extract"` + `target_urls=[...]` как template.
+
+**Контрактные тесты:** `tests/test_orchestrator_routing.py` — 4 теста (extract маршрутизирует на Jina, search — на Perplexity, валидатор модели ловит extract без URL, default search). Итого 29/29 green.
+
+**Sanity run (`runs/20260418T140637Z-...`):**
+- Planner emit'нул ровно одну extract-ячейку: `construction/deadline-discipline` с URL `https://erzrf.ru/top-zastroyshchikov/moskva?topType=0` — именно ту, для которой есть source-specific parser.
+- **10/10 per-developer ЕРЗ findings landed** через общий `extract_via_jina` (не через гейт): ПИК 4.09%, Самолёт 68.05%, MR 5.65%, ДОНСТРОЙ 0%, ФСК 11.39%, А101 49.3%, Level 8.67%, АБСОЛЮТ 23.02%, ЛСР 25.65%, Страна 29.07%. Порог приёмки был ≥7, выдали 10.
+- 13/14 ячеек остались на `strategy="search"` (Perplexity) — Planner НЕ злоупотребляет extract, как и хотели.
+- Cross-links 2 (smoke 10 было 4) — Bisociator не трогали, флуктуация в рамках шума. Не регрессия по DoD.
+- null strongest_number: 5/14 (smoke 10 было 4/14) — шум.
+
+**Next natural step:** sanity-check универсальности на вопросе из другого домена (не про девелопмент), чтобы поймать скрытый подгон под ЕРЗ. Без этого механизм может работать только на той индустрии, где уже есть source-specific parser. Если generic-wrapper на произвольной странице даст хотя бы 50% цитируемости — значит обобщение честное.
+
+**Backlog (не трогать до universality-check):**
+- Bisociator top-K / prompt-тюнинг (вчера было 4 линка, сегодня 2 — сначала убедиться что это шум, не регрессия)
+- A/B judge smoke 10 vs smoke 11 на 5 метрик baseline'а
+- Регистр source-specific парсеров для второго URL (условно Rosstat / SimilarWeb / Crunchbase) — добавлять по мере появления доменных задач
+

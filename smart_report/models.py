@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 SourceType = Literal["academic", "official", "industry", "media", "other"]
+ScoutStrategy = Literal["search", "extract"]
 CrossLinkType = Literal[
     "paradox",
     "causal_chain",
@@ -28,6 +29,16 @@ class ScoutTask(_Base):
     cell_id: str
     query: str
     target_sources: list[str] = Field(default_factory=list)
+    strategy: ScoutStrategy = "search"
+    target_urls: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _validate_extract_has_urls(self) -> "ScoutTask":
+        if self.strategy == "extract" and not self.target_urls:
+            raise ValueError(
+                "strategy='extract' requires at least one entry in target_urls"
+            )
+        return self
 
 
 class Finding(_Base):

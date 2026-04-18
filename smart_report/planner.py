@@ -36,6 +36,13 @@ async def plan(
     cells: list[Cell] = []
     for c in data.get("cells", []):
         st = c.get("scout_task", {}) or {}
+        strategy = st.get("strategy", "search")
+        target_urls = list(st.get("target_urls", []) or [])
+        # Planner may still emit strategy="extract" without URLs if the prompt contract
+        # is ignored. Downgrade to "search" rather than raise — better degraded output
+        # than a dead pipeline.
+        if strategy == "extract" and not target_urls:
+            strategy = "search"
         cells.append(
             Cell(
                 id=c["id"],
@@ -45,6 +52,8 @@ async def plan(
                     cell_id=st.get("cell_id", c["id"]),
                     query=st.get("query", ""),
                     target_sources=list(st.get("target_sources", [])),
+                    strategy=strategy,
+                    target_urls=target_urls,
                 ),
             )
         )
