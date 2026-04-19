@@ -7,9 +7,12 @@ Public entry points:
     render_markdown(rd)         -> str
     write_md(path, rd) / write_json(path, rd)
     write_onepager_html(path, rd)
-    write_docx(path, rd)        requires python-docx
+    write_docx(path, rd)        requires python-docx  (legacy renderer)
     write_pptx(path, rd)        requires python-pptx
     gamma_pptx_stub(path, rd) / gamma_pdf_stub(path, rd)
+
+    render_consulting_docx(report, path, chart_dir=None)
+                                Professional consulting DOCX (Track B, v4)
 """
 
 from __future__ import annotations
@@ -25,6 +28,7 @@ from .render import (
     write_onepager_html,
     write_pptx,
 )
+from .docx_v4_consulting import render_consulting_docx
 
 __all__ = [
     "v4_to_report_dict",
@@ -36,4 +40,5 @@ __all__ = [
     "write_md",
     "write_onepager_html",
     "write_pptx",
+    "render_consulting_docx",
 ]
