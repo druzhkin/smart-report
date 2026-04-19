@@ -24,6 +24,9 @@ from .models import (
     Conflict,
     FollowupPrompt,
     Gap,
+    NormalizedReport,
+    NumericFact,
+    QualitativeFact,
     ResearchPrompt,
     SourceSummary,
     UnverifiedNumber,
@@ -41,6 +44,7 @@ async def analyze_reports(
     research_prompt: ResearchPrompt | None,
     source_reports: list[UploadedMarkdown],
     *,
+    normalized_reports: list[NormalizedReport] | None = None,
     emitter: EventEmitter | None = None,
     log_dir: Path | None = None,
     mock: bool = False,
@@ -79,6 +83,9 @@ async def analyze_reports(
 
     out = _coerce_analysis(data)
 
+    # v4.5: aggregate facts from NormalizedReports (if intake was run)
+    out = _aggregate_facts(out, normalized_reports or [])
+
     em.emit(
         "analyzer",
         "Анализ готов",
@@ -89,6 +96,9 @@ async def analyze_reports(
             "followup_prompt": out.followup_prompt is not None,
             "followup_prompts": len(out.followup_prompts),
             "unverified_numbers": len(out.unverified_numbers),
+            "all_numeric_facts": len(out.all_numeric_facts),
+            "high_relevance_facts": len(out.high_relevance_facts),
+            "fact_coverage_target": out.fact_coverage_target,
             "cost_rub": cost_rub,
         },
     )
@@ -303,6 +313,42 @@ def _coerce_analysis(data: dict[str, Any]) -> AnalysisOutput:
         followup_prompt=single_fp,
         followup_prompts=legacy_list,
     )
+
+
+def _aggregate_facts(
+    out: AnalysisOutput, normalized_reports: list[NormalizedReport]
+) -> AnalysisOutput:
+    """Merge all NumericFact and QualitativeFact from intake into AnalysisOutput.
+
+    Deduplicates by fact_id. Computes high_relevance_facts and fact_coverage_target.
+    Returns a new AnalysisOutput (or mutates the existing one — pydantic models
+    in v2 are mutable by default when not frozen).
+    """
+    seen_numeric: dict[str, NumericFact] = {}
+    seen_qualitative: dict[str, QualitativeFact] = {}
+
+    for nr in normalized_reports:
+        for nf in nr.extracted_numeric_facts:
+            if nf.fact_id not in seen_numeric:
+                seen_numeric[nf.fact_id] = nf
+        for qf in nr.extracted_qualitative_facts:
+            if qf.fact_id not in seen_qualitative:
+                seen_qualitative[qf.fact_id] = qf
+
+    all_numeric = list(seen_numeric.values())
+    all_qualitative = list(seen_qualitative.values())
+    high_relevance = [
+        nf for nf in all_numeric if nf.relevance_to_question in ("high", "medium")
+    ]
+    coverage_target = int(len(high_relevance) * 0.85)
+
+    # Pydantic v2: direct attribute assignment works on non-frozen models
+    out.all_numeric_facts = all_numeric
+    out.all_qualitative_facts = all_qualitative
+    out.high_relevance_facts = high_relevance
+    out.fact_coverage_target = coverage_target
+
+    return out
 
 
 def _s(d: Any, key: str) -> str:

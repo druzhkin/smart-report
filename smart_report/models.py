@@ -1,7 +1,16 @@
-"""Pydantic v2 schemas — the single source of truth for the pipeline."""
+"""Pydantic v2 schemas — the single source of truth for the pipeline.
+
+v4.5 additions (schema-pipeline track):
+  - SourceRef, Claim, NumericFact, QualitativeFact, CitedText, NumberedSource
+  - NormalizedReport (Intake output)
+  - AnalysisOutput extended with all_numeric_facts / high_relevance_facts
+  - FinalReport extended with bibliography / citation_coverage / source_count
+All new fields are optional / default-empty for backward compatibility.
+"""
 
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime
 from typing import Literal
 
@@ -111,11 +120,10 @@ class Report(_Base):
     metadata: dict = Field(default_factory=dict)
 
 
-# --- v4 schemas ---
+# ---------------------------------------------------------------------------
+# v4 schemas
+# ---------------------------------------------------------------------------
 # v4 is a meta-analysis layer bolted on top of v3. v3 schemas above are untouched.
-# Track A owns: ResearchPrompt, UploadedMarkdown, V4Session, V4Status.
-# Track B will extend AnalysisOutput and FinalReport with real fields (extra="allow"
-# keeps them forward-compatible until then).
 
 V4Status = Literal[
     "created",
@@ -148,7 +156,9 @@ class UploadedMarkdown(_V4Base):
     word_count: int = 0
 
 
-# --- v4 Track B schemas ---
+# ---------------------------------------------------------------------------
+# v4 Track B schemas
+# ---------------------------------------------------------------------------
 
 Confidence = Literal["high", "medium", "low"]
 ConflictImportance = Literal["critical", "material", "minor"]
@@ -207,6 +217,121 @@ class FollowupPrompt(_V4Base):
     linked_to: str = ""
 
 
+# ---------------------------------------------------------------------------
+# v4.5 Track 1+4 — citation & fact schemas
+# ---------------------------------------------------------------------------
+
+
+class SourceRef(BaseModel):
+    """A single citable source — carries enough to build a bibliography entry."""
+
+    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
+
+    url: str
+    title: str | None = None
+    publisher: str | None = None
+    date: str | None = None
+    quote_excerpt: str | None = None
+    accessed_via: str = "manual_upload"  # "perplexity_dr_1" | "openai_dr_1" | "manual_upload"
+    confidence: Literal["primary", "secondary", "aggregator"] = "secondary"
+
+
+class Claim(BaseModel):
+    """A factual claim extracted from a source, with inline citations."""
+
+    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
+
+    text: str
+    sources: list[SourceRef] = Field(default_factory=list)
+    claim_type: Literal["numeric", "qualitative", "comparative", "directional"] = "qualitative"
+    confidence_level: Literal["high", "medium", "low"] = "medium"
+
+
+class NumericFact(BaseModel):
+    """A single numeric fact with deterministic ID and source attribution."""
+
+    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
+
+    fact_id: str  # sha1(value|metric|subject)[:12]
+    value: str
+    metric: str
+    subject: str
+    timeframe: str | None = None
+    sources: list[SourceRef] = Field(default_factory=list)
+    relevance_to_question: Literal["high", "medium", "low", "tangential"] = "medium"
+    fact_category: Literal[
+        "price", "volume", "share", "growth_rate", "capex", "opex",
+        "premium_pct", "area", "count", "ratio", "ranking_position", "other"
+    ] = "other"
+
+    @staticmethod
+    def make_id(value: str, metric: str, subject: str) -> str:
+        """Deterministic fact_id = sha1(value|metric|subject)[:12]."""
+        raw = f"{value}|{metric}|{subject}".encode()
+        return hashlib.sha1(raw).hexdigest()[:12]
+
+
+class QualitativeFact(BaseModel):
+    """A non-numeric qualitative claim with source attribution."""
+
+    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
+
+    fact_id: str
+    statement: str
+    subject: str
+    sources: list[SourceRef] = Field(default_factory=list)
+    relevance_to_question: Literal["high", "medium", "low", "tangential"] = "medium"
+    fact_category: Literal[
+        "methodology", "case_study", "analogy", "definition",
+        "expert_opinion", "comparison", "trend", "other"
+    ] = "other"
+
+    @staticmethod
+    def make_id(statement: str, subject: str) -> str:
+        raw = f"{statement[:80]}|{subject}".encode()
+        return hashlib.sha1(raw).hexdigest()[:12]
+
+
+class CitedText(BaseModel):
+    """Text with inline [REF:source_id_x] markers and a source registry."""
+
+    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
+
+    text: str  # contains [REF:source_id_x] markers
+    cited_sources: dict[str, SourceRef] = Field(default_factory=dict)
+
+
+class NumberedSource(BaseModel):
+    """A numbered bibliography entry produced by post-processing."""
+
+    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
+
+    number: int
+    source_ref: SourceRef
+    cited_in_sections: list[str] = Field(default_factory=list)
+
+
+class NormalizedReport(BaseModel):
+    """Output of the Intake step for a single uploaded markdown file."""
+
+    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
+
+    source_tool: Literal["perplexity_dr", "openai_dr", "claude_research", "valyu", "other"] = "other"
+    source_filename: str
+    raw_text: str
+    extracted_claims: list[Claim] = Field(default_factory=list)
+    extracted_sources_inventory: list[SourceRef] = Field(default_factory=list)
+    extracted_numeric_facts: list[NumericFact] = Field(default_factory=list)
+    extracted_qualitative_facts: list[QualitativeFact] = Field(default_factory=list)
+    fact_count_summary: dict[str, int] = Field(default_factory=dict)
+    metadata: dict = Field(default_factory=dict)
+
+
+# ---------------------------------------------------------------------------
+# AnalysisOutput — extended with fact aggregation fields
+# ---------------------------------------------------------------------------
+
+
 class AnalysisOutput(_V4Base):
     per_source_summary: list[SourceSummary] = Field(default_factory=list)
     consensus: list[ConsensusClaim] = Field(default_factory=list)
@@ -215,21 +340,20 @@ class AnalysisOutput(_V4Base):
     unverified_numbers: list[UnverifiedNumber] = Field(default_factory=list)
     quality_notes: str = ""
     # Canonical single followup prompt — one DR run covers all gaps and conflicts.
-    # Populated by Analyzer v4.1+. If present, this is the source of truth.
     followup_prompt: FollowupPrompt | None = None
     # Legacy list kept for backward-compat with old readers.
-    # Shim: populated as [followup_prompt] when new field is present.
     followup_prompts: list[FollowupPrompt] = Field(default_factory=list)
 
+    # v4.5 fact aggregation — populated by Intake+Analyzer pipeline
+    all_numeric_facts: list[NumericFact] = Field(default_factory=list)
+    all_qualitative_facts: list[QualitativeFact] = Field(default_factory=list)
+    high_relevance_facts: list[NumericFact] = Field(default_factory=list)
+    fact_coverage_target: int = 0
 
-class KeyNumber(_V4Base):
-    value: str
-    metric: str
-    subject: str = ""
-    source_url: str = ""
 
-
-# --- v4 Track A structured output models ---
+# ---------------------------------------------------------------------------
+# v4 Track A structured output models
+# ---------------------------------------------------------------------------
 
 
 class QAItem(_V4Base):
@@ -291,9 +415,16 @@ class ExecutiveSummaryV4(_V4Base):
     main_answer: str
     ranking: str | None = None
     top_findings: list[str] = Field(default_factory=list)
-    key_numbers: list[KeyNumber] = Field(default_factory=list)
+    key_numbers: list["KeyNumber"] = Field(default_factory=list)
     confidence_note: str = ""
     what_meta_adds: str = ""
+
+
+class KeyNumber(_V4Base):
+    value: str
+    metric: str
+    subject: str = ""
+    source_url: str = ""
 
 
 class Source(_V4Base):
@@ -303,62 +434,9 @@ class Source(_V4Base):
     reliability: SourceReliability = "medium"
 
 
-# --- v4 Track A structured output models (added by Track B for contract) ---
-
-
-class QAItem(_V4Base):
-    """Direct answer to one of the user's sub-questions."""
-
-    question: str  # one of the user's sub-questions (from prompt analysis)
-    answer: str  # direct 2-3 sentence answer
-    details_ref: str  # where to find full detail in the report
-
-
-class RankingItem(_V4Base):
-    """Structured ranking entry for comparison/prioritization questions."""
-
-    label: str
-    weight: int | None = None  # e.g. 45 if OpenAI-DR-style, else None
-    rationale: str
-    evidence_strength: Literal["high", "medium", "low"]
-
-
-class Table(_V4Base):
-    """Structured table for comparative data."""
-
-    title: str
-    columns: list[str]
-    rows: list[list[str]]
-    caption: str | None = None
-    source_ref: str | None = None
-
-
-class ChartSpec(_V4Base):
-    """Spec for generating a chart — not the rendered chart itself."""
-
-    chart_type: Literal["bar", "line", "pie", "scatter", "stacked_bar", "waterfall"]
-    title: str
-    data: dict  # structure depends on chart_type
-    x_label: str | None = None
-    y_label: str | None = None
-    caption: str | None = None
-
-
-class CalloutBlock(_V4Base):
-    """Highlighted insight, warning, key number, or note."""
-
-    kind: Literal["insight", "warning", "key_number", "note"]
-    title: str
-    body: str
-
-
-class KeyNumberHighlight(_V4Base):
-    """Headline-level number for visual highlight on executive summary page."""
-
-    value: str  # e.g. "883.8 тыс. руб./м²"
-    label: str  # e.g. "средняя цена Prime Park H1 2025"
-    source_ref: str  # e.g. "РБК Недвижимость"
-    importance: Literal["headline", "primary", "secondary"]
+# ---------------------------------------------------------------------------
+# FinalReport — extended with bibliography and coverage metrics
+# ---------------------------------------------------------------------------
 
 
 class FinalReport(_V4Base):
@@ -373,7 +451,7 @@ class FinalReport(_V4Base):
     all_sources: list[Source] = Field(default_factory=list)
     metadata: dict = Field(default_factory=dict)
 
-    # --- NEW optional fields (Track A structured output, backward-compat) ---
+    # --- structured output fields (Track A) ---
     qa_section: list[QAItem] = Field(default_factory=list)
     ranking: list[RankingItem] = Field(default_factory=list)
     tables: list[Table] = Field(default_factory=list)
@@ -381,6 +459,12 @@ class FinalReport(_V4Base):
     callouts: list[CalloutBlock] = Field(default_factory=list)
     key_numbers_highlight: list[KeyNumberHighlight] = Field(default_factory=list)
     cover_image_prompt: str | None = None
+
+    # --- v4.5 bibliography and citation coverage fields ---
+    bibliography: list[NumberedSource] = Field(default_factory=list)
+    citation_coverage: float = 0.0
+    source_count: int = 0
+    # main_synthesis stays as str for backward-compat; [REF:...] markers expected inline
 
 
 class V4Session(_V4Base):
@@ -395,7 +479,11 @@ class V4Session(_V4Base):
     created_at: datetime
     total_cost_rub: float = 0.0
 
+    # v4.5: normalized intake results (optional, populated when Intake runs)
+    normalized_reports: list[NormalizedReport] = Field(default_factory=list)
+
 
 V4Session.model_rebuild()
 FinalReport.model_rebuild()
 AnalysisOutput.model_rebuild()
+ExecutiveSummaryV4.model_rebuild()

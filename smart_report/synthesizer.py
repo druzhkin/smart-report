@@ -31,6 +31,9 @@ from .models import (
     UploadedMarkdown,
     V4Session,
 )
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    pass  # AnalysisOutput already imported above
 
 
 SYNTHESIZER_MODEL = "anthropic/claude-opus-4-7"
@@ -133,6 +136,10 @@ def _build_user_message(session: V4Session) -> str:
             "Gaps remain open — mark them in gaps_filled_section._\n"
         )
 
+    # v4.5: inject fact inventory for data-preservation rule
+    if analysis is not None and analysis.all_numeric_facts:
+        parts.append(_build_facts_section(analysis))
+
     parts.append(
         "\n---\n"
         f"session_id to put back into FinalReport: {session.session_id}\n"
@@ -140,6 +147,47 @@ def _build_user_message(session: V4Session) -> str:
         "prompt. No prose wrapper. No markdown fences."
     )
     return "\n".join(parts)
+
+
+def _build_facts_section(analysis: "AnalysisOutput") -> str:
+    """Inject high_relevance_facts and fact_coverage_target into Synthesizer context."""
+    import json as _json
+
+    lines = [
+        "## v4.5 Fact inventory (DATA PRESERVATION RULE)",
+        f"fact_coverage_target = {analysis.fact_coverage_target}",
+        f"high_relevance_facts_count = {len(analysis.high_relevance_facts)}",
+        f"all_numeric_facts_count = {len(analysis.all_numeric_facts)}",
+        "",
+        "### high_relevance_facts (must include >= fact_coverage_target of these in final)",
+    ]
+    # Include up to 200 high-relevance facts to avoid context overload
+    facts_to_include = analysis.high_relevance_facts[:200]
+    facts_json = [
+        {
+            "fact_id": nf.fact_id,
+            "value": nf.value,
+            "metric": nf.metric,
+            "subject": nf.subject,
+            "timeframe": nf.timeframe,
+            "fact_category": nf.fact_category,
+            "source_urls": [s.url for s in nf.sources if not s.url.startswith("opaque:")],
+        }
+        for nf in facts_to_include
+    ]
+    lines.append("```json")
+    lines.append(_json.dumps(facts_json, ensure_ascii=False, indent=2))
+    lines.append("```")
+    lines.append("")
+    lines.append(
+        f"IMPORTANT: You MUST include at least {analysis.fact_coverage_target} of the "
+        "above high_relevance_facts in your final report. Use [REF:source_url] inline "
+        "citations for each numeric fact. If a fact doesn't fit the narrative, add it "
+        "to an appendix section 'Дополнительные данные'. "
+        "Skipped high-relevance facts > 15% → task failure. "
+        "Record skipped facts in metadata.skipped_facts with reason."
+    )
+    return "\n".join(lines)
 
 
 async def _call_synth_with_retry(

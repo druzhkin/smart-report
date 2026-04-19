@@ -44,8 +44,11 @@ from ..models import (
     ChartSpec,
     FinalReport,
     KeyNumberHighlight,
+    NumberedSource,
+    NumericFact,
     QAItem,
     RankingItem,
+    SourceRef,
     Table,
 )
 
@@ -768,19 +771,25 @@ def _render_markdown_body(doc: Document, text: str) -> None:
 
 
 def _render_inline_md(para: "Paragraph", text: str) -> None:
-    """Add runs to para, handling **bold** and *italic* inline markdown."""
-    # Split on bold/italic markers
-    parts = re.split(r"(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)", text)
+    """Add runs to para, handling **bold**, *italic*, `code`, and [N] superscript."""
+    # Split on bold/italic/code/citation markers
+    # [N] citation markers rendered as superscript
+    parts = re.split(r"(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|\[\d+\])", text)
     for part in parts:
         if part.startswith("**") and part.endswith("**"):
             run = para.add_run(part[2:-2])
             _set_run_font(run, FONT_BODY, PT_BODY, bold=True)
-        elif part.startswith("*") and part.endswith("*"):
+        elif part.startswith("*") and part.endswith("*") and len(part) > 2:
             run = para.add_run(part[1:-1])
             _set_run_font(run, FONT_BODY, PT_BODY, italic=True)
         elif part.startswith("`") and part.endswith("`"):
             run = para.add_run(part[1:-1])
             _set_run_font(run, FONT_MONO, PT_BODY)
+        elif re.match(r"^\[\d+\]$", part):
+            # Citation superscript: [N] → superscript
+            run = para.add_run(part)
+            _set_run_font(run, FONT_BODY, PT_SMALL, color=ACCENT_COLOR)
+            run.font.superscript = True
         elif part:
             run = para.add_run(part)
             _set_run_font(run, FONT_BODY, PT_BODY)
@@ -1074,6 +1083,207 @@ def _render_sources(doc: Document, report: FinalReport) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Bibliography section (v4.5)
+# ---------------------------------------------------------------------------
+
+
+_CONFIDENCE_BADGE = {
+    "primary": "первичный",
+    "secondary": "вторичный",
+    "aggregator": "агрегатор",
+}
+
+_CONFIDENCE_COLOR = {
+    "primary": RGBColor(0x0A, 0x6A, 0x0A),   # green
+    "secondary": RGBColor(0x44, 0x44, 0x88),  # blue-grey
+    "aggregator": RGBColor(0x88, 0x44, 0x00), # amber
+}
+
+# Bibliography group definitions by accessed_via / url patterns
+_BIB_GROUPS = [
+    (
+        "Первичные данные",
+        lambda sr: (
+            any(d in (sr.url or "") for d in ("erzrf", "bnmap", "metrium", "nikoliers", "irn.ru"))
+            or sr.confidence == "primary"
+        ),
+    ),
+    (
+        "Вторичные источники",
+        lambda sr: any(d in (sr.url or "") for d in ("rbc.ru", "vedomosti", "kommersant", "forbes")),
+    ),
+    (
+        "Исходные DR-отчёты",
+        lambda sr: (sr.url or "").startswith("opaque:"),
+    ),
+]
+
+
+def _render_bibliography(doc: Document, report: FinalReport) -> None:
+    """Render bibliography section grouped by source type (v4.5)."""
+    bib = report.bibliography
+    if not bib:
+        # Fall back to all_sources if no structured bibliography
+        if report.all_sources:
+            _render_sources(doc, report)
+        return
+
+    p_h = doc.add_heading("Библиография", level=1)
+    _style_heading(p_h, level=1)
+
+    # Coverage note
+    if report.citation_coverage > 0:
+        p_cov = doc.add_paragraph()
+        cov_pct = f"{report.citation_coverage:.0%}"
+        run = p_cov.add_run(
+            f"Охват цитирования: {cov_pct} числовых утверждений имеют источник. "
+            f"Всего источников: {report.source_count}."
+        )
+        _set_run_font(run, FONT_BODY, PT_SMALL, italic=True,
+                      color=RGBColor(0x55, 0x55, 0x55))
+        _set_para_spacing(p_cov, before_pt=0, after_pt=8)
+
+    # Group bibliography entries
+    ungrouped = list(bib)
+    rendered_numbers: set[int] = set()
+
+    for group_label, group_filter in _BIB_GROUPS:
+        group_entries = [ns for ns in bib if group_filter(ns.source_ref)]
+        if not group_entries:
+            continue
+
+        p_sub = doc.add_heading(group_label, level=2)
+        _style_heading(p_sub, level=2)
+
+        for ns in group_entries:
+            rendered_numbers.add(ns.number)
+            _render_bib_entry(doc, ns)
+
+    # Remaining (ungrouped) entries
+    remaining = [ns for ns in bib if ns.number not in rendered_numbers]
+    if remaining:
+        p_sub = doc.add_heading("Прочие источники", level=2)
+        _style_heading(p_sub, level=2)
+        for ns in remaining:
+            _render_bib_entry(doc, ns)
+
+
+def _render_bib_entry(doc: Document, ns: NumberedSource) -> None:
+    """Render a single numbered bibliography entry."""
+    sr = ns.source_ref
+
+    p = doc.add_paragraph()
+    # Number
+    run_num = p.add_run(f"[{ns.number}] ")
+    _set_run_font(run_num, FONT_BODY, PT_BODY, bold=True, color=ACCENT_COLOR)
+
+    # Title
+    title = sr.title or sr.publisher or sr.url or "(без названия)"
+    run_title = p.add_run(title)
+    _set_run_font(run_title, FONT_BODY, PT_BODY, bold=True)
+
+    # URL (if not opaque)
+    if sr.url and not sr.url.startswith("opaque:"):
+        run_url = p.add_run(f"\n{sr.url}")
+        _set_run_font(run_url, FONT_BODY, PT_SMALL, color=RGBColor(0x20, 0x60, 0xAA))
+
+    # Confidence badge
+    conf = sr.confidence or "secondary"
+    badge = _CONFIDENCE_BADGE.get(conf, conf)
+    badge_color = _CONFIDENCE_COLOR.get(conf, RGBColor(0x88, 0x88, 0x88))
+    run_badge = p.add_run(f"  [{badge}]")
+    _set_run_font(run_badge, FONT_BODY, PT_SMALL, color=badge_color)
+
+    # accessed_via
+    if sr.accessed_via and sr.accessed_via != "manual_upload":
+        run_via = p.add_run(f"  via: {sr.accessed_via}")
+        _set_run_font(run_via, FONT_BODY, PT_SMALL,
+                      color=RGBColor(0x99, 0x99, 0x99))
+
+    # Date
+    if sr.date:
+        run_date = p.add_run(f"  ({sr.date})")
+        _set_run_font(run_date, FONT_BODY, PT_SMALL,
+                      color=RGBColor(0x99, 0x99, 0x99))
+
+    _set_para_spacing(p, before_pt=2, after_pt=4)
+
+
+# ---------------------------------------------------------------------------
+# Appendix: missing high-relevance facts (v4.5)
+# ---------------------------------------------------------------------------
+
+
+def _render_appendix_missing_facts(
+    doc: Document,
+    missing_facts: list[NumericFact],
+) -> None:
+    """Render an appendix with facts that didn't make it into the main text."""
+    if not missing_facts:
+        return
+
+    p_h = doc.add_heading("Дополнительные данные", level=1)
+    _style_heading(p_h, level=1)
+
+    p_note = doc.add_paragraph()
+    run = p_note.add_run(
+        f"Данный раздел содержит {len(missing_facts)} числовых фактов из исходных источников, "
+        "которые не вошли в основной нарратив, но относятся к теме исследования."
+    )
+    _set_run_font(run, FONT_BODY, PT_BODY, italic=True)
+    _set_para_spacing(p_note, before_pt=0, after_pt=12)
+
+    # Group by fact_category
+    from collections import defaultdict
+    by_cat: dict[str, list[NumericFact]] = defaultdict(list)
+    for fact in missing_facts:
+        by_cat[fact.fact_category].append(fact)
+
+    cat_labels = {
+        "price": "Цены",
+        "volume": "Объёмы",
+        "share": "Доли рынка",
+        "growth_rate": "Темпы роста",
+        "capex": "Капитальные затраты",
+        "opex": "Операционные расходы",
+        "premium_pct": "Ценовые премии",
+        "area": "Площади",
+        "count": "Количество",
+        "ratio": "Соотношения",
+        "ranking_position": "Рейтинги",
+        "other": "Прочие данные",
+    }
+
+    for cat, facts in sorted(by_cat.items()):
+        label = cat_labels.get(cat, cat)
+        p_cat = doc.add_heading(label, level=2)
+        _style_heading(p_cat, level=2)
+
+        for fact in facts:
+            p = doc.add_paragraph(style="List Bullet")
+            # Value + metric
+            run_val = p.add_run(f"{fact.value} — {fact.metric}")
+            _set_run_font(run_val, FONT_BODY, PT_BODY, bold=True)
+            # Subject
+            if fact.subject:
+                run_sub = p.add_run(f" ({fact.subject})")
+                _set_run_font(run_sub, FONT_BODY, PT_BODY,
+                              color=RGBColor(0x55, 0x55, 0x55))
+            # Timeframe
+            if fact.timeframe:
+                run_tf = p.add_run(f" [{fact.timeframe}]")
+                _set_run_font(run_tf, FONT_BODY, PT_SMALL,
+                              color=RGBColor(0x88, 0x88, 0x88))
+            # Source citation number (if bibliography is populated)
+            src_urls = [s.url for s in fact.sources if not s.url.startswith("opaque:")]
+            if src_urls:
+                run_src = p.add_run(f"  [{src_urls[0][:60]}]")
+                _set_run_font(run_src, FONT_BODY, PT_SMALL,
+                              color=RGBColor(0x20, 0x60, 0xAA))
+            _set_para_spacing(p, before_pt=1, after_pt=2)
+
+
+# ---------------------------------------------------------------------------
 # Heading styles
 # ---------------------------------------------------------------------------
 
@@ -1139,8 +1349,26 @@ def render_consulting_docx(
     # 5. Additional sections
     _render_extra_sections(doc, report)
 
-    # 6. Sources
-    _render_sources(doc, report)
+    # 6. Sources / Bibliography (v4.5: prefer structured bibliography over all_sources)
+    if report.bibliography:
+        _render_bibliography(doc, report)
+    else:
+        _render_sources(doc, report)
+
+    # 7. Appendix: missing high-relevance facts (v4.5, if coverage audit ran)
+    coverage_audit = report.metadata.get("coverage_audit", {})
+    verdict = coverage_audit.get("verdict", "excellent")
+    if verdict != "excellent":
+        # Rebuild missing facts list from metadata (they're stored serialized)
+        # If analysis was attached to report metadata, use it; otherwise skip
+        missing_facts_data = report.metadata.get("missing_high_relevance_facts", [])
+        if missing_facts_data and isinstance(missing_facts_data, list):
+            try:
+                from ..models import NumericFact as _NF
+                missing_facts = [_NF.model_validate(f) for f in missing_facts_data]
+                _render_appendix_missing_facts(doc, missing_facts)
+            except Exception:
+                pass  # Don't fail render on appendix error
 
     doc.save(str(output_path))
     return output_path

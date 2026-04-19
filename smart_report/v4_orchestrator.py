@@ -21,11 +21,14 @@ from .events import EventEmitter, NullEmitter
 from .models import (
     AnalysisOutput,
     FinalReport,
+    NormalizedReport,
     ResearchPrompt,
     UploadedMarkdown,
     V4Session,
 )
 from .analyzer import analyze_reports
+from .bibliography import generate_bibliography
+from .data_audit import CoverageReport, audit_fact_coverage, build_retry_feedback
 from .prompt_master import generate_research_prompt
 from .synthesizer import synthesize_final_report
 
@@ -153,16 +156,86 @@ class V4Orchestrator:
                 f"session {session_id}: analyze must run before synthesize"
             )
 
+        # Step 3a: first synthesis pass
         final, cost_rub = await synthesize_final_report(
             session,
             emitter=self.emitter,
             log_dir=self.log_dir,
             mock=self.mock,
         )
+        session = self._accumulate_cost(session, cost_rub)
+
+        # Step 3b: bibliography post-processing
+        final, coverage_pct = generate_bibliography(final)
+        self.emitter.emit(
+            "bibliography",
+            "Bibliography generated",
+            data={
+                "source_count": final.source_count,
+                "citation_coverage": final.citation_coverage,
+            },
+        )
+
+        # Step 3c: data coverage audit
+        coverage_report: CoverageReport = audit_fact_coverage(session.analysis, final)
+        self.emitter.emit(
+            "data_audit",
+            f"Coverage audit: {coverage_report.verdict}",
+            data={
+                "coverage_pct": coverage_report.coverage_pct,
+                "facts_in_final": coverage_report.facts_in_final,
+                "high_relevance_total": coverage_report.high_relevance_total,
+                "verdict": coverage_report.verdict,
+            },
+        )
+
+        # Step 3d: one retry if coverage is poor/critical
+        if coverage_report.verdict in ("poor", "critical_failure") and not self.mock:
+            feedback = build_retry_feedback(coverage_report)
+            if feedback and session.analysis.high_relevance_facts:
+                self.emitter.emit(
+                    "synthesizer",
+                    "Coverage below target — retrying with feedback",
+                    data={"verdict": coverage_report.verdict},
+                )
+                # Add feedback to session metadata so synthesizer sees it
+                session.analysis.quality_notes = (
+                    (session.analysis.quality_notes or "") + "\n\n" + feedback
+                )
+                final_retry, cost_rub_retry = await synthesize_final_report(
+                    session,
+                    emitter=self.emitter,
+                    log_dir=self.log_dir,
+                    mock=self.mock,
+                )
+                session = self._accumulate_cost(session, cost_rub_retry)
+                # Re-run bibliography on retry result
+                final_retry, _ = generate_bibliography(final_retry)
+                coverage_report_retry = audit_fact_coverage(session.analysis, final_retry)
+                # Always proceed after single retry
+                final = final_retry
+                coverage_report = coverage_report_retry
+                self.emitter.emit(
+                    "data_audit",
+                    f"Post-retry coverage: {coverage_report.verdict}",
+                    data={
+                        "coverage_pct": coverage_report.coverage_pct,
+                        "verdict": coverage_report.verdict,
+                    },
+                )
+
+        # Save CoverageReport to metadata
+        final.metadata["coverage_audit"] = {
+            "coverage_pct": coverage_report.coverage_pct,
+            "facts_in_final": coverage_report.facts_in_final,
+            "high_relevance_total": coverage_report.high_relevance_total,
+            "verdict": coverage_report.verdict,
+            "detail": coverage_report.detail,
+        }
+
         session.final_report = final
         session.status = "synthesized"
         self.store.update(session)
-        session = self._accumulate_cost(session, cost_rub)
         return final
 
     # --- cost accounting ---
