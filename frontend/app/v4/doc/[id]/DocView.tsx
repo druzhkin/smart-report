@@ -163,7 +163,7 @@ export function DocView({ sessionId }: { sessionId: string }) {
     if (!session) return;
     setAnalyzing(true);
     try {
-      const analysis = await analyze(session.session_id);
+      await analyze(session.session_id);
       const freshSession = await getSession(session.session_id);
       setSession(freshSession);
       setCost(freshSession.total_cost_rub);
@@ -193,11 +193,12 @@ export function DocView({ sessionId }: { sessionId: string }) {
     if (!session) return;
     setSynthesizing(true);
     try {
-      const report = await synthesize(session.session_id);
+      await synthesize(session.session_id);
       const freshSession = await getSession(session.session_id);
       setSession(freshSession);
       setCost(freshSession.total_cost_rub);
-      setTimeout(() => scrollToSection("final"), 400);
+      // When synthesized, isFinal becomes true and SectionFinal replaces the scroll view
+      // No autoscroll needed — layout change is visible immediately
     } catch (err) {
       setError(err instanceof Error ? err.message : "Ошибка синтеза");
     } finally {
