@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 import pytest
 
 from smart_report import synthesizer as synth_module
+from smart_report.llm import LLMResult
 from smart_report.models import (
     AnalysisOutput,
     ConsensusClaim,
@@ -138,16 +139,17 @@ def _session_with_analysis() -> V4Session:
 @pytest.fixture
 def mock_llm(monkeypatch):
     async def _stub(*args, **kwargs):
-        return json.dumps(_MOCK_FINAL_JSON, ensure_ascii=False)
+        return LLMResult(text=json.dumps(_MOCK_FINAL_JSON, ensure_ascii=False), cost_rub=0.0)
 
-    monkeypatch.setattr(synth_module, "chat", _stub)
+    monkeypatch.setattr(synth_module, "call_json", _stub)
 
 
 @pytest.mark.asyncio
 async def test_synthesizer_returns_final_report(mock_llm):
     session = _session_with_analysis()
-    final = await synthesize_final_report(session)
+    final, cost_rub = await synthesize_final_report(session)
     assert isinstance(final, FinalReport)
+    assert cost_rub == 0.0  # mocked
     assert final.session_id == "sess01"  # session id wins over LLM echo
     assert final.executive_summary.main_answer
     assert final.executive_summary.ranking and "Продукт" in final.executive_summary.ranking
@@ -165,7 +167,7 @@ async def test_synthesizer_rejects_missing_analysis():
     session = _session_with_analysis()
     session.analysis = None
     with pytest.raises(ValueError):
-        await synthesize_final_report(session)
+        await synthesize_final_report(session)  # raises before LLM call
 
 
 @pytest.mark.asyncio
@@ -173,4 +175,4 @@ async def test_synthesizer_rejects_empty_sources():
     session = _session_with_analysis()
     session.source_reports = []
     with pytest.raises(ValueError):
-        await synthesize_final_report(session)
+        await synthesize_final_report(session)  # raises before LLM call

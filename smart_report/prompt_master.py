@@ -12,7 +12,7 @@ from typing import Any
 
 from .events import EventEmitter, NullEmitter
 from .io import extract_json, load_prompt
-from .llm import chat
+from .llm import LLMResult, call_json
 from .models import ResearchPrompt
 
 
@@ -26,10 +26,12 @@ async def generate_research_prompt(
     emitter: EventEmitter | None = None,
     log_dir: Path | None = None,
     mock: bool = False,
-) -> ResearchPrompt:
-    """Call the Prompt Master LLM and return a ResearchPrompt.
+) -> tuple[ResearchPrompt, float]:
+    """Call the Prompt Master LLM and return ``(ResearchPrompt, cost_rub)``.
 
-    The caller is responsible for attributing cost / updating the V4Session.
+    ``cost_rub`` is the per-call cost in RUB (0.0 when mocked).
+    The caller (v4_orchestrator) is responsible for accumulating it into
+    the V4Session via ``_accumulate_cost``.
     """
     em: EventEmitter = emitter or NullEmitter()
     q = (question or "").strip()
@@ -54,7 +56,7 @@ async def generate_research_prompt(
         "No preface, no trailing commentary."
     )
 
-    raw = await chat(
+    result: LLMResult = await call_json(
         role="prompt_master",
         messages=[
             {"role": "system", "content": system},
@@ -67,7 +69,7 @@ async def generate_research_prompt(
         response_format={"type": "json_object"} if not mock else None,
     )
 
-    data = extract_json(raw)
+    data = extract_json(result.text)
     if not isinstance(data, dict):
         raise ValueError(f"Prompt Master returned non-object JSON: {type(data).__name__}")
 
@@ -86,9 +88,10 @@ async def generate_research_prompt(
             "full_prompt_chars": len(prompt.full_prompt),
             "n_entities": len(prompt.key_entities),
             "n_sections": len(prompt.expected_structure),
+            "cost_rub": result.cost_rub,
         },
     )
-    return prompt
+    return prompt, result.cost_rub
 
 
 def _require_str(d: dict[str, Any], key: str) -> str:

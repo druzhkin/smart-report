@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 
 from smart_report.api import app
 from smart_report.api import v4_endpoints as v4
+from smart_report.llm import LLMResult
 
 
 _STUB = {
@@ -47,9 +48,9 @@ def mock_llm(monkeypatch):
     from smart_report import prompt_master as pm_module
 
     async def _stub(*args, **kwargs):
-        return json.dumps(_STUB, ensure_ascii=False)
+        return LLMResult(text=json.dumps(_STUB, ensure_ascii=False), cost_rub=0.0)
 
-    monkeypatch.setattr(pm_module, "chat", _stub)
+    monkeypatch.setattr(pm_module, "call_json", _stub)
 
 
 def test_create_session_returns_session_id():
@@ -176,26 +177,29 @@ def test_v4_full_cycle(monkeypatch, tmp_path):
     }
 
     async def _pm_stub(*a, **kw):
-        return json.dumps(
-            {
-                "full_prompt": "X" * 250,
-                "reasoning": "r",
-                "expected_structure": ["s1"],
-                "key_entities": ["PIK"],
-                "tips_for_search": "Perplexity",
-            },
-            ensure_ascii=False,
+        return LLMResult(
+            text=json.dumps(
+                {
+                    "full_prompt": "X" * 250,
+                    "reasoning": "r",
+                    "expected_structure": ["s1"],
+                    "key_entities": ["PIK"],
+                    "tips_for_search": "Perplexity",
+                },
+                ensure_ascii=False,
+            ),
+            cost_rub=0.12,
         )
 
     async def _an_stub(*a, **kw):
-        return json.dumps(analyzer_payload, ensure_ascii=False)
+        return LLMResult(text=json.dumps(analyzer_payload, ensure_ascii=False), cost_rub=0.12)
 
     async def _syn_stub(*a, **kw):
-        return json.dumps(synth_payload, ensure_ascii=False)
+        return LLMResult(text=json.dumps(synth_payload, ensure_ascii=False), cost_rub=0.12)
 
-    monkeypatch.setattr(pm_module, "chat", _pm_stub)
-    monkeypatch.setattr(analyzer_module, "chat", _an_stub)
-    monkeypatch.setattr(synth_module, "chat", _syn_stub)
+    monkeypatch.setattr(pm_module, "call_json", _pm_stub)
+    monkeypatch.setattr(analyzer_module, "call_json", _an_stub)
+    monkeypatch.setattr(synth_module, "call_json", _syn_stub)
 
     client = TestClient(app)
     sid = client.post(
@@ -253,6 +257,8 @@ def test_v4_full_cycle(monkeypatch, tmp_path):
     body = r.json()
     assert body["status"] == "synthesized"
     assert body["final_report"] is not None
+    # Each of the 3 LLM steps returned cost_rub=0.12 → total should be 0.36.
+    assert body["total_cost_rub"] == pytest.approx(0.36, abs=1e-3)
 
 
 def test_track_b_endpoints_are_wired():

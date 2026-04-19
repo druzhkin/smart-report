@@ -17,7 +17,7 @@ from typing import Any
 
 from .events import EventEmitter, NullEmitter
 from .io import extract_json, load_prompt
-from .llm import chat
+from .llm import LLMResult, call_json
 from .models import (
     AnalysisOutput,
     ConsensusClaim,
@@ -44,10 +44,12 @@ async def analyze_reports(
     emitter: EventEmitter | None = None,
     log_dir: Path | None = None,
     mock: bool = False,
-) -> AnalysisOutput:
+) -> tuple[AnalysisOutput, float]:
     """Run the Analyzer over uploaded source reports.
 
-    Caller (v4_orchestrator) owns session-state attachment and cost accounting.
+    Returns ``(AnalysisOutput, cost_rub)`` where ``cost_rub`` is the per-call
+    LLM cost in RUB (0.0 when mocked).  Caller (v4_orchestrator) owns
+    session-state attachment and cost accumulation.
     """
     em: EventEmitter = emitter or NullEmitter()
     q = (question or "").strip()
@@ -68,7 +70,7 @@ async def analyze_reports(
 
     user = _build_user_message(q, research_prompt, source_reports)
 
-    data = await _call_analyzer_with_retry(
+    data, cost_rub = await _call_analyzer_with_retry(
         system=system,
         user=user,
         log_dir=log_dir,
@@ -84,11 +86,13 @@ async def analyze_reports(
             "consensus": len(out.consensus),
             "conflicts": len(out.conflicts),
             "gaps": len(out.gaps),
+            "followup_prompt": out.followup_prompt is not None,
             "followup_prompts": len(out.followup_prompts),
             "unverified_numbers": len(out.unverified_numbers),
+            "cost_rub": cost_rub,
         },
     )
-    return out
+    return out, cost_rub
 
 
 def _build_user_message(
@@ -123,10 +127,15 @@ def _build_user_message(
 
 async def _call_analyzer_with_retry(
     *, system: str, user: str, log_dir: Path | None, mock: bool
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], float]:
+    """Call the analyzer LLM with retry; return ``(parsed_dict, cost_rub)``.
+
+    cost_rub is taken from the last successful attempt only (retries are rare
+    and adding partial costs would be misleading).
+    """
     last_err: Exception | None = None
     for attempt in range(_MAX_JSON_RETRIES + 1):
-        raw = await chat(
+        llm_result: LLMResult = await call_json(
             role="analyzer",
             messages=[
                 {"role": "system", "content": system},
@@ -139,7 +148,7 @@ async def _call_analyzer_with_retry(
             response_format={"type": "json_object"} if not mock else None,
         )
         try:
-            data = extract_json(raw)
+            data = extract_json(llm_result.text)
         except (ValueError, json.JSONDecodeError) as err:
             last_err = err
             if attempt < _MAX_JSON_RETRIES:
@@ -152,7 +161,7 @@ async def _call_analyzer_with_retry(
             if attempt < _MAX_JSON_RETRIES:
                 continue
             raise last_err
-        return data
+        return data, llm_result.cost_rub
     assert last_err is not None
     raise last_err
 
@@ -219,15 +228,46 @@ def _coerce_analysis(data: dict[str, Any]) -> AnalysisOutput:
         for item in _as_dict_list(data.get("unverified_numbers"))
         if _s(item, "value")
     ]
-    followups_raw = _as_dict_list(data.get("followup_prompts"))
-    followups: list[FollowupPrompt] = []
-    for i, item in enumerate(followups_raw, start=1):
-        prompt_text = _s(item, "prompt")
-        if not prompt_text:
-            continue
-        pid = _s(item, "prompt_id") or f"fp_{i:02d}"
-        followups.append(
-            FollowupPrompt(
+    # --- Followup resolution: new single-prompt path takes priority. ---
+    # Path A: canonical single followup_prompt (dict) — new LLM format.
+    single_fp: FollowupPrompt | None = None
+    legacy_list: list[FollowupPrompt] = []
+
+    raw_single = data.get("followup_prompt")
+    if isinstance(raw_single, dict):
+        prompt_text = _s(raw_single, "prompt")
+        if prompt_text:
+            single_fp = FollowupPrompt(
+                prompt_id=_s(raw_single, "prompt_id") or "fp_consolidated",
+                intent=_enum(
+                    raw_single.get("intent"),
+                    ("fill_gap", "verify_number", "resolve_conflict"),
+                    "fill_gap",
+                ),
+                prompt=prompt_text,
+                target_info=_s(raw_single, "target_info"),
+                suggested_tool=_enum(
+                    raw_single.get("suggested_tool"),
+                    ("perplexity", "openai_dr", "claude"),
+                    "perplexity",
+                ),
+                suggested_source_site=_s(raw_single, "suggested_source_site"),
+                priority="must",  # consolidated prompt is always must
+                linked_to=_s(raw_single, "linked_to"),
+            )
+            # Shim: populate legacy list so old readers see at least one item.
+            legacy_list = [single_fp]
+
+    # Path B: legacy array format (transition period / old LLM response).
+    # Only processed when Path A produced no result.
+    if single_fp is None:
+        followups_raw = _as_dict_list(data.get("followup_prompts"))
+        for i, item in enumerate(followups_raw, start=1):
+            prompt_text = _s(item, "prompt")
+            if not prompt_text:
+                continue
+            pid = _s(item, "prompt_id") or f"fp_{i:02d}"
+            fp = FollowupPrompt(
                 prompt_id=pid,
                 intent=_enum(
                     item.get("intent"),
@@ -245,9 +285,14 @@ def _coerce_analysis(data: dict[str, Any]) -> AnalysisOutput:
                 priority=_enum(item.get("priority"), ("must", "nice"), "must"),
                 linked_to=_s(item, "linked_to"),
             )
-        )
-    # Cap at 8 (prompt says so, defensive on noisy LLM output).
-    followups = followups[:8]
+            legacy_list.append(fp)
+        # Cap legacy list at 8 (defensive on noisy LLM output).
+        legacy_list = legacy_list[:8]
+        # Promote first MUST item to canonical single prompt for new consumers.
+        must_items = [f for f in legacy_list if f.priority == "must"]
+        if must_items:
+            single_fp = must_items[0]
+
     return AnalysisOutput(
         per_source_summary=per_source,
         consensus=consensus,
@@ -255,7 +300,8 @@ def _coerce_analysis(data: dict[str, Any]) -> AnalysisOutput:
         gaps=gaps,
         unverified_numbers=unverified,
         quality_notes=_s(data, "quality_notes"),
-        followup_prompts=followups,
+        followup_prompt=single_fp,
+        followup_prompts=legacy_list,
     )
 
 

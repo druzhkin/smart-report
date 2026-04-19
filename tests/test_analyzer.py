@@ -13,6 +13,7 @@ import pytest
 
 from smart_report import analyzer as analyzer_module
 from smart_report.analyzer import analyze_reports
+from smart_report.llm import LLMResult
 from smart_report.models import AnalysisOutput, ResearchPrompt, UploadedMarkdown
 
 
@@ -133,9 +134,9 @@ _MOCK_ANALYSIS_JSON = {
 @pytest.fixture
 def mock_llm(monkeypatch):
     async def _stub(*args, **kwargs):
-        return json.dumps(_MOCK_ANALYSIS_JSON, ensure_ascii=False)
+        return LLMResult(text=json.dumps(_MOCK_ANALYSIS_JSON, ensure_ascii=False), cost_rub=0.0)
 
-    monkeypatch.setattr(analyzer_module, "chat", _stub)
+    monkeypatch.setattr(analyzer_module, "call_json", _stub)
 
 
 @pytest.mark.asyncio
@@ -143,12 +144,13 @@ async def test_analyzer_returns_shaped_output(mock_llm):
     research_prompt = ResearchPrompt(
         full_prompt="Analyse Moscow developers for 2024.", reasoning="frame"
     )
-    out = await analyze_reports(
+    out, cost_rub = await analyze_reports(
         question="What defines developer success in Moscow business real estate?",
         research_prompt=research_prompt,
         source_reports=[_REPORT_A, _REPORT_B],
     )
     assert isinstance(out, AnalysisOutput)
+    assert cost_rub == 0.0  # mocked
     assert len(out.per_source_summary) == 2
     assert len(out.consensus) >= 1
     assert len(out.conflicts) == 1
@@ -179,11 +181,11 @@ async def test_analyzer_caps_followups_at_8(monkeypatch):
     ]
 
     async def _stub(*args, **kwargs):
-        return json.dumps(many, ensure_ascii=False)
+        return LLMResult(text=json.dumps(many, ensure_ascii=False), cost_rub=0.0)
 
-    monkeypatch.setattr(analyzer_module, "chat", _stub)
+    monkeypatch.setattr(analyzer_module, "call_json", _stub)
 
-    out = await analyze_reports(
+    out, _ = await analyze_reports(
         question="Q", research_prompt=None, source_reports=[_REPORT_A]
     )
     assert len(out.followup_prompts) == 8
@@ -202,10 +204,13 @@ async def test_analyzer_recovers_from_fenced_json(monkeypatch):
     """Claude on OpenRouter often wraps JSON in ```json fences even when asked not to."""
 
     async def _stub(*args, **kwargs):
-        return "```json\n" + json.dumps(_MOCK_ANALYSIS_JSON, ensure_ascii=False) + "\n```"
+        return LLMResult(
+            text="```json\n" + json.dumps(_MOCK_ANALYSIS_JSON, ensure_ascii=False) + "\n```",
+            cost_rub=0.0,
+        )
 
-    monkeypatch.setattr(analyzer_module, "chat", _stub)
-    out = await analyze_reports(
+    monkeypatch.setattr(analyzer_module, "call_json", _stub)
+    out, _ = await analyze_reports(
         question="Q", research_prompt=None, source_reports=[_REPORT_A]
     )
     assert len(out.consensus) >= 1

@@ -94,7 +94,7 @@ class V4Orchestrator:
     ) -> ResearchPrompt:
         session = self.store.get(session_id)
         q = question if question is not None else session.raw_question
-        prompt = await generate_research_prompt(
+        prompt, cost_rub = await generate_research_prompt(
             q,
             emitter=self.emitter,
             log_dir=self.log_dir,
@@ -103,6 +103,7 @@ class V4Orchestrator:
         session.research_prompt = prompt
         session.status = "prompt_ready"
         self.store.update(session)
+        session = self._accumulate_cost(session, cost_rub)
         return prompt
 
     # --- step 2: Analyzer ---
@@ -122,7 +123,7 @@ class V4Orchestrator:
         session.status = "reports_uploaded"
         self.store.update(session)
 
-        analysis = await analyze_reports(
+        analysis, cost_rub = await analyze_reports(
             question=session.raw_question,
             research_prompt=session.research_prompt,
             source_reports=session.source_reports,
@@ -133,6 +134,7 @@ class V4Orchestrator:
         session.analysis = analysis
         session.status = "analyzed"
         self.store.update(session)
+        session = self._accumulate_cost(session, cost_rub)
         return analysis
 
     # --- step 3: Synthesizer ---
@@ -151,7 +153,7 @@ class V4Orchestrator:
                 f"session {session_id}: analyze must run before synthesize"
             )
 
-        final = await synthesize_final_report(
+        final, cost_rub = await synthesize_final_report(
             session,
             emitter=self.emitter,
             log_dir=self.log_dir,
@@ -160,6 +162,7 @@ class V4Orchestrator:
         session.final_report = final
         session.status = "synthesized"
         self.store.update(session)
+        session = self._accumulate_cost(session, cost_rub)
         return final
 
     # --- cost accounting ---
