@@ -1,7 +1,7 @@
 "use client";
 
 // Smart Report v.IV — main Workspace (App) component
-// Ported from "Smart Report v.IV.html" App() function
+// Real backend integration: no mock data
 
 import {
   useState,
@@ -10,11 +10,19 @@ import {
   useCallback,
 } from "react";
 import type { ChatMessage, Artifact, Phase, ToastState } from "./types";
-import { MOCK, MOCK_PROJECTS } from "./mockData";
+import type { AnalysisOutput, FinalReport, ResearchPrompt } from "@/lib/apiV4";
+import {
+  createSession,
+  generatePrompt,
+  uploadReports,
+  analyze,
+  uploadFollowup,
+  synthesize,
+  getSession,
+} from "@/lib/apiV4";
+import { ModelPicker, getPipelineModel } from "@/components/ModelPicker";
 import { Msg, Thinking, ArtifactRef } from "./primitives";
 import {
-  PromptArtifact,
-  UploadArtifact,
   CritiqueArtifact,
   ReportArtifact,
 } from "./ArtifactContent";
@@ -46,8 +54,6 @@ const INITIAL_MESSAGE: ChatMessage = {
 };
 
 export default function Workspace() {
-  const mock = MOCK;
-
   // ===== State =====
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
     if (typeof window === "undefined") return [INITIAL_MESSAGE];
@@ -75,26 +81,21 @@ export default function Workspace() {
     return localStorage.getItem("sr-title-v2") || "Новая сессия";
   });
 
+  const [sessionId, setSessionId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    return localStorage.getItem("sr-session-id-v2") || null;
+  });
+
+  // Stored real API data for artifact rendering
+  const [promptData, setPromptData] = useState<ResearchPrompt | null>(null);
+  const [analysisData, setAnalysisData] = useState<AnalysisOutput | null>(null);
+  const [finalData, setFinalData] = useState<FinalReport | null>(null);
+
   const [input, setInput] = useState("");
   const [activeCite, setActiveCite] = useState<number | null>(null);
   const [pending, setPending] = useState(false);
   const [artifact, setArtifact] = useState<Artifact | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-
-  const [expandedProjects, setExpandedProjects] = useState<
-    Record<string, boolean>
-  >(() => {
-    if (typeof window === "undefined") return { "p-premium-resi": true };
-    const saved = localStorage.getItem("sr-expanded-v2");
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (_) {}
-    }
-    return { "p-premium-resi": true };
-  });
-
-  const [activeProjectId, setActiveProjectId] = useState("p-premium-resi");
   const [sidebarQuery, setSidebarQuery] = useState("");
   const [costOpen, setCostOpen] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
@@ -114,6 +115,8 @@ export default function Workspace() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const uploadRef = useRef<HTMLInputElement>(null);
+  const followupRef = useRef<HTMLInputElement>(null);
 
   // ===== Effects =====
   useEffect(() => {
@@ -122,18 +125,39 @@ export default function Workspace() {
   }, [theme]);
 
   useEffect(() => {
-    localStorage.setItem("sr-expanded-v2", JSON.stringify(expandedProjects));
-  }, [expandedProjects]);
-
-  useEffect(() => {
-    // Save state, but filter out thinking messages (they have onDone callbacks
-    // which aren't serializable — we store them as text kind for restoration)
     const toSave = messages.filter((m) => m.kind !== "thinking");
     localStorage.setItem("sr-msgs-v2", JSON.stringify(toSave));
     localStorage.setItem("sr-phase-v2", phase);
     localStorage.setItem("sr-cost-v2", String(cost));
     localStorage.setItem("sr-title-v2", sessionTitle);
   }, [messages, phase, cost, sessionTitle]);
+
+  // Persist sessionId
+  useEffect(() => {
+    if (sessionId) {
+      localStorage.setItem("sr-session-id-v2", sessionId);
+    } else {
+      localStorage.removeItem("sr-session-id-v2");
+    }
+  }, [sessionId]);
+
+  // On mount: restore session cost/phase from backend
+  useEffect(() => {
+    const savedId = localStorage.getItem("sr-session-id-v2");
+    if (!savedId) return;
+    getSession(savedId)
+      .then((s) => {
+        if (s.total_cost_rub) setCost(s.total_cost_rub);
+        if (s.research_prompt) setPromptData(s.research_prompt);
+        if (s.analysis) setAnalysisData(s.analysis);
+        if (s.final_report) setFinalData(s.final_report);
+      })
+      .catch(() => {
+        // Session not found on backend after restart — clear local id
+        localStorage.removeItem("sr-session-id-v2");
+        setSessionId(null);
+      });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Autoscroll
   useEffect(() => {
@@ -207,28 +231,21 @@ export default function Workspace() {
     setTimeout(() => setToast(null), duration);
   };
 
-  const toggleProject = (id: string) =>
-    setExpandedProjects((p) => ({ ...p, [id]: !p[id] }));
-
   // ===== Copy prompt =====
   const copyPrompt = useCallback(() => {
-    const flat = mock.promptSections
-      .map((s) => {
-        const body =
-          s.body ||
-          (s.bullets ? s.bullets.map((b) => "— " + b).join("\n") : "");
-        return `## ${s.title}\n\n${body}`;
-      })
-      .join("\n\n");
+    if (!promptData) {
+      showToast("Промт ещё не готов");
+      return;
+    }
     try {
-      navigator.clipboard.writeText(flat);
+      navigator.clipboard.writeText(promptData.full_prompt);
     } catch (_) {}
-    showToast("Промт скопирован — 1 482 слова");
-  }, [mock.promptSections]);
+    showToast(`Промт скопирован — ${promptData.full_prompt.length} символов`);
+  }, [promptData]);
 
-  // ===== Flow handlers =====
+  // ===== Real flow handlers =====
   const onSubmitQuestion = useCallback(
-    (text: string) => {
+    async (text: string) => {
       if (!text.trim() || pending) return;
       if (sessionTitle === "Новая сессия") {
         const words = text.split(" ").slice(0, 7).join(" ");
@@ -243,42 +260,55 @@ export default function Workspace() {
         kind: "thinking",
         traces: [
           "разбираю вопрос на подвопросы",
-          "выделено 8 подвопросов · сегмент: business + premium",
-          "подбор источников · 12 приоритетных",
-          "генерация промта · структура 6 разделов",
-          "финализация директив · добавлен критерий A/B/C",
-          "выбор инструмента · рекомендован Claude Research",
+          "подбор структуры промта",
+          "генерация research-промта",
+          "финализация директив",
         ],
-        onDone: () => {
-          setMessages((ms) => ms.filter((m) => m.kind !== "thinking"));
-          setCost((c) => c + 12.4);
-          push({
-            role: "system",
-            kind: "text",
-            content:
-              "Промт готов — 1 482 слова, 6 разделов, явная директива «Сводная таблица данных» в конце.\n\nРекомендую Claude Research: задача требует синтеза 50+ источников и корректной маркировки неподтверждённых цифр.",
-          });
-          push({
-            role: "system",
-            kind: "ref",
-            refKind: "prompt",
-            title: "Research-промт",
-            subtitle: "1 482 слова · 6 разделов · Claude Research",
-            accent: true,
-          });
-          push({
-            role: "system",
-            kind: "cta",
-            primary: "Копировать и запустить внешний DR →",
-            action: "copy-prompt",
-            secondary: "Пропустить — я уже запустил",
-            secondaryAction: "go-upload-stage",
-          });
-          setPhase(PHASE.PROMPT);
-          setArtifact({ kind: "prompt" });
-          setPending(false);
-        },
+        onDone: () => {},
       });
+
+      try {
+        const { session_id } = await createSession(text);
+        setSessionId(session_id);
+
+        const pref = getPipelineModel();
+        const prompt = await generatePrompt(session_id, pref);
+        setPromptData(prompt);
+
+        const s = await getSession(session_id);
+        setCost(s.total_cost_rub || 0);
+
+        setMessages((ms) => ms.filter((m) => m.kind !== "thinking"));
+        const sections = prompt.expected_structure?.length ?? 0;
+        push({
+          role: "system",
+          kind: "text",
+          content: `Промт готов — ${prompt.full_prompt.length} символов, ${sections} разделов.\n\nСкопируйте и запустите внешний Deep Research, затем загрузите .md файл с результатами.`,
+        });
+        push({
+          role: "system",
+          kind: "ref",
+          refKind: "prompt",
+          title: "Research-промт",
+          subtitle: `${sections} разделов · готов к копированию`,
+          accent: true,
+        });
+        push({
+          role: "system",
+          kind: "cta",
+          primary: "Скопировать промт →",
+          action: "copy-prompt",
+          secondary: "Уже запустил — загружу отчёт",
+          secondaryAction: "go-upload-stage",
+        });
+        setArtifact({ kind: "prompt", data: prompt });
+        setPhase(PHASE.PROMPT);
+      } catch (e) {
+        setMessages((ms) => ms.filter((m) => m.kind !== "thinking"));
+        showToast(`Ошибка: ${e instanceof Error ? e.message : String(e)}`);
+      } finally {
+        setPending(false);
+      }
     },
     [pending, sessionTitle, push]
   );
@@ -289,7 +319,7 @@ export default function Workspace() {
       role: "system",
       kind: "text",
       content:
-        "Хорошо. Когда отчёты будут готовы — загружайте их. Поддерживаю .md, .txt, .pdf — до 10 файлов за раз.",
+        "Хорошо. Когда отчёты будут готовы — загружайте их. Поддерживаю .md, .txt — до 10 файлов за раз.",
     });
     push({
       role: "system",
@@ -301,50 +331,66 @@ export default function Workspace() {
     push({
       role: "system",
       kind: "cta",
-      primary: "Симулировать загрузку (demo)",
-      action: "go-upload",
+      primary: "Выбрать файлы для загрузки →",
+      action: "trigger-upload",
     });
     setArtifact({ kind: "upload-stage" });
     setPhase(PHASE.UPLOAD);
   }, [push]);
 
-  const actUpload = useCallback(() => {
-    push({ role: "user", kind: "text", content: "Отчёты готовы — вот они" });
-    setPending(true);
-    push({
-      role: "system",
-      kind: "thinking",
-      traces: [
-        "читаю Claude-Research-moscow-premium-v1.md · 14 820 слов",
-        "читаю Perplexity-DR-amenities-benchmark.md · 5 412 слов",
-        "читаю OpenAI-DR-developer-economics.md · 7 104 слов",
-        "читаю Intermark-Q1-2026-notes.md · 2 108 слов",
-        "читаю NF-Group-premium-residential-2025.md · 3 240 слов",
-        "извлечение фактов · 312 утверждений · 94 цифры",
-        "сверка между источниками · поиск противоречий",
-      ],
-      onDone: () => {
+  const actUpload = useCallback(
+    async (files: File[]) => {
+      if (!sessionId) {
+        showToast("Сессия не найдена — начните новый вопрос");
+        return;
+      }
+      if (!files.length) return;
+      push({
+        role: "user",
+        kind: "text",
+        content: `Загружаю ${files.length} файл(ов): ${files.map((f) => f.name).join(", ")}`,
+      });
+      setPending(true);
+
+      push({
+        role: "system",
+        kind: "thinking",
+        traces: [
+          `читаю ${files.length} файл(ов)`,
+          "извлечение фактов и утверждений",
+          "сверка между источниками",
+          "поиск противоречий и пробелов",
+        ],
+        onDone: () => {},
+      });
+
+      try {
+        await uploadReports(sessionId, files);
+        const pref = getPipelineModel();
+        const analysis = await analyze(sessionId, pref);
+        setAnalysisData(analysis);
+
+        const s = await getSession(sessionId);
+        setCost(s.total_cost_rub || 0);
+
         setMessages((ms) => ms.filter((m) => m.kind !== "thinking"));
-        setCost((c) => c + 176.72);
-        push({
-          role: "system",
-          kind: "ref",
-          refKind: "upload",
-          title: "5 отчётов загружено",
-          subtitle: "32 684 слов · 94 метрики",
-        });
+
+        const conflictsCount = analysis.conflicts.length;
+        const gapsCount = analysis.gaps.length;
+        const consensusCount = analysis.consensus.length;
+        const unverifiedCount = analysis.unverified_numbers.length;
+
         push({
           role: "system",
           kind: "text",
-          content:
-            "Прочитал 5 отчётов — 32 684 слов, 94 числовых утверждения. Нашёл 7 согласий, 5 противоречий, 5 пробелов и 3 неподтверждённые цифры.\n\nПротиворечия — главное. Разбираем?",
+          content: `Прочитал ${files.length} отчётов. Нашёл ${consensusCount} согласий, ${conflictsCount} противоречий, ${gapsCount} пробелов, ${unverifiedCount} неподтверждённых цифр.\n\nПротиворечия — главное. Разбираем?`,
         });
         push({
           role: "system",
           kind: "ref",
           refKind: "critique",
           title: "Критика и сверка",
-          subtitle: "7 · 5 · 5 · 3",
+          subtitle: `${consensusCount} · ${conflictsCount} · ${gapsCount} · ${unverifiedCount}`,
           accent: true,
         });
         push({
@@ -356,11 +402,16 @@ export default function Workspace() {
           secondaryAction: "go-final-direct",
         });
         setPhase(PHASE.CRITIQUE);
-        setArtifact({ kind: "critique" });
+        setArtifact({ kind: "critique", data: analysis });
+      } catch (e) {
+        setMessages((ms) => ms.filter((m) => m.kind !== "thinking"));
+        showToast(`Ошибка анализа: ${e instanceof Error ? e.message : String(e)}`);
+      } finally {
         setPending(false);
-      },
-    });
-  }, [push]);
+      }
+    },
+    [sessionId, push]
+  );
 
   const actTopup = useCallback(() => {
     push({
@@ -368,75 +419,133 @@ export default function Workspace() {
       kind: "text",
       content: "Запускай followup — хочу закрыть пробелы",
     });
-    setPending(true);
     push({
       role: "system",
-      kind: "thinking",
-      traces: [
-        "генерация followup-промта · 420 слов",
-        "ожидание загрузки followup-отчёта",
-        "приём Claude-Research-followup.md · 4 640 слов",
-        "сверка: закрылось 4 из 5 пробелов",
-        "IT vs традиционный бизнес — остался качественным",
-      ],
-      onDone: () => {
-        setMessages((ms) => ms.filter((m) => m.kind !== "thinking"));
-        setCost((c) => c + 64.08);
-        push({
-          role: "system",
-          kind: "text",
-          content:
-            "Добор сработал. Закрылись: ROI сигарных, фасадные материалы, МОПы, международная 10-летняя траектория. Не закрылся поведенческий разрез IT vs традиционный бизнес — обозначу явно как ограничение.\n\nБаза достаточна для отчёта уровня акционера.",
-        });
-        push({
-          role: "system",
-          kind: "cta",
-          primary: "Собрать финальный отчёт →",
-          action: "go-final",
-        });
-        setPhase(PHASE.TOPUP);
-        setPending(false);
-      },
+      kind: "text",
+      content: analysisData?.followup_prompt
+        ? `Followup-промт готов. Запустите его в DR и загрузите результат.\n\n**Цель:** ${analysisData.followup_prompt.target_info}`
+        : "Запустите ещё один DR по оставшимся пробелам и загрузите результат.",
     });
-  }, [push]);
-
-  const actFinal = useCallback(() => {
-    setPending(true);
     push({
       role: "system",
-      kind: "thinking",
-      traces: [
-        "сборка документа · 6 разделов",
-        "QA секция · 8 прямых ответов",
-        "извлечение headline-цифр · 7 значений",
-        "ранжирование факторов · 11 позиций",
-        "верстка таблиц · 3 штуки",
-        "библиография · 74 источника",
-        "финальная проверка цитирования",
-      ],
-      onDone: () => {
+      kind: "cta",
+      primary: "Выбрать followup-файл →",
+      action: "trigger-followup",
+    });
+    setPhase(PHASE.TOPUP);
+  }, [push, analysisData]);
+
+  const actFollowup = useCallback(
+    async (files: File[]) => {
+      if (!sessionId) {
+        showToast("Сессия не найдена");
+        return;
+      }
+      if (!files.length) return;
+      push({
+        role: "user",
+        kind: "text",
+        content: `Загружаю followup: ${files.map((f) => f.name).join(", ")}`,
+      });
+      setPending(true);
+
+      push({
+        role: "system",
+        kind: "thinking",
+        traces: [
+          "читаю followup-отчёт",
+          "сверка с пробелами",
+          "синтез финального отчёта",
+          "проверка цитирования",
+        ],
+        onDone: () => {},
+      });
+
+      try {
+        await uploadFollowup(sessionId, files);
+        const pref = getPipelineModel();
+        const final = await synthesize(sessionId, pref);
+        setFinalData(final);
+
+        const s = await getSession(sessionId);
+        setCost(s.total_cost_rub || 0);
+
         setMessages((ms) => ms.filter((m) => m.kind !== "thinking"));
-        setCost((c) => Math.max(c + 594, 847.2));
         push({
           role: "system",
           kind: "text",
-          content:
-            "Отчёт готов. Открыл справа — там sticky-оглавление слева, цифры с [N] кликабельны. Для экспорта — кнопки в шапке артефакта.",
+          content: "Отчёт готов. Открыл справа — для экспорта кнопки в шапке.",
         });
         push({
           role: "system",
           kind: "ref",
           refKind: "report",
-          title: mock.finalReport.title,
-          subtitle: "74 источника · ₽ 847",
+          title: final.executive_summary?.main_answer?.slice(0, 60) || "Финальный отчёт",
+          subtitle: `${final.all_sources?.length ?? 0} источников · ₽ ${Math.round(s.total_cost_rub || 0)}`,
           accent: true,
         });
         setPhase(PHASE.DONE);
-        setArtifact({ kind: "report" });
+        setArtifact({ kind: "report", data: final });
+      } catch (e) {
+        setMessages((ms) => ms.filter((m) => m.kind !== "thinking"));
+        showToast(`Ошибка синтеза: ${e instanceof Error ? e.message : String(e)}`);
+      } finally {
         setPending(false);
-      },
+      }
+    },
+    [sessionId, push]
+  );
+
+  const actFinal = useCallback(async () => {
+    if (!sessionId) {
+      showToast("Сессия не найдена");
+      return;
+    }
+    setPending(true);
+    push({
+      role: "system",
+      kind: "thinking",
+      traces: [
+        "сборка документа",
+        "извлечение headline-цифр",
+        "ранжирование факторов",
+        "библиография",
+        "финальная проверка цитирования",
+      ],
+      onDone: () => {},
     });
-  }, [push, mock.finalReport.title]);
+
+    try {
+      const pref = getPipelineModel();
+      const final = await synthesize(sessionId, pref);
+      setFinalData(final);
+
+      const s = await getSession(sessionId);
+      setCost(s.total_cost_rub || 0);
+
+      setMessages((ms) => ms.filter((m) => m.kind !== "thinking"));
+      push({
+        role: "system",
+        kind: "text",
+        content: "Отчёт готов. Открыл справа — для экспорта кнопки в шапке.",
+      });
+      push({
+        role: "system",
+        kind: "ref",
+        refKind: "report",
+        title: final.executive_summary?.main_answer?.slice(0, 60) || "Финальный отчёт",
+        subtitle: `${final.all_sources?.length ?? 0} источников · ₽ ${Math.round(s.total_cost_rub || 0)}`,
+        accent: true,
+      });
+      setPhase(PHASE.DONE);
+      setArtifact({ kind: "report", data: final });
+    } catch (e) {
+      setMessages((ms) => ms.filter((m) => m.kind !== "thinking"));
+      showToast(`Ошибка синтеза: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setPending(false);
+    }
+  }, [sessionId, push]);
 
   const actFinalDirect = useCallback(() => {
     push({
@@ -455,10 +564,12 @@ export default function Workspace() {
         goToUploadStage();
       } else if (action === "go-upload-stage") {
         goToUploadStage();
-      } else if (action === "go-upload") {
-        actUpload();
+      } else if (action === "trigger-upload") {
+        uploadRef.current?.click();
       } else if (action === "go-topup") {
         actTopup();
+      } else if (action === "trigger-followup") {
+        followupRef.current?.click();
       } else if (action === "go-final") {
         actFinal();
       } else if (action === "go-final-direct") {
@@ -469,7 +580,6 @@ export default function Workspace() {
       pending,
       copyPrompt,
       goToUploadStage,
-      actUpload,
       actTopup,
       actFinal,
       actFinalDirect,
@@ -487,7 +597,7 @@ export default function Workspace() {
         role: "system",
         kind: "text",
         content:
-          "В этом демо после финального отчёта диалог не продолжается. В продакшене система ответит на уточняющие вопросы из уже собранной базы источников.",
+          "Вопрос принят. Используйте кнопки выше для следующих шагов — загрузки файлов и синтеза.",
       });
     }
   }, [input, pending, phase, onSubmitQuestion, push]);
@@ -505,10 +615,15 @@ export default function Workspace() {
     localStorage.removeItem("sr-phase-v2");
     localStorage.removeItem("sr-cost-v2");
     localStorage.removeItem("sr-title-v2");
+    localStorage.removeItem("sr-session-id-v2");
     setMessages([INITIAL_MESSAGE]);
     setPhase(PHASE.START);
     setCost(0);
     setSessionTitle("Новая сессия");
+    setSessionId(null);
+    setPromptData(null);
+    setAnalysisData(null);
+    setFinalData(null);
     setArtifact(null);
     setConfirmReset(false);
     showToast(
@@ -599,17 +714,9 @@ export default function Workspace() {
     if (artifact.kind === "prompt") {
       return {
         kind: "Промт",
-        title: "Research-промт для Claude Research",
+        title: "Research-промт",
         actions: (
           <>
-            <button
-              className="icon-btn"
-              onClick={() =>
-                showToast("Редактирование промта — в следующей итерации")
-              }
-            >
-              изменить
-            </button>
             <button className="icon-btn primary" onClick={copyPrompt}>
               скопировать
             </button>
@@ -620,20 +727,13 @@ export default function Workspace() {
     if (artifact.kind === "upload" || artifact.kind === "upload-stage") {
       return {
         kind: "Загрузка",
-        title:
-          artifact.kind === "upload"
-            ? "Принятые отчёты (5)"
-            : "Ожидание файлов",
+        title: "Загрузка отчётов",
         actions: (
           <button
             className="icon-btn primary"
-            onClick={() =>
-              artifact.kind === "upload-stage" ? actUpload() : null
-            }
+            onClick={() => uploadRef.current?.click()}
           >
-            {artifact.kind === "upload-stage"
-              ? "имитировать загрузку"
-              : "добавить ещё"}
+            выбрать файлы
           </button>
         ),
       };
@@ -641,7 +741,7 @@ export default function Workspace() {
     if (artifact.kind === "critique") {
       return {
         kind: "Критика",
-        title: "Сверка пяти отчётов",
+        title: "Сверка источников",
         actions: (
           <button
             className="icon-btn primary"
@@ -658,7 +758,7 @@ export default function Workspace() {
     if (artifact.kind === "report") {
       return {
         kind: "Отчёт",
-        title: mock.finalReport.title,
+        title: (finalData as FinalReport | null)?.executive_summary?.main_answer?.slice(0, 60) || "Финальный отчёт",
         actions: (
           <>
             <button className="icon-btn" onClick={() => setExportOpen(true)}>
@@ -679,12 +779,6 @@ export default function Workspace() {
               </svg>
               экспорт
             </button>
-            <button
-              className="icon-btn accent"
-              onClick={() => showToast("Отчёт расшарен по ссылке (demo)")}
-            >
-              поделиться →
-            </button>
           </>
         ),
       };
@@ -692,12 +786,38 @@ export default function Workspace() {
     return null;
   })();
 
-  // ===== Source panel data =====
-  const src = mock.finalReport.bibliography.find((b) => b.n === activeCite);
+  // ===== Source panel data — not applicable for real API (no numeric bibliography) =====
+  const src = null;
 
   // ===== Render =====
   return (
     <div className="ws-root">
+      {/* Hidden file inputs */}
+      <input
+        ref={uploadRef}
+        type="file"
+        multiple
+        accept=".md,.txt"
+        style={{ display: "none" }}
+        onChange={(e) => {
+          const files = Array.from(e.target.files || []);
+          if (files.length) actUpload(files);
+          e.target.value = "";
+        }}
+      />
+      <input
+        ref={followupRef}
+        type="file"
+        multiple
+        accept=".md,.txt"
+        style={{ display: "none" }}
+        onChange={(e) => {
+          const files = Array.from(e.target.files || []);
+          if (files.length) actFollowup(files);
+          e.target.value = "";
+        }}
+      />
+
       {/* ========== TOP BAR ========== */}
       <header className="topbar">
         <div className="brand">
@@ -732,6 +852,7 @@ export default function Workspace() {
         </div>
 
         <div className="topbar-right">
+          <ModelPicker compact />
           <button
             className="topbar-icon-btn"
             onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
@@ -826,7 +947,7 @@ export default function Workspace() {
               <input
                 ref={searchRef}
                 type="text"
-                placeholder="Поиск по сессиям и проектам"
+                placeholder="Поиск по сессиям"
                 value={sidebarQuery}
                 onChange={(e) => setSidebarQuery(e.target.value)}
                 onKeyDown={(e) => {
@@ -850,146 +971,18 @@ export default function Workspace() {
           </div>
 
           <div className="sb-scroll">
-            {(() => {
-              const q = sidebarQuery.trim().toLowerCase();
-              const projectsFiltered = MOCK_PROJECTS.map((p) => ({
-                ...p,
-                sessions: p.sessions.filter(
-                  (s) =>
-                    !q ||
-                    s.title.toLowerCase().includes(q) ||
-                    p.name.toLowerCase().includes(q) ||
-                    (p.client || "").toLowerCase().includes(q)
-                ),
-              })).filter(
-                (p) =>
-                  !q ||
-                  p.sessions.length > 0 ||
-                  p.name.toLowerCase().includes(q)
-              );
-
-              if (projectsFiltered.length === 0) {
-                return <div className="sb-empty">Ничего не найдено</div>;
-              }
-
-              return projectsFiltered.map((proj) => {
-                const expanded = q ? true : !!expandedProjects[proj.id];
-                const isActive = activeProjectId === proj.id;
-                const totalCost = proj.sessions.reduce(
-                  (a, s) => a + Number(s.cost || 0),
-                  0
-                );
-
-                return (
-                  <div
-                    key={proj.id}
-                    className={"sb-project" + (isActive ? " active" : "")}
-                  >
-                    <button
-                      className="sb-project-head"
-                      onClick={() => {
-                        toggleProject(proj.id);
-                        setActiveProjectId(proj.id);
-                      }}
-                    >
-                      <span
-                        className={
-                          "sb-project-chev" + (expanded ? " open" : "")
-                        }
-                      >
-                        <svg
-                          width="10"
-                          height="10"
-                          viewBox="0 0 10 10"
-                          fill="none"
-                        >
-                          <path
-                            d="M3.5 2L6.5 5L3.5 8"
-                            stroke="currentColor"
-                            strokeWidth="1.3"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        </svg>
-                      </span>
-                      <span
-                        className={
-                          "sb-project-swatch swatch-" + proj.color
-                        }
-                      ></span>
-                      <span className="sb-project-name">{proj.name}</span>
-                      <span className="sb-project-count">
-                        {proj.sessions.length}
-                      </span>
-                    </button>
-                    {expanded && (
-                      <>
-                        <div className="sb-project-meta">
-                          <span>
-                            {proj.client && proj.client !== "—"
-                              ? proj.client
-                              : "без клиента"}
-                          </span>
-                          <span>₽ {totalCost.toLocaleString("ru-RU")}</span>
-                        </div>
-                        <div className="sb-sessions">
-                          {proj.sessions.map((s) => {
-                            const showTitle = s.current
-                              ? sessionTitle
-                              : s.title;
-                            const showCost = s.current
-                              ? Math.round(cost)
-                              : s.cost;
-                            return (
-                              <button
-                                key={s.id}
-                                className={
-                                  "sb-session" +
-                                  (s.current ? " current" : "")
-                                }
-                                onClick={() => {
-                                  if (!s.current)
-                                    showToast(
-                                      "Открытие прошлых сессий — в следующей итерации"
-                                    );
-                                }}
-                                title={showTitle}
-                              >
-                                <span
-                                  className={
-                                    "sb-session-dot " +
-                                    (s.current ? "active" : "done")
-                                  }
-                                ></span>
-                                <span className="sb-session-title">
-                                  {showTitle}
-                                </span>
-                                <span className="sb-session-cost">
-                                  ₽ {showCost}
-                                </span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                );
-              });
-            })()}
-          </div>
-
-          <div className="sb-foot">
-            <button
-              className="sb-foot-btn"
-              onClick={() =>
-                showToast(
-                  "Создание папки проекта — в следующей итерации"
-                )
-              }
-            >
-              <span>+</span> Новый проект
-            </button>
+            {sessionId ? (
+              <button
+                className="sb-session current"
+                title={sessionTitle}
+              >
+                <span className="sb-session-dot active"></span>
+                <span className="sb-session-title">{sessionTitle}</span>
+                <span className="sb-session-cost">₽ {Math.round(cost)}</span>
+              </button>
+            ) : (
+              <div className="sb-empty">Нет сессий</div>
+            )}
           </div>
         </aside>
 
@@ -1074,19 +1067,55 @@ export default function Workspace() {
               </div>
             </div>
             <div className="artifact-body">
-              {artifact.kind === "prompt" && (
-                <PromptArtifact mock={mock} openSource={openSource} />
-              )}
-              {artifact.kind === "upload" && (
-                <UploadArtifact
-                  files={mock.uploadedReports}
-                  totalWords={mock.uploadedReports.reduce(
-                    (a, b) => a + b.words,
-                    0
+              {artifact.kind === "prompt" && promptData && (
+                <div className="prompt-doc">
+                  <h1>Research-промт</h1>
+                  <div className="prompt-subhead">
+                    <span>{promptData.full_prompt.length.toLocaleString("ru-RU")} символов</span>
+                    {promptData.expected_structure?.length ? (
+                      <>
+                        <span>·</span>
+                        <span>{promptData.expected_structure.length} разделов</span>
+                      </>
+                    ) : null}
+                  </div>
+                  {promptData.reasoning && (
+                    <div className="prompt-rec-block">
+                      <div className="rec-label">Логика промта</div>
+                      <p style={{ fontSize: 13, lineHeight: 1.55, color: "var(--ink-2)" }}>
+                        {promptData.reasoning}
+                      </p>
+                    </div>
                   )}
-                />
+                  <div className="prompt-section">
+                    <pre
+                      style={{
+                        whiteSpace: "pre-wrap",
+                        fontFamily: "var(--mono)",
+                        fontSize: 12,
+                        lineHeight: 1.6,
+                        color: "var(--ink-2)",
+                        background: "var(--paper-2)",
+                        padding: "16px",
+                        borderRadius: 4,
+                        border: "1px solid var(--rule)",
+                      }}
+                    >
+                      {promptData.full_prompt}
+                    </pre>
+                  </div>
+                  {promptData.tips_for_search && (
+                    <div className="prompt-section">
+                      <div className="ps-title">Советы по поиску</div>
+                      <p style={{ fontSize: 13, lineHeight: 1.55 }}>{promptData.tips_for_search}</p>
+                    </div>
+                  )}
+                </div>
               )}
-              {artifact.kind === "upload-stage" && (
+              {artifact.kind === "prompt" && !promptData && (
+                <div style={{ padding: 24, color: "var(--ink-3)" }}>Промт не загружен</div>
+              )}
+              {(artifact.kind === "upload" || artifact.kind === "upload-stage") && (
                 <div className="upload-doc">
                   <h1
                     style={{
@@ -1096,7 +1125,7 @@ export default function Workspace() {
                       margin: "0 0 6px 0",
                     }}
                   >
-                    Ожидание файлов
+                    Загрузка отчётов
                   </h1>
                   <div
                     style={{
@@ -1107,17 +1136,27 @@ export default function Workspace() {
                       marginBottom: 16,
                     }}
                   >
-                    Запустите внешний DR по скопированному промту и возвращайтесь
-                    сюда
+                    Запустите внешний DR по скопированному промту и возвращайтесь сюда
                   </div>
-                  <div className="upload-dropzone">
+                  <label className="upload-dropzone" style={{ cursor: "pointer" }}>
+                    <input
+                      type="file"
+                      multiple
+                      accept=".md,.txt"
+                      style={{ display: "none" }}
+                      onChange={(e) => {
+                        const files = Array.from(e.target.files || []);
+                        if (files.length) actUpload(files);
+                        e.target.value = "";
+                      }}
+                    />
                     <div className="big">
-                      Перетащите отчёты или нажмите, чтобы выбрать
+                      Нажмите чтобы выбрать файлы или перетащите сюда
                     </div>
                     <div className="small">
-                      .md, .txt, .pdf · до 2 МБ каждый · до 10 файлов
+                      .md, .txt · до 10 файлов
                     </div>
-                  </div>
+                  </label>
                   <div
                     style={{
                       padding: 16,
@@ -1129,24 +1168,28 @@ export default function Workspace() {
                       marginTop: 8,
                     }}
                   >
-                    <strong>Совет.</strong> Claude Research обычно выгружается
-                    как один .md. Perplexity и OpenAI DR — как .md или копия
-                    текста. Можно подкладывать и дополнительные заметки
-                    (Intermark Q1-2026, NF Group) — всё учтётся в сверке.
+                    <strong>Совет.</strong> Claude Research выгружает один .md файл.
+                    Perplexity и OpenAI DR — .md или копия текста. Можно загружать несколько файлов сразу.
                   </div>
                 </div>
               )}
-              {artifact.kind === "critique" && (
+              {artifact.kind === "critique" && analysisData && (
                 <CritiqueArtifact
-                  critique={mock.critique}
+                  analysisOutput={analysisData}
                   openSource={openSource}
                 />
               )}
-              {artifact.kind === "report" && (
+              {artifact.kind === "critique" && !analysisData && (
+                <div style={{ padding: 24, color: "var(--ink-3)" }}>Анализ не загружен</div>
+              )}
+              {artifact.kind === "report" && finalData && (
                 <ReportArtifact
-                  report={mock.finalReport}
+                  finalReport={finalData}
                   openSource={openSource}
                 />
+              )}
+              {artifact.kind === "report" && !finalData && (
+                <div style={{ padding: 24, color: "var(--ink-3)" }}>Отчёт не готов</div>
               )}
             </div>
           </section>
@@ -1165,31 +1208,7 @@ export default function Workspace() {
         </div>
         <div className="sidepanel-body">
           {src ? (
-            <>
-              <div className="sidepanel-meta">
-                {src.type} · {src.date}
-              </div>
-              <h4>{src.title}</h4>
-              <div className="sidepanel-quote">
-                Цитата, на которую ссылается отчёт, сверена через сводную
-                таблицу данных. Уровень доверия установлен по двум независимым
-                источникам.
-              </div>
-              <dl className="kv-list">
-                <dt>ID</dt>
-                <dd style={{ fontFamily: "var(--mono)" }}>
-                  SRC-{String(src.n).padStart(3, "0")}
-                </dd>
-                <dt>Формат</dt>
-                <dd>{src.type}</dd>
-                <dt>Дата</dt>
-                <dd>{src.date}</dd>
-                <dt>Уровень</dt>
-                <dd>
-                  <span className="confidence a">A</span>
-                </dd>
-              </dl>
-            </>
+            <div>{String(src)}</div>
           ) : (
             <div style={{ color: "var(--ink-3)", fontSize: 13 }}>
               Выберите цитату в тексте отчёта.
@@ -1206,37 +1225,20 @@ export default function Workspace() {
             onClick={() => setCostOpen(false)}
           ></div>
           <div className="popover" style={{ right: 16, top: 56 }}>
-            <h4>Структура стоимости</h4>
-            <div className="popover-row">
-              <span>Разбор вопроса (Haiku)</span>
-              <span className="v">₽ 2,40</span>
-            </div>
-            <div className="popover-row">
-              <span>Генерация промта (Sonnet)</span>
-              <span className="v">₽ 10,00</span>
-            </div>
-            <div className="popover-row">
-              <span>Чтение 5 отчётов (Opus × 6)</span>
-              <span className="v">₽ 176,72</span>
-            </div>
-            <div className="popover-row">
-              <span>Сверка и критика (Opus × 3)</span>
-              <span className="v">₽ 64,08</span>
-            </div>
-            <div className="popover-row">
-              <span>Добор (Opus × 2)</span>
-              <span className="v">₽ 64,08</span>
-            </div>
-            <div className="popover-row">
-              <span>Сборка отчёта (Opus × 3)</span>
-              <span className="v">₽ 529,92</span>
-            </div>
+            <h4>Стоимость сессии</h4>
             <div className="popover-row total">
-              <span>Итого (14 вызовов Opus, 47 мин)</span>
+              <span>Итого</span>
               <span className="v">
                 ₽ {cost.toFixed(2).replace(".", ",")}
               </span>
             </div>
+            {sessionId && (
+              <div className="popover-row">
+                <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--ink-3)" }}>
+                  session: {sessionId}
+                </span>
+              </div>
+            )}
           </div>
         </>
       )}
@@ -1277,377 +1279,52 @@ export default function Workspace() {
           ></div>
           <div className="export-menu" role="menu">
             <div className="export-group">
-              <div className="export-group-label">Быстрый вывод</div>
-              <button
-                className="export-item"
-                onClick={() => {
-                  setExportOpen(false);
-                  showToast(
-                    "One-pager — ключевая цифра + 8 тезисов, 1 стр. Word"
-                  );
-                }}
-              >
-                <span className="export-icon one-pager">
-                  <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 18 18"
-                    fill="none"
-                    aria-hidden="true"
+              <div className="export-group-label">Экспорт</div>
+              {sessionId && (
+                <>
+                  <a
+                    className="export-item"
+                    href={`${process.env.NEXT_PUBLIC_V4_API_BASE || "http://localhost:8010"}/api/v4/sessions/${sessionId}/export?format=md`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => setExportOpen(false)}
                   >
-                    <rect
-                      x="2"
-                      y="3"
-                      width="14"
-                      height="12"
-                      rx="1.5"
-                      stroke="currentColor"
-                      strokeWidth="1.3"
-                    />
-                    <rect
-                      x="4"
-                      y="5.5"
-                      width="5"
-                      height="3"
-                      fill="currentColor"
-                      opacity="0.35"
-                    />
-                    <rect x="10" y="5.5" width="4" height="1.2" fill="currentColor" />
-                    <rect x="10" y="7.3" width="4" height="1.2" fill="currentColor" />
-                    <rect
-                      x="4"
-                      y="10"
-                      width="10"
-                      height="1"
-                      fill="currentColor"
-                      opacity="0.5"
-                    />
-                    <rect
-                      x="4"
-                      y="12"
-                      width="8"
-                      height="1"
-                      fill="currentColor"
-                      opacity="0.5"
-                    />
-                  </svg>
-                </span>
-                <span className="export-text">
-                  <span className="export-name">One-pager</span>
-                  <span className="export-meta">Word · 1 страница</span>
-                </span>
-              </button>
-              <button
-                className="export-item"
-                onClick={() => {
-                  setExportOpen(false);
-                  showToast(
-                    "Markdown — исходник с разделами, таблицами и [N]-ссылками"
-                  );
-                }}
-              >
-                <span className="export-icon md">
-                  <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 18 18"
-                    fill="none"
-                    aria-hidden="true"
+                    <span className="export-text">
+                      <span className="export-name">Markdown</span>
+                      <span className="export-meta">.md</span>
+                    </span>
+                  </a>
+                  <a
+                    className="export-item"
+                    href={`${process.env.NEXT_PUBLIC_V4_API_BASE || "http://localhost:8010"}/api/v4/sessions/${sessionId}/export?format=docx`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => setExportOpen(false)}
                   >
-                    <rect
-                      x="1.5"
-                      y="4"
-                      width="15"
-                      height="10"
-                      rx="1.5"
-                      stroke="currentColor"
-                      strokeWidth="1.3"
-                    />
-                    <path
-                      d="M4 11V7l1.6 2 1.6-2v4M10.5 7v4M9 9.5l1.5 1.5L12 9.5"
-                      stroke="currentColor"
-                      strokeWidth="1.3"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </span>
-                <span className="export-text">
-                  <span className="export-name">Markdown</span>
-                  <span className="export-meta">.md</span>
-                </span>
-              </button>
-            </div>
-
-            <div className="export-group">
-              <div className="export-group-label">Сгенерировать через Gamma</div>
-              <button
-                className="export-item"
-                onClick={() => {
-                  setExportOpen(false);
-                  showToast(
-                    "Gamma Presentation — AI-презентация из отчёта в .pptx"
-                  );
-                }}
-              >
-                <span className="export-icon gamma">
-                  <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 18 18"
-                    fill="none"
-                    aria-hidden="true"
+                    <span className="export-text">
+                      <span className="export-name">Word Document</span>
+                      <span className="export-meta">.docx</span>
+                    </span>
+                  </a>
+                  <a
+                    className="export-item"
+                    href={`${process.env.NEXT_PUBLIC_V4_API_BASE || "http://localhost:8010"}/api/v4/sessions/${sessionId}/export?format=json`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => setExportOpen(false)}
                   >
-                    <path
-                      d="M9 2.2l1.1 2.5 2.7.3-2 1.9.5 2.7L9 8.3 6.7 9.6l.5-2.7-2-1.9 2.7-.3L9 2.2z"
-                      fill="currentColor"
-                    />
-                    <path
-                      d="M4 13l.55 1.25L5.8 14.8l-1.25.55L4 16.6l-.55-1.25L2.2 14.8l1.25-.55L4 13z"
-                      fill="currentColor"
-                      opacity="0.75"
-                    />
-                    <path
-                      d="M14 11l.4 1 1 .4-1 .4-.4 1-.4-1-1-.4 1-.4.4-1z"
-                      fill="currentColor"
-                      opacity="0.55"
-                    />
-                  </svg>
-                </span>
-                <span className="export-text">
-                  <span className="export-name">
-                    <span className="sparkle-badge">✨</span> Gamma Presentation
-                  </span>
-                  <span className="export-meta">AI · .pptx</span>
-                </span>
-              </button>
-              <button
-                className="export-item"
-                onClick={() => {
-                  setExportOpen(false);
-                  showToast(
-                    "Gamma Presentation — AI-презентация из отчёта в .pdf"
-                  );
-                }}
-              >
-                <span className="export-icon gamma">
-                  <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 18 18"
-                    fill="none"
-                    aria-hidden="true"
-                  >
-                    <path
-                      d="M9 2.2l1.1 2.5 2.7.3-2 1.9.5 2.7L9 8.3 6.7 9.6l.5-2.7-2-1.9 2.7-.3L9 2.2z"
-                      fill="currentColor"
-                    />
-                    <path
-                      d="M4 13l.55 1.25L5.8 14.8l-1.25.55L4 16.6l-.55-1.25L2.2 14.8l1.25-.55L4 13z"
-                      fill="currentColor"
-                      opacity="0.75"
-                    />
-                    <path
-                      d="M14 11l.4 1 1 .4-1 .4-.4 1-.4-1-1-.4 1-.4.4-1z"
-                      fill="currentColor"
-                      opacity="0.55"
-                    />
-                  </svg>
-                </span>
-                <span className="export-text">
-                  <span className="export-name">
-                    <span className="sparkle-badge">✨</span> Gamma Presentation
-                  </span>
-                  <span className="export-meta">AI · .pdf</span>
-                </span>
-              </button>
-            </div>
-
-            <div className="export-group">
-              <div className="export-group-label">Классика</div>
-              <button
-                className="export-item"
-                onClick={() => {
-                  setExportOpen(false);
-                  showToast(".docx — editable текст, разделы, таблицы, источники");
-                }}
-              >
-                <span className="export-icon docx">
-                  <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 18 18"
-                    fill="none"
-                    aria-hidden="true"
-                  >
-                    <path
-                      d="M3 2.5h7.5L15 7v8.5H3v-13z"
-                      stroke="currentColor"
-                      strokeWidth="1.3"
-                      strokeLinejoin="round"
-                    />
-                    <path
-                      d="M10.5 2.5V7H15"
-                      stroke="currentColor"
-                      strokeWidth="1.3"
-                      strokeLinejoin="round"
-                    />
-                    <path
-                      d="M5 9.5l1 3 1-2 1 2 1-3"
-                      stroke="currentColor"
-                      strokeWidth="1.2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </span>
-                <span className="export-text">
-                  <span className="export-name">Word Document</span>
-                  <span className="export-meta">.docx</span>
-                </span>
-              </button>
-              <button
-                className="export-item"
-                onClick={() => {
-                  setExportOpen(false);
-                  showToast(".pptx — 12 слайдов с headline-цифрами и графиками");
-                }}
-              >
-                <span className="export-icon pptx">
-                  <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 18 18"
-                    fill="none"
-                    aria-hidden="true"
-                  >
-                    <rect
-                      x="2"
-                      y="3"
-                      width="14"
-                      height="9.5"
-                      rx="1"
-                      stroke="currentColor"
-                      strokeWidth="1.3"
-                    />
-                    <path
-                      d="M9 12.5V15M6 15h6"
-                      stroke="currentColor"
-                      strokeWidth="1.3"
-                      strokeLinecap="round"
-                    />
-                    <rect
-                      x="4.5"
-                      y="5.5"
-                      width="4"
-                      height="5"
-                      fill="currentColor"
-                      opacity="0.45"
-                    />
-                    <rect
-                      x="10"
-                      y="5.5"
-                      width="3.5"
-                      height="2.2"
-                      fill="currentColor"
-                      opacity="0.65"
-                    />
-                    <rect
-                      x="10"
-                      y="8.3"
-                      width="3.5"
-                      height="2.2"
-                      fill="currentColor"
-                      opacity="0.45"
-                    />
-                  </svg>
-                </span>
-                <span className="export-text">
-                  <span className="export-name">Presentation</span>
-                  <span className="export-meta">.pptx · 12 слайдов</span>
-                </span>
-              </button>
-              <button
-                className="export-item"
-                onClick={() => {
-                  setExportOpen(false);
-                  showToast(".pdf — print-ready версия отчёта");
-                }}
-              >
-                <span className="export-icon pdf">
-                  <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 18 18"
-                    fill="none"
-                    aria-hidden="true"
-                  >
-                    <path
-                      d="M3 2.5h7.5L15 7v8.5H3v-13z"
-                      stroke="currentColor"
-                      strokeWidth="1.3"
-                      strokeLinejoin="round"
-                    />
-                    <path
-                      d="M10.5 2.5V7H15"
-                      stroke="currentColor"
-                      strokeWidth="1.3"
-                      strokeLinejoin="round"
-                    />
-                    <path
-                      d="M5 11.5h1.4c.5 0 .9.4.9.9s-.4.9-.9.9H5v1M9 10.7v3.5h.8c.7 0 1.2-.6 1.2-1.3v-.9c0-.7-.5-1.3-1.2-1.3H9zM12 10.7v3.5M12 12.4h1.5"
-                      stroke="currentColor"
-                      strokeWidth="1.1"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </span>
-                <span className="export-text">
-                  <span className="export-name">PDF</span>
-                  <span className="export-meta">.pdf · print-ready</span>
-                </span>
-              </button>
-              <button
-                className="export-item"
-                onClick={() => {
-                  setExportOpen(false);
-                  showToast("Raw JSON — структура отчёта для интеграций");
-                }}
-              >
-                <span className="export-icon json">
-                  <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 18 18"
-                    fill="none"
-                    aria-hidden="true"
-                  >
-                    <path
-                      d="M3 2.5h7.5L15 7v8.5H3v-13z"
-                      stroke="currentColor"
-                      strokeWidth="1.3"
-                      strokeLinejoin="round"
-                    />
-                    <path
-                      d="M10.5 2.5V7H15"
-                      stroke="currentColor"
-                      strokeWidth="1.3"
-                      strokeLinejoin="round"
-                    />
-                    <path
-                      d="M7 9.5q-1 0-1 1v1q0 .6-.7.7.7.1.7.7v1q0 1 1 1M11 9.5q1 0 1 1v1q0 .6.7.7-.7.1-.7.7v1q0 1-1 1"
-                      stroke="currentColor"
-                      strokeWidth="1.1"
-                      strokeLinecap="round"
-                    />
-                  </svg>
-                </span>
-                <span className="export-text">
-                  <span className="export-name">Raw JSON</span>
-                  <span className="export-meta">.json · для интеграций</span>
-                </span>
-              </button>
+                    <span className="export-text">
+                      <span className="export-name">Raw JSON</span>
+                      <span className="export-meta">.json</span>
+                    </span>
+                  </a>
+                </>
+              )}
+              {!sessionId && (
+                <div style={{ padding: "8px 12px", color: "var(--ink-3)", fontSize: 12 }}>
+                  Нет активной сессии
+                </div>
+              )}
             </div>
           </div>
         </>
