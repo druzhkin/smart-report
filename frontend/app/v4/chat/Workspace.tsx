@@ -419,13 +419,25 @@ export default function Workspace() {
       kind: "text",
       content: "Запускай followup — хочу закрыть пробелы",
     });
-    push({
-      role: "system",
-      kind: "text",
-      content: analysisData?.followup_prompt
-        ? `Followup-промт готов. Запустите его в DR и загрузите результат.\n\n**Цель:** ${analysisData.followup_prompt.target_info}`
-        : "Запустите ещё один DR по оставшимся пробелам и загрузите результат.",
-    });
+    const fu = analysisData?.followup_prompt;
+    if (fu) {
+      push({
+        role: "system",
+        kind: "text",
+        content: `Followup-промт готов. Скопируйте его, запустите в DR, загрузите результат.\n\n**Цель:** ${fu.target_info}`,
+      });
+      push({
+        role: "system",
+        kind: "text",
+        content: fu.full_prompt,
+      });
+    } else {
+      push({
+        role: "system",
+        kind: "text",
+        content: "Запустите ещё один DR по оставшимся пробелам и загрузите результат.",
+      });
+    }
     push({
       role: "system",
       kind: "cta",
