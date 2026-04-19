@@ -75,9 +75,21 @@ Last update: 2026-04-19T09:00Z — COMPLETE
 
 ### Track 3 — Language Lint
 Owner: agent-language
-Branch: `v4.5/language`
-Started: —
-Last update: —
+Branch: `language-lint` (worktree; rename to v4.5/language on merge)
+Started: 2026-04-18
+Last update: 2026-04-18 — COMPLETE
+
+**Delivered:**
+- `smart_report/i18n/__init__.py` — public re-export module
+- `smart_report/i18n/allowed_english_terms.py` — ALLOWED_ENGLISH whitelist (financial, certifications, brands, real-estate, tech)
+- `smart_report/i18n/language_lint.py` — `lint_output_language()` + `LanguageWarning` Pydantic model
+- `prompts/synthesizer.md` — language directive appended (ЯЗЫК ВЫХОДА block)
+- `smart_report/synthesizer.py` — `language_feedback` param + `full_report_text()` helper
+- `smart_report/v4_orchestrator.py` — lint retry hook (threshold >20 warnings, max 1 retry)
+- `tests/test_language_lint.py` — 15 tests, all passing
+
+**Baseline (cache_final.json):** >20 language warnings confirmed by test_lint_on_cached_final_baseline.
+**All old tests green:** 187 passed, 22 skipped (209 total).
 
 ---
 

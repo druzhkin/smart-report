@@ -50,13 +50,15 @@ async def synthesize_final_report(
     log_dir: Path | None = None,
     mock: bool = False,
     consistency_feedback: "ConsistencyReport | None" = None,
+    language_feedback: list[Any] | None = None,
 ) -> tuple[FinalReport, float]:
     """Generate a FinalReport from the session.
 
-    When ``consistency_feedback`` is provided (retry path), the Synthesizer
-    prompt is prefixed with a structured block listing critical issues found
-    by the Consistency Critic, so the LLM can resolve them in the new version.
-    The retry path must not destroy other content — only reconcile conflicts.
+    When ``consistency_feedback`` is provided, the prompt is prefixed with
+    critical issues found by the Consistency Critic. When ``language_feedback``
+    is provided, the prompt is appended with anglicism warnings from the
+    Language Lint. Either retry path must preserve existing content and only
+    fix what's flagged.
     """
     em: EventEmitter = emitter or NullEmitter()
     if not session.source_reports:
@@ -68,14 +70,17 @@ async def synthesize_final_report(
             "synthesize_final_report: session.analysis is None; call analyze first"
         )
 
-    is_retry = consistency_feedback is not None
+    is_consistency_retry = consistency_feedback is not None
+    is_language_retry = language_feedback is not None
+    is_retry = is_consistency_retry or is_language_retry
     em.emit(
         "synthesizer",
-        "Собираю финальный отчёт (retry с фидбеком критика)" if is_retry else "Собираю финальный отчёт",
+        "Собираю финальный отчёт (retry с фидбеком)" if is_retry else "Собираю финальный отчёт",
         data={
             "source_reports": len(session.source_reports),
             "followup_reports": len(session.followup_reports),
-            "consistency_retry": is_retry,
+            "consistency_retry": is_consistency_retry,
+            "language_retry": is_language_retry,
         },
     )
 
@@ -83,7 +88,11 @@ async def synthesize_final_report(
     if not system:
         raise RuntimeError("prompts/synthesizer.md not found")
 
-    user = _build_user_message(session, consistency_feedback=consistency_feedback)
+    user = _build_user_message(
+        session,
+        consistency_feedback=consistency_feedback,
+        language_feedback=language_feedback,
+    )
 
     data, cost_rub = await _call_synth_with_retry(
         system=system, user=user, log_dir=log_dir, mock=mock
@@ -114,10 +123,11 @@ def _build_user_message(
     session: V4Session,
     *,
     consistency_feedback: "ConsistencyReport | None" = None,
+    language_feedback: list[Any] | None = None,
 ) -> str:
     parts: list[str] = []
 
-    # Inject consistency critic feedback at the TOP if this is a retry
+    # Inject consistency critic feedback at the TOP (retry path)
     if consistency_feedback is not None:
         from .synthesis_critic import build_consistency_feedback_text
         feedback_text = build_consistency_feedback_text(consistency_feedback)
@@ -163,6 +173,22 @@ def _build_user_message(
     # v4.5: inject fact inventory for data-preservation rule
     if analysis is not None and analysis.all_numeric_facts:
         parts.append(_build_facts_section(analysis))
+
+    # Language-lint feedback injection (Track 3 retry pass)
+    if language_feedback:
+        feedback_lines = [
+            "\n---",
+            "ПРЕДЫДУЩАЯ ВЕРСИЯ СОДЕРЖИТ АНГЛИЦИЗМЫ НЕ ИЗ WHITELIST:",
+            "",
+        ]
+        for warning in language_feedback:
+            token = warning.get("token", "") if isinstance(warning, dict) else getattr(warning, "token", "")
+            ctx = warning.get("location_context", "") if isinstance(warning, dict) else getattr(warning, "location_context", "")
+            feedback_lines.append(f'- "{token}" в контексте "...{ctx}..."')
+        feedback_lines.append(
+            "\nЗамени каждое на русский эквивалент. Исключения ТОЛЬКО из whitelist выше.\n---"
+        )
+        parts.append("\n".join(feedback_lines))
 
     parts.append(
         "\n---\n"
@@ -514,3 +540,90 @@ def _enum(v: Any, allowed: tuple[str, ...], default: str) -> Any:
 
 # unused import guard (for tools that can't see analyzer's UploadedMarkdown usage)
 _ = UploadedMarkdown
+
+
+# ---------------------------------------------------------------------------
+# Language-lint helper: extract all user-visible text from a FinalReport
+# ---------------------------------------------------------------------------
+
+
+def full_report_text(report: FinalReport) -> str:
+    """Concatenate all user-visible text fields from *report* for language linting.
+
+    Deliberately excludes URLs, source titles, and internal metadata so the
+    linter focuses on prose authored by the Synthesizer, not on external data.
+    """
+    parts: list[str] = []
+
+    # Question / title fields
+    if report.question:
+        parts.append(report.question)
+
+    # Executive summary
+    es = report.executive_summary
+    if es.main_answer:
+        parts.append(es.main_answer)
+    parts.extend(es.top_findings)
+    if es.confidence_note:
+        parts.append(es.confidence_note)
+    if es.what_meta_adds:
+        parts.append(es.what_meta_adds)
+    for kn in es.key_numbers:
+        parts.append(kn.metric)
+        parts.append(kn.subject)
+
+    # Main body sections
+    for field in (
+        report.main_synthesis,
+        report.consensus_section,
+        report.conflicts_section,
+        report.gaps_filled_section,
+    ):
+        if field:
+            parts.append(field)
+
+    # Q&A section
+    for item in report.qa_section:
+        parts.append(item.question)
+        parts.append(item.answer)
+        if item.details_ref:
+            parts.append(item.details_ref)
+
+    # Ranking
+    for item in report.ranking:
+        parts.append(item.label)
+        if item.rationale:
+            parts.append(item.rationale)
+
+    # Tables (title + caption + column headers + cell text)
+    for table in report.tables:
+        parts.append(table.title)
+        parts.extend(table.columns)
+        for row in table.rows:
+            parts.extend(row)
+        if table.caption:
+            parts.append(table.caption)
+        if table.source_ref:
+            parts.append(table.source_ref)
+
+    # Charts (title + caption + axis labels)
+    for chart in report.charts:
+        parts.append(chart.title)
+        if chart.x_label:
+            parts.append(chart.x_label)
+        if chart.y_label:
+            parts.append(chart.y_label)
+        if chart.caption:
+            parts.append(chart.caption)
+
+    # Callouts
+    for callout in report.callouts:
+        parts.append(callout.title)
+        parts.append(callout.body)
+
+    # Key numbers highlight
+    for knh in report.key_numbers_highlight:
+        parts.append(knh.label)
+        parts.append(knh.source_ref)
+
+    return "\n".join(p for p in parts if p)
