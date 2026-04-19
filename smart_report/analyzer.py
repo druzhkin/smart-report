@@ -34,8 +34,11 @@ from .models import (
 )
 
 
-# v4 spec §7 rule 2: Opus 4.7, don't swap.
-ANALYZER_MODEL = "anthropic/claude-opus-4-7"
+# v4.5 bakeoff: Opus 4.7 is the only analyzer model above the 70 floor (scores 90/100).
+# Sonnet 4.6 scores 60 (fails conflicts_ge5 + all_numeric_facts=0 without Opus prompt).
+# Override via ModelConfig.ANALYZER_MODEL if prompt is tuned for cheaper models.
+from .config import ModelConfig as _ModelConfig
+ANALYZER_MODEL = _ModelConfig.ANALYZER_MODEL
 _MAX_JSON_RETRIES = 2
 
 
