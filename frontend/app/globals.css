@@ -870,7 +870,6 @@ input:focus, textarea:focus, select:focus {
 .v4-doc .vd-scroll {
   overflow-y: auto;
   overflow-x: hidden;
-  height: calc(100vh - 48px);
   scroll-behavior: smooth;
 }
 .v4-doc .vd-inner {
@@ -1299,7 +1298,7 @@ input:focus, textarea:focus, select:focus {
 /* ---- FINAL REPORT layout ----------------------------------------- */
 .v4-doc .vd-report-wrap {
   display: grid;
-  grid-template-columns: 200px 1fr 0px;
+  grid-template-columns: 200px 1fr;
   min-height: calc(100vh - 48px);
   transition: grid-template-columns 220ms ease;
 }
@@ -1314,7 +1313,8 @@ input:focus, textarea:focus, select:focus {
   font-size: 12px;
   position: sticky;
   top: 48px;
-  height: calc(100vh - 48px);
+  max-height: calc(100vh - 48px);
+  align-self: start;
 }
 .v4-doc .vd-toc-title {
   font-family: var(--vd-f-mono);
@@ -1348,8 +1348,8 @@ input:focus, textarea:focus, select:focus {
 
 .v4-doc .vd-report-scroll {
   overflow-y: auto;
-  height: calc(100vh - 48px);
   background: var(--vd-paper);
+  min-height: calc(100vh - 48px);
 }
 .v4-doc .vd-report-inner {
   padding: 32px 40px 120px;
