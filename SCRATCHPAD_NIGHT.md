@@ -19,18 +19,19 @@ Owner: agent-track-a
 Branch: `night/track-a`  
 Started: 2026-04-18  
 Last update: [00:00] Track A: started, reading spec + codebase, creating branch night/track-a
+[00:45] Track A: COMPLETE — models extended (6 new classes + 7 fields on FinalReport), synthesizer.md rewritten with few-shots+12 anti-patterns, synthesizer.py coercers added, 34 new tests all pass, 119/119 total pass. Schema committed early for B/C.
 
 ### Track B — Professional DOCX Renderer
 Owner: agent-track-b  
 Branch: `night/track-b`  
-Started: —  
-Last update: —
+Started: 2026-04-18  
+Last update: [00:30] Track B: started, read spec + models.py. Track A schema committed (KeyNumberHighlight not KeyNumber for highlights — noted). Branch night/track-b created. Building docx_v4_consulting.py.
 
 ### Track C — Chart Generator
 Owner: agent-track-c  
 Branch: `night/track-c`  
-Started: —  
-Last update: —
+Started: 2026-04-18  
+Last update: [10:45] Track C: DONE. chart_renderer.py implemented (6 types: bar/line/pie/stacked_bar/waterfall/scatter), 14/14 tests green, 85 legacy tests still green. PNGs at runs/night_upgrade/chart_samples/. Mock ChartSpec used (TODO: swap to smart_report.models.ChartSpec after Track A merge). rcParams fix: axes.grid.axis not grid.axis. Fonts: DejaVu Serif (available). All PNGs 68–98 KB.
 
 ---
 

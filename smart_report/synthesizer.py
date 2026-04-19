@@ -18,10 +18,16 @@ from .io import extract_json, load_prompt
 from .llm import chat
 from .models import (
     AnalysisOutput,
+    CalloutBlock,
+    ChartSpec,
     ExecutiveSummaryV4,
     FinalReport,
     KeyNumber,
+    KeyNumberHighlight,
+    QAItem,
+    RankingItem,
     Source,
+    Table,
     UploadedMarkdown,
     V4Session,
 )
@@ -76,6 +82,12 @@ async def synthesize_final_report(
             "key_numbers": len(final.executive_summary.key_numbers),
             "top_findings": len(final.executive_summary.top_findings),
             "sources": len(final.all_sources),
+            "qa_section": len(final.qa_section),
+            "tables": len(final.tables),
+            "charts": len(final.charts),
+            "callouts": len(final.callouts),
+            "key_numbers_highlight": len(final.key_numbers_highlight),
+            "ranking": len(final.ranking),
         },
     )
     return final
@@ -221,6 +233,19 @@ def _coerce_final_report(data: dict[str, Any], *, session: V4Session) -> FinalRe
         meta.setdefault("gaps_count", len(analysis.gaps))
     meta.setdefault("cost_rub_accumulated", round(session.total_cost_rub, 4))
 
+    # --- NEW structured output fields ---
+    qa_section = _coerce_qa_section(data.get("qa_section"))
+    ranking = _coerce_ranking(data.get("ranking"))
+    tables = _coerce_tables(data.get("tables"))
+    charts = _coerce_charts(data.get("charts"))
+    callouts = _coerce_callouts(data.get("callouts"))
+    key_numbers_highlight = _coerce_key_numbers_highlight(
+        data.get("key_numbers_highlight")
+    )
+    cover_image_prompt = data.get("cover_image_prompt")
+    if not isinstance(cover_image_prompt, str):
+        cover_image_prompt = None
+
     return FinalReport(
         # Session identity is authoritative — LLM echo can drift.
         session_id=session.session_id,
@@ -234,7 +259,152 @@ def _coerce_final_report(data: dict[str, Any], *, session: V4Session) -> FinalRe
         gaps_filled_section=_s(data, "gaps_filled_section"),
         all_sources=all_sources,
         metadata=meta,
+        # NEW fields
+        qa_section=qa_section,
+        ranking=ranking,
+        tables=tables,
+        charts=charts,
+        callouts=callouts,
+        key_numbers_highlight=key_numbers_highlight,
+        cover_image_prompt=cover_image_prompt,
     )
+
+
+# --- structured output coercers ---
+
+
+def _coerce_qa_section(v: Any) -> list[QAItem]:
+    """Coerce raw LLM list to QAItem list, skipping invalid entries."""
+    items = []
+    for raw in _as_dict_list(v):
+        q = _s(raw, "question")
+        a = _s(raw, "answer")
+        if q and a:
+            items.append(
+                QAItem(
+                    question=q,
+                    answer=a,
+                    details_ref=_s(raw, "details_ref"),
+                )
+            )
+    return items
+
+
+def _coerce_ranking(v: Any) -> list[RankingItem]:
+    """Coerce raw LLM list to RankingItem list."""
+    items = []
+    for raw in _as_dict_list(v):
+        label = _s(raw, "label")
+        if not label:
+            continue
+        weight_raw = raw.get("weight")
+        weight: int | None = None
+        if isinstance(weight_raw, (int, float)) and not isinstance(weight_raw, bool):
+            weight = int(weight_raw)
+        items.append(
+            RankingItem(
+                label=label,
+                weight=weight,
+                rationale=_s(raw, "rationale"),
+                evidence_strength=_enum(
+                    raw.get("evidence_strength"), ("high", "medium", "low"), "medium"
+                ),
+            )
+        )
+    return items
+
+
+def _coerce_tables(v: Any) -> list[Table]:
+    """Coerce raw LLM list to Table list."""
+    items = []
+    for raw in _as_dict_list(v):
+        title = _s(raw, "title")
+        columns = _as_str_list(raw.get("columns"))
+        rows_raw = raw.get("rows")
+        if not title or not columns:
+            continue
+        rows: list[list[str]] = []
+        if isinstance(rows_raw, list):
+            for row in rows_raw:
+                if isinstance(row, list):
+                    rows.append([str(cell) for cell in row])
+        caption = raw.get("caption")
+        source_ref = raw.get("source_ref")
+        items.append(
+            Table(
+                title=title,
+                columns=columns,
+                rows=rows,
+                caption=caption if isinstance(caption, str) else None,
+                source_ref=source_ref if isinstance(source_ref, str) else None,
+            )
+        )
+    return items
+
+
+def _coerce_charts(v: Any) -> list[ChartSpec]:
+    """Coerce raw LLM list to ChartSpec list."""
+    _valid_types = ("bar", "line", "pie", "scatter", "stacked_bar", "waterfall")
+    items = []
+    for raw in _as_dict_list(v):
+        chart_type = raw.get("chart_type")
+        title = _s(raw, "title")
+        data = raw.get("data")
+        if chart_type not in _valid_types or not title or not isinstance(data, dict):
+            continue
+        items.append(
+            ChartSpec(
+                chart_type=chart_type,  # type: ignore[arg-type]
+                title=title,
+                data=data,
+                x_label=raw.get("x_label") if isinstance(raw.get("x_label"), str) else None,
+                y_label=raw.get("y_label") if isinstance(raw.get("y_label"), str) else None,
+                caption=raw.get("caption") if isinstance(raw.get("caption"), str) else None,
+            )
+        )
+    return items
+
+
+def _coerce_callouts(v: Any) -> list[CalloutBlock]:
+    """Coerce raw LLM list to CalloutBlock list."""
+    _valid_kinds = ("insight", "warning", "key_number", "note")
+    items = []
+    for raw in _as_dict_list(v):
+        kind = raw.get("kind")
+        title = _s(raw, "title")
+        body = _s(raw, "body")
+        if kind not in _valid_kinds or not title or not body:
+            continue
+        items.append(
+            CalloutBlock(
+                kind=kind,  # type: ignore[arg-type]
+                title=title,
+                body=body,
+            )
+        )
+    return items
+
+
+def _coerce_key_numbers_highlight(v: Any) -> list[KeyNumberHighlight]:
+    """Coerce raw LLM list to KeyNumberHighlight list."""
+    _valid_importance = ("headline", "primary", "secondary")
+    items = []
+    for raw in _as_dict_list(v):
+        value = _s(raw, "value")
+        label = _s(raw, "label")
+        if not value or not label:
+            continue
+        items.append(
+            KeyNumberHighlight(
+                value=value,
+                label=label,
+                source_ref=_s(raw, "source_ref"),
+                importance=_enum(
+                    raw.get("importance"), _valid_importance, "primary"
+                ),
+            )
+        )
+    return items
 
 
 # --- small helpers (mirror analyzer.py style) ---
