@@ -429,7 +429,7 @@ export default function Workspace() {
       push({
         role: "system",
         kind: "text",
-        content: fu.full_prompt,
+        content: fu.prompt,
       });
     } else {
       push({
