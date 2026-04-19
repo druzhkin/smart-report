@@ -262,10 +262,16 @@ async def export_session(session_id: str, format: str = "md") -> FileResponse:
             detail=f"session {session_id} has no final_report yet; call /synthesize first",
         )
 
-    report_dict = v4_to_report_dict(session.final_report)
     out_dir = _session_artefact_dir(session_id)
     filename, writer, media_type = _export_handler(format)
-    out_path = writer(out_dir / filename, report_dict)
+    if format == "docx":
+        # Use auto-selecting renderer (Node.js docx-js preferred, python-docx fallback)
+        # — operates on the FinalReport directly, not the flattened report_dict.
+        from smart_report.exporters import render_docx as _render_docx
+        out_path = _render_docx(session.final_report, out_dir / filename)
+    else:
+        report_dict = v4_to_report_dict(session.final_report)
+        out_path = writer(out_dir / filename, report_dict)
     return FileResponse(
         str(out_path),
         media_type=media_type,
