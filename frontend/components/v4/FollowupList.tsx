@@ -16,6 +16,94 @@ const TOOL_LABEL: Record<string, string> = {
   claude: "Claude",
 };
 
+/**
+ * Single-mode variant (v4.1+): renders ONE consolidated followup prompt as a
+ * full-width amber-accented card. Pass `single` prop when `analysis.followup_prompt`
+ * is present.
+ */
+export function FollowupSingle({ prompt }: { prompt: FollowupPrompt }) {
+  const [copied, setCopied] = useState(false);
+  const [done, setDone] = useState(false);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(prompt.prompt);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  return (
+    <div
+      className="card"
+      style={{
+        padding: "1.25rem",
+        borderLeft: "3px solid #d97706",
+        opacity: done ? 0.6 : 1,
+        transition: "opacity .2s",
+      }}
+    >
+      {/* Header */}
+      <div className="flex flex-wrap items-center gap-2 mb-3">
+        <span
+          className="text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full"
+          style={{ background: "#fef3c7", color: "#92400e" }}
+        >
+          Сводный добор
+        </span>
+        <span className="text-[11px] px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+          {TOOL_LABEL[prompt.suggested_tool] || prompt.suggested_tool}
+        </span>
+        {prompt.suggested_source_site && (
+          <span className="text-[11px] px-2 py-0.5 rounded-full font-mono"
+            style={{ background: "#fef3c7", color: "#92400e", border: "1px solid #fcd34d" }}>
+            {prompt.suggested_source_site}
+          </span>
+        )}
+        {prompt.target_info && (
+          <span className="ml-auto text-[11px] muted">{prompt.target_info}</span>
+        )}
+      </div>
+
+      {/* Body */}
+      <pre
+        className="whitespace-pre-wrap font-sans text-[13px] leading-relaxed p-3 rounded-lg"
+        style={{ background: "color-mix(in srgb, var(--border) 25%, var(--bg) 75%)" }}
+      >
+        {prompt.prompt}
+      </pre>
+
+      {/* Actions */}
+      <div className="flex items-center gap-3 mt-3">
+        <button className="btn" onClick={copy} disabled={done}>
+          {copied ? (
+            <>
+              <Check size={13} className="text-emerald-500" />
+              Скопировано
+            </>
+          ) : (
+            <>
+              <Copy size={13} />
+              Копировать
+            </>
+          )}
+        </button>
+        <label className="flex items-center gap-2 text-sm muted cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={done}
+            onChange={(e) => setDone(e.target.checked)}
+            style={{ width: "auto", padding: 0 }}
+          />
+          Уже запустил
+        </label>
+      </div>
+    </div>
+  );
+}
+
 export function FollowupList({ prompts }: { prompts: FollowupPrompt[] }) {
   const must = prompts.filter((p) => p.priority === "must");
   const nice = prompts.filter((p) => p.priority === "nice");

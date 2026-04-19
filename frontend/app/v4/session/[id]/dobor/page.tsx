@@ -93,10 +93,15 @@ export default function V4DoborPage() {
   }
 
   const a = session?.analysis;
-  const mustFollowups = a?.followup_prompts.filter((f) => f.priority === "must") || [];
+  // v4.1+: prefer single consolidated prompt; fall back to legacy MUST list.
+  const singleFollowup = a?.followup_prompt ?? null;
+  const mustFollowups = singleFollowup
+    ? []
+    : (a?.followup_prompts.filter((f) => f.priority === "must") ?? []);
   const fileCount = files.length;
-  const mustCount = mustFollowups.length;
-  const progressPct = mustCount > 0 ? Math.min(100, (fileCount / mustCount) * 100) : 0;
+  // Progress denominator: 1 if single prompt, else count of MUST items.
+  const doborTotal = singleFollowup ? 1 : mustFollowups.length;
+  const progressPct = doborTotal > 0 ? Math.min(100, (fileCount / doborTotal) * 100) : 0;
 
   return (
     <div
@@ -136,7 +141,9 @@ export default function V4DoborPage() {
         <div>
           <div className="v4-mono" style={{ marginBottom: 6 }}>Прогресс добора</div>
           <div style={{ fontFamily: "var(--v4-f-display)", fontSize: 22, color: "var(--v4-ink)" }}>
-            Загружено {fileCount} из {mustCount} обязательных
+            {singleFollowup
+              ? `Загружено ${fileCount} из 1 добора`
+              : `Загружено ${fileCount} из ${doborTotal} обязательных`}
           </div>
         </div>
         <div
@@ -296,7 +303,31 @@ export default function V4DoborPage() {
             phaseStatus={{ prompt: "done", external: "done", analyzer: "done", synth: "pending" }}
           />
 
-          {mustFollowups.length > 0 && (
+          {/* Single consolidated prompt reminder (v4.1+) */}
+          {singleFollowup && (
+            <div style={{ marginTop: 32 }}>
+              <SectionKicker>Напомнить добор-промт</SectionKicker>
+              <div
+                style={{
+                  marginTop: 12,
+                  padding: "10px 0",
+                  borderBottom: "1px solid var(--v4-rule)",
+                  display: "grid",
+                  gridTemplateColumns: "1fr auto",
+                  gap: 10,
+                  alignItems: "center",
+                }}
+              >
+                <span style={{ fontSize: 13, color: "var(--v4-ink-2)" }}>
+                  {singleFollowup.target_info || "Сводный добор-промт"}
+                </span>
+                <ToolMark tool={singleFollowup.suggested_tool} size={20} />
+              </div>
+            </div>
+          )}
+
+          {/* Legacy: multiple MUST followup reminders */}
+          {!singleFollowup && mustFollowups.length > 0 && (
             <div style={{ marginTop: 32 }}>
               <SectionKicker>Напомнить followup-промты</SectionKicker>
               <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>

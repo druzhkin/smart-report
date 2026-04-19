@@ -74,8 +74,14 @@ export default function V4AnalysisPage() {
   }
 
   const a = session.analysis;
-  const mustFollowups = a.followup_prompts.filter((f) => f.priority === "must");
-  const niceFollowups = a.followup_prompts.filter((f) => f.priority === "nice");
+  // v4.1+: prefer single consolidated prompt; fall back to legacy list.
+  const singleFollowup = a.followup_prompt ?? null;
+  const mustFollowups = singleFollowup
+    ? []
+    : a.followup_prompts.filter((f) => f.priority === "must");
+  const niceFollowups = singleFollowup
+    ? []
+    : a.followup_prompts.filter((f) => f.priority === "nice");
 
   return (
     <div
@@ -293,45 +299,78 @@ export default function V4AnalysisPage() {
               className="v4-display v4-display-l"
               style={{ marginTop: 10, marginBottom: 4 }}
             >
-              Followup-промты
+              {singleFollowup ? "Сводный добор-промт" : "Followup-промты"}
             </h2>
             <p style={{ color: "var(--v4-ink-3)", fontSize: 14, maxWidth: 560 }}>
-              Запустите их в рекомендованных инструментах. Закройте пробелы, проверьте
-              противоречия.
+              {singleFollowup
+                ? "Один запрос в Deep Research закрывает все пробелы и противоречия."
+                : "Запустите их в рекомендованных инструментах. Закройте пробелы, проверьте противоречия."}
             </p>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
-            <div style={{ textAlign: "right" }}>
-              <div className="v4-mono">MUST</div>
-              <div
-                style={{
-                  fontFamily: "var(--v4-f-mono)",
-                  fontVariantNumeric: "tabular-nums",
-                  fontSize: 24,
-                  color: "var(--v4-ink)",
-                }}
-              >
-                {mustFollowups.length}
+            {singleFollowup ? (
+              <div style={{ textAlign: "right" }}>
+                <div className="v4-mono">ДОБОР</div>
+                <div
+                  style={{
+                    fontFamily: "var(--v4-f-mono)",
+                    fontVariantNumeric: "tabular-nums",
+                    fontSize: 24,
+                    color: "var(--v4-ink)",
+                  }}
+                >
+                  1
+                </div>
               </div>
-            </div>
-            <div style={{ textAlign: "right" }}>
-              <div className="v4-mono">NICE</div>
-              <div
-                style={{
-                  fontFamily: "var(--v4-f-mono)",
-                  fontVariantNumeric: "tabular-nums",
-                  fontSize: 24,
-                  color: "var(--v4-ink-3)",
-                }}
-              >
-                {niceFollowups.length}
-              </div>
-            </div>
+            ) : (
+              <>
+                <div style={{ textAlign: "right" }}>
+                  <div className="v4-mono">MUST</div>
+                  <div
+                    style={{
+                      fontFamily: "var(--v4-f-mono)",
+                      fontVariantNumeric: "tabular-nums",
+                      fontSize: 24,
+                      color: "var(--v4-ink)",
+                    }}
+                  >
+                    {mustFollowups.length}
+                  </div>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <div className="v4-mono">NICE</div>
+                  <div
+                    style={{
+                      fontFamily: "var(--v4-f-mono)",
+                      fontVariantNumeric: "tabular-nums",
+                      fontSize: 24,
+                      color: "var(--v4-ink-3)",
+                    }}
+                  >
+                    {niceFollowups.length}
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </div>
 
-        {/* MUST */}
-        {mustFollowups.length > 0 && (
+        {/* Single consolidated prompt (v4.1+) */}
+        {singleFollowup && (
+          <FollowupSingleCard
+            f={singleFollowup}
+            done={!!doneMap[singleFollowup.prompt_id]}
+            onToggle={() =>
+              setDoneMap({
+                ...doneMap,
+                [singleFollowup.prompt_id]: !doneMap[singleFollowup.prompt_id],
+              })
+            }
+          />
+        )}
+
+        {/* Legacy: MUST list (fallback when no single prompt) */}
+        {!singleFollowup && mustFollowups.length > 0 && (
           <div style={{ marginBottom: 40 }}>
             <SectionKicker>Обязательные</SectionKicker>
             <div style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 16 }}>
@@ -350,8 +389,8 @@ export default function V4AnalysisPage() {
           </div>
         )}
 
-        {/* NICE */}
-        {niceFollowups.length > 0 && (
+        {/* Legacy: NICE list (fallback when no single prompt) */}
+        {!singleFollowup && niceFollowups.length > 0 && (
           <div style={{ opacity: 0.85 }}>
             <SectionKicker>По желанию</SectionKicker>
             <div style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 16 }}>
@@ -758,6 +797,112 @@ function FollowupCard({
         >
           {f.prompt}
         </p>
+      </div>
+    </article>
+  );
+}
+
+/**
+ * Full-width amber-accented card for the single consolidated followup prompt (v4.1+).
+ * Shows tool badge, source hint pill, target_info title, multi-section prose body,
+ * a copy button and a done toggle.
+ */
+function FollowupSingleCard({
+  f,
+  done,
+  onToggle,
+}: {
+  f: FollowupPrompt;
+  done: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <article
+      style={{
+        border: "1px solid var(--v4-rule)",
+        borderLeft: "3px solid #d97706", // amber accent rule
+        background: done ? "var(--v4-paper-3)" : "var(--v4-paper-2)",
+        opacity: done ? 0.6 : 1,
+        transition: "all .2s",
+      }}
+    >
+      {/* Header row */}
+      <div
+        style={{
+          padding: "16px 24px",
+          borderBottom: "1px solid var(--v4-rule)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          flexWrap: "wrap",
+          gap: 12,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <ToolBadge tool={f.suggested_tool} small />
+          {f.suggested_source_site && (
+            <span
+              style={{
+                fontFamily: "var(--v4-f-mono)",
+                fontSize: 11,
+                padding: "2px 8px",
+                border: "1px solid #d97706",
+                color: "#92400e",
+                background: "#fffbeb",
+              }}
+            >
+              {f.suggested_source_site}
+            </span>
+          )}
+          <span className="v4-badge v4-badge-ink" style={{ fontSize: 9 }}>
+            СВОДНЫЙ
+          </span>
+          {f.target_info && (
+            <span style={{ fontFamily: "var(--v4-f-mono)", fontSize: 11, color: "var(--v4-ink-3)" }}>
+              {f.target_info}
+            </span>
+          )}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <CopyButton text={f.prompt} label="Копировать" />
+          <button
+            onClick={onToggle}
+            aria-label={done ? "Снять отметку" : "Отметить как выполненное"}
+            style={{
+              background: done ? "#d97706" : "transparent",
+              color: done ? "white" : "var(--v4-ink-3)",
+              border: "1px solid",
+              borderColor: done ? "#d97706" : "var(--v4-rule-strong)",
+              padding: "4px 12px",
+              cursor: "pointer",
+              fontFamily: "var(--v4-f-mono)",
+              fontSize: 11,
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            {done ? <Icons.check /> : null}
+            {done ? "Выполнено" : "Отметить"}
+          </button>
+        </div>
+      </div>
+
+      {/* Body */}
+      <div style={{ padding: "20px 24px" }}>
+        <pre
+          style={{
+            fontFamily: "var(--v4-f-body)",
+            fontSize: 14,
+            lineHeight: 1.65,
+            color: "var(--v4-ink-2)",
+            margin: 0,
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+          }}
+        >
+          {f.prompt}
+        </pre>
       </div>
     </article>
   );

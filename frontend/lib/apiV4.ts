@@ -92,6 +92,9 @@ export type AnalysisOutput = {
   gaps: Gap[];
   unverified_numbers: UnverifiedNumber[];
   quality_notes: string;
+  /** Canonical single consolidated followup prompt (v4.1+). One DR run closes all gaps. */
+  followup_prompt: FollowupPrompt | null;
+  /** Legacy list kept for backward-compat. Shim: [followup_prompt] when new field present. */
   followup_prompts: FollowupPrompt[];
 };
 
