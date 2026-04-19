@@ -1681,3 +1681,64 @@ input:focus, textarea:focus, select:focus {
 .v4-doc ::-webkit-scrollbar-thumb { background: var(--vd-rule); border: 2px solid var(--vd-paper); }
 .v4-doc ::-webkit-scrollbar-thumb:hover { background: var(--vd-ink-4); }
 
+/* ---- Force paper surface on html/body when v4-doc is rendered ----
+   The Swiss document fills the viewport. Without this, dark-mode
+   --bg bleeds through the margins around the v4-doc flex container. */
+html:has(.v4-doc),
+body:has(.v4-doc) {
+  background: #F5F3EE !important;
+  color: #111111 !important;
+}
+.dark html:has(.v4-doc),
+.dark body:has(.v4-doc) {
+  background: #F5F3EE !important;
+  color: #111111 !important;
+}
+/* Hide layout.tsx global decorative blurs on v4-doc routes */
+body:has(.v4-doc) > div[class*="fixed"][class*="blur"] { display: none; }
+
+/* ---- Model picker (Opus / Sonnet pipeline-wide toggle) ----------- */
+.v4-doc .vd-model-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  border: 1px solid var(--vd-rule);
+  background: var(--vd-paper);
+  font-family: var(--vd-f-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  user-select: none;
+}
+.v4-doc .vd-model-picker .vd-mp-label {
+  padding: 0 10px;
+  color: var(--vd-ink-3);
+  border-right: 1px solid var(--vd-rule);
+  font-size: 9px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+}
+.v4-doc .vd-model-picker button {
+  padding: 0 12px;
+  height: 26px;
+  background: transparent;
+  border: none;
+  font-family: inherit;
+  font-size: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: var(--vd-ink-3);
+  cursor: pointer;
+  transition: background 120ms, color 120ms;
+}
+.v4-doc .vd-model-picker button:hover { color: var(--vd-ink); }
+.v4-doc .vd-model-picker button.active {
+  background: var(--vd-ink);
+  color: var(--vd-paper);
+  font-weight: 600;
+}
+.v4-doc .vd-model-picker button + button { border-left: 1px solid var(--vd-rule); }
+.v4-doc .vd-model-picker button.active + button,
+.v4-doc .vd-model-picker button + button.active { border-left-color: var(--vd-ink); }
+

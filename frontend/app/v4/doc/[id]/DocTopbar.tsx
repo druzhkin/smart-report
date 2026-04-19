@@ -2,6 +2,8 @@
 
 /** DocTopbar — sticky masthead for the Swiss document view */
 
+import { ModelPicker } from "@/components/ModelPicker";
+
 const STEP_LABELS = ["Вопрос", "Промт", "Загрузка", "Критика", "Добор", "Финал"];
 
 interface Props {
@@ -58,8 +60,9 @@ export function DocTopbar({ question, step, cost, onExport, onNewSession }: Prop
         </div>
       </div>
 
-      {/* Right: cost badge + sparkline + export + new */}
+      {/* Right: model picker + cost badge + sparkline + export + new */}
       <div className="vd-topbar-right">
+        <ModelPicker compact />
         {cost > 0 && (
           <div className="vd-cost-btn">
             <svg

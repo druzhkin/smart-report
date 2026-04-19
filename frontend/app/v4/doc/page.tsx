@@ -9,6 +9,7 @@
 import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createSession } from "@/lib/apiV4";
+import { ModelPicker } from "@/components/ModelPicker";
 
 function DocEntryInner() {
   const router = useRouter();
@@ -66,6 +67,7 @@ function DocEntryInner() {
             </div>
           )}
           <div className="vd-actions">
+            <ModelPicker />
             <button
               type="submit"
               className="vd-btn-primary"
