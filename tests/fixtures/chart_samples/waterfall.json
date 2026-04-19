@@ -1,0 +1,13 @@
+{
+  "chart_type": "waterfall",
+  "title": "Экономика аменитис: вклад каждой категории в NPV проекта (млн руб.)",
+  "data": {
+    "labels": ["Базовая цена", "Фитнес (+)", "Бассейн (+)", "Паркинг (+)", "МОПы (+)", "CAPEX (-)", "OPEX (-)", "Итог"],
+    "values": [1000, 125, 210, 105, 55, -445, -180, 870],
+    "types": ["base", "positive", "positive", "positive", "positive", "negative", "negative", "total"]
+  },
+  "x_label": "Компонент",
+  "y_label": "NPV вклад (млн руб.)",
+  "caption": "Иллюстративный пример для проекта ~300 квартир бизнес-класса",
+  "source": "Smart Report · Smart Report Analytics"
+}
