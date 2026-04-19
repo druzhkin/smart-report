@@ -100,9 +100,27 @@ def mock_all_llm_calls(monkeypatch):
             cost_rub=_COST_PER_CALL,
         )
 
+    # Stub Intake call_json — it's invoked by normalize_all_reports during analyze step (v4.5)
+    async def _intake_stub(*a, **kw):
+        return LLMResult(
+            text=json.dumps({"numeric_facts": [], "qualitative_facts": [], "claims": []}),
+            cost_rub=0.0,  # deterministic path contributes nothing
+        )
+
+    # Stub critic call_json — it's invoked by validate_consistency in synthesize step (v4.5)
+    async def _critic_stub(*a, **kw):
+        return LLMResult(
+            text=json.dumps({"issues": [], "severity_summary": {"critical": 0, "material": 0, "minor": 0}, "overall_verdict": "pass"}),
+            cost_rub=0.0,
+        )
+
     monkeypatch.setattr(pm_module, "call_json", _pm_stub)
     monkeypatch.setattr(analyzer_module, "call_json", _an_stub)
     monkeypatch.setattr(synth_module, "call_json", _syn_stub)
+    from smart_report import intake as intake_module
+    from smart_report import synthesis_critic as critic_module
+    monkeypatch.setattr(intake_module, "call_json", _intake_stub)
+    monkeypatch.setattr(critic_module, "call_json", _critic_stub)
 
 
 @pytest.mark.asyncio

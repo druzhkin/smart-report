@@ -197,8 +197,20 @@ async def test_orchestrator_post_processing_with_mock_synth() -> None:
 
     orch = V4Orchestrator(store, mock=True)
 
-    with patch("smart_report.synthesizer.call_json", new_callable=AsyncMock) as mock_call:
+    # Critic also makes an LLM call in the synthesize path (v4.5) — mock it
+    critic_response = LLMResult(
+        text=json.dumps({
+            "issues": [],
+            "severity_summary": {"critical": 0, "material": 0, "minor": 0},
+            "overall_verdict": "pass",
+        }),
+        cost_rub=0.0,
+    )
+
+    with patch("smart_report.synthesizer.call_json", new_callable=AsyncMock) as mock_call, \
+         patch("smart_report.synthesis_critic.call_json", new_callable=AsyncMock) as mock_critic:
         mock_call.return_value = mock_llm_result
+        mock_critic.return_value = critic_response
         # Disable mock mode so post-processing runs (mock=True skips retry only)
         orch.mock = False
         final = await orch.synthesize("test-pp")

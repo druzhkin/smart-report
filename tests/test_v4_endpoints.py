@@ -197,9 +197,25 @@ def test_v4_full_cycle(monkeypatch, tmp_path):
     async def _syn_stub(*a, **kw):
         return LLMResult(text=json.dumps(synth_payload, ensure_ascii=False), cost_rub=0.12)
 
+    async def _intake_stub(*a, **kw):
+        return LLMResult(
+            text=json.dumps({"numeric_facts": [], "qualitative_facts": [], "claims": []}),
+            cost_rub=0.0,
+        )
+
+    async def _critic_stub(*a, **kw):
+        return LLMResult(
+            text=json.dumps({"issues": [], "severity_summary": {"critical": 0, "material": 0, "minor": 0}, "overall_verdict": "pass"}),
+            cost_rub=0.0,
+        )
+
     monkeypatch.setattr(pm_module, "call_json", _pm_stub)
     monkeypatch.setattr(analyzer_module, "call_json", _an_stub)
     monkeypatch.setattr(synth_module, "call_json", _syn_stub)
+    from smart_report import intake as intake_module
+    from smart_report import synthesis_critic as critic_module
+    monkeypatch.setattr(intake_module, "call_json", _intake_stub)
+    monkeypatch.setattr(critic_module, "call_json", _critic_stub)
 
     client = TestClient(app)
     sid = client.post(
