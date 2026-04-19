@@ -1249,14 +1249,6 @@ export default function Workspace() {
                       {analysisData.followup_prompt.prompt}
                     </pre>
                   </div>
-                  {analysisData.followup_prompt.suggested_source_site && (
-                    <div className="prompt-section">
-                      <div className="ps-title">Рекомендованный сайт</div>
-                      <p style={{ fontSize: 13, lineHeight: 1.55, fontFamily: "var(--mono)" }}>
-                        {analysisData.followup_prompt.suggested_source_site}
-                      </p>
-                    </div>
-                  )}
                 </div>
               )}
               {artifact.kind === "topup" && !analysisData?.followup_prompt && (

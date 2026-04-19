@@ -60,7 +60,18 @@ interface ThinkingProps {
 export function Thinking({ traces, duration = 2200, onDone }: ThinkingProps) {
   const [idx, setIdx] = useState(0);
   const [open, setOpen] = useState(false);
-  const [log, setLog] = useState<Array<{ step: string; dur: string }>>([]);
+  const [log, setLog] = useState<string[]>([]);
+  const [elapsed, setElapsed] = useState(0);
+  const startedAt = useRef<number>(Date.now());
+
+  // Real elapsed wall-clock timer (updates every second).
+  useEffect(() => {
+    startedAt.current = Date.now();
+    const t = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - startedAt.current) / 1000));
+    }, 1000);
+    return () => clearInterval(t);
+  }, []);
 
   useEffect(() => {
     if (idx >= traces.length - 1) {
@@ -71,30 +82,30 @@ export function Thinking({ traces, duration = 2200, onDone }: ThinkingProps) {
       return;
     }
     const t = setTimeout(() => {
-      setLog((l) => [
-        ...l,
-        { step: traces[idx], dur: (Math.random() * 1.6 + 0.4).toFixed(1) },
-      ]);
+      setLog((l) => [...l, traces[idx]]);
       setIdx((i) => Math.min(i + 1, traces.length - 1));
     }, duration);
     return () => clearTimeout(t);
   }, [idx, traces.length, duration, onDone]);
+
+  const elapsedLabel = elapsed < 60
+    ? `${elapsed}с`
+    : `${Math.floor(elapsed / 60)}м ${elapsed % 60}с`;
 
   if (open) {
     return (
       <div className="thinking-collapsible">
         <div className="thinking-head" onClick={() => setOpen(false)}>
           <span>
-            ↑ обрабатываю · {idx + 1} из {traces.length}
+            ↑ обрабатываю · {idx + 1} из {traces.length} · {elapsedLabel}
           </span>
           <span>свернуть</span>
         </div>
         <div className="thinking-log">
-          {log.map((l, i) => (
+          {log.map((step, i) => (
             <div key={i} className="thinking-log-step">
               <span className="tick">✓</span>
-              <span>{l.step}</span>
-              <span className="dur">{l.dur}s</span>
+              <span>{step}</span>
             </div>
           ))}
           {idx < traces.length && (
