@@ -6,11 +6,11 @@
  * Accepts ?q= query param (e.g. from /v4/new redirect).
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createSession } from "@/lib/apiV4";
 
-export default function DocEntryPage() {
+function DocEntryInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [question, setQuestion] = useState("");
@@ -91,5 +91,21 @@ export default function DocEntryPage() {
         </form>
       </div>
     </div>
+  );
+}
+
+export default function DocEntryPage() {
+  return (
+    <Suspense fallback={
+      <div className="v4-doc" style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh" }}>
+        <div className="vd-dots">
+          <div className="vd-dot" />
+          <div className="vd-dot" />
+          <div className="vd-dot" />
+        </div>
+      </div>
+    }>
+      <DocEntryInner />
+    </Suspense>
   );
 }
