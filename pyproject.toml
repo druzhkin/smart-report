@@ -35,6 +35,9 @@ exclude = ["tests*", "runs*", "reference*", "eval*", "scripts*", "prompts*"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+markers = [
+    "expensive: marks tests as expensive (real LLM calls, skip with -m 'not expensive')",
+]
 
 [tool.ruff]
 line-length = 100
