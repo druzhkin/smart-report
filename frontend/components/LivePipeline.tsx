@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import React, { useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Target,
@@ -80,16 +80,225 @@ function extractCell(msg: string): string | null {
   return m ? m[1] : null;
 }
 
+// ---- v4 visual branch (pure-white editorial aesthetic) ----
+// Status types used by v4 phase status map
+type V4PhaseStatus = "done" | "active" | "waiting" | "pending";
+
+function V4PhaseGlyph({ status }: { status: V4PhaseStatus }) {
+  if (status === "done") {
+    return (
+      <span style={{
+        display: "inline-flex", alignItems: "center", justifyContent: "center",
+        width: 14, height: 14,
+        border: "1px solid var(--v4-accent)",
+        background: "var(--v4-accent)",
+        color: "var(--v4-paper)",
+        flexShrink: 0,
+      }}>
+        {/* check mark */}
+        <svg width="10" height="10" viewBox="0 0 14 14" fill="none">
+          <path d="M2 7.5l3.5 3L12 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square" strokeLinejoin="miter" />
+        </svg>
+      </span>
+    );
+  }
+  if (status === "active") {
+    return (
+      <span style={{
+        display: "inline-block",
+        width: 12, height: 12,
+        border: "1px solid var(--v4-accent)",
+        background: "var(--v4-accent)",
+        animation: "v4Pulse 1.2s ease-in-out infinite",
+        flexShrink: 0,
+      }} />
+    );
+  }
+  if (status === "waiting") {
+    return (
+      <span style={{
+        display: "inline-block",
+        width: 12, height: 12,
+        border: "1px solid var(--v4-accent)",
+        background: "var(--v4-accent-wash)",
+        flexShrink: 0,
+      }} />
+    );
+  }
+  return (
+    <span style={{
+      display: "inline-block",
+      width: 12, height: 12,
+      border: "1px solid var(--v4-rule-strong)",
+      background: "transparent",
+      flexShrink: 0,
+    }} />
+  );
+}
+
+function V4ActiveTicker() {
+  const [t, setT] = React.useState(0);
+  React.useEffect(() => {
+    const id = setInterval(() => setT((v) => v + 1), 700);
+    return () => clearInterval(id);
+  }, []);
+  const dots = ".".repeat((t % 3) + 1);
+  return (
+    <div style={{
+      marginTop: 8, fontFamily: "var(--v4-f-mono)", fontSize: 10,
+      color: "var(--v4-ink-2)", letterSpacing: "0.08em", textTransform: "uppercase",
+    }}>
+      идёт анализ{dots}
+    </div>
+  );
+}
+
+const V4_PHASE_DEFS = [
+  { id: "prompt",   label: "Prompt Master",     sub: "формулирует research-промт" },
+  { id: "external", label: "External Research", sub: "вы работаете в Perplexity / OpenAI / Claude" },
+  { id: "analyzer", label: "Analyzer",          sub: "критикует загруженные отчёты" },
+  { id: "synth",    label: "Synthesizer",       sub: "собирает финальный отчёт" },
+];
+
+// Map from event keys used in pages to phase ids
+function deriveV4Statuses(events: SSEEvent[]): Record<string, V4PhaseStatus> {
+  const keyToPhase: Record<string, string> = {
+    prompt_master: "prompt",
+    external_research: "external",
+    analyzer: "analyzer",
+    synthesizer: "synth",
+  };
+  let currentPhaseIdx = -1;
+  for (const e of events) {
+    const ph = keyToPhase[e.event];
+    if (ph) {
+      const idx = V4_PHASE_DEFS.findIndex((p) => p.id === ph);
+      if (idx > currentPhaseIdx) currentPhaseIdx = idx;
+    }
+  }
+  // Check if we're in a "done" terminal state
+  const isDone = events.some((e) => e.event === "done");
+  const statuses: Record<string, V4PhaseStatus> = {};
+  V4_PHASE_DEFS.forEach((p, i) => {
+    if (isDone && i <= currentPhaseIdx) {
+      statuses[p.id] = "done";
+    } else if (i < currentPhaseIdx) {
+      statuses[p.id] = "done";
+    } else if (i === currentPhaseIdx) {
+      statuses[p.id] = "active";
+    } else if (p.id === "external" && currentPhaseIdx === 0) {
+      statuses[p.id] = "waiting";
+    } else {
+      statuses[p.id] = "pending";
+    }
+  });
+  return statuses;
+}
+
+function LivePipelineV4({
+  events,
+  goal,
+  compact = false,
+  phaseStatus,
+}: {
+  events: SSEEvent[];
+  goal?: string;
+  compact?: boolean;
+  phaseStatus?: Partial<Record<string, V4PhaseStatus>>;
+}) {
+  const status = phaseStatus ?? deriveV4Statuses(events);
+
+  return (
+    <div style={{
+      border: "1px solid var(--v4-rule)",
+      background: "var(--v4-paper-2)",
+      padding: compact ? 16 : 24,
+    }}>
+      {!compact && (
+        <div style={{ marginBottom: 14, display: "flex", alignItems: "baseline", gap: 12 }}>
+          <span style={{ fontFamily: "var(--v4-f-mono)", fontVariantNumeric: "tabular-nums", fontSize: 11, color: "var(--v4-ink-4)" }}>§ 00</span>
+          <span style={{ fontFamily: "var(--v4-f-mono)", fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--v4-ink-3)" }}>Конвейер</span>
+        </div>
+      )}
+      {goal && !compact && (
+        <div style={{ marginBottom: 16, fontFamily: "var(--v4-f-display)", fontSize: 18, color: "var(--v4-ink-2)", lineHeight: 1.3 }}>
+          {goal}
+        </div>
+      )}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 0 }}>
+        {V4_PHASE_DEFS.map((p, idx) => {
+          const s = status[p.id] || "pending";
+          const last = idx === V4_PHASE_DEFS.length - 1;
+          return (
+            <div key={p.id} style={{
+              borderLeft: idx === 0 ? "none" : "1px solid var(--v4-rule)",
+              paddingLeft: idx === 0 ? 0 : 20,
+              paddingRight: last ? 0 : 20,
+              position: "relative",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                <V4PhaseGlyph status={s} />
+                <span style={{ fontFamily: "var(--v4-f-mono)", fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--v4-ink-3)" }}>
+                  0{idx + 1}
+                </span>
+              </div>
+              <div style={{
+                fontFamily: "var(--v4-f-body)", fontSize: 14, fontWeight: 500,
+                color: s === "pending" ? "var(--v4-ink-4)" : "var(--v4-ink)",
+                lineHeight: 1.25,
+              }}>
+                {p.label}
+              </div>
+              <div style={{
+                fontSize: 12, color: s === "pending" ? "var(--v4-ink-4)" : "var(--v4-ink-3)",
+                lineHeight: 1.4, marginTop: 4,
+              }}>
+                {p.sub}
+              </div>
+              {s === "active" && <V4ActiveTicker />}
+              {s === "waiting" && (
+                <div style={{
+                  marginTop: 8, fontFamily: "var(--v4-f-mono)", fontSize: 10,
+                  color: "var(--v4-accent-ink)", letterSpacing: "0.08em", textTransform: "uppercase",
+                }}>
+                  Ждём вас →
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export function LivePipeline({
   events,
   goal,
   mode = "v3",
+  phaseStatus,
+  compact = false,
 }: {
   events: SSEEvent[];
   goal?: string;
   mode?: "v3" | "v4";
+  phaseStatus?: Partial<Record<string, V4PhaseStatus>>;
+  compact?: boolean;
 }) {
-  const phases = mode === "v4" ? V4_PHASES : PHASES;
+  if (mode === "v4") {
+    if (compact) {
+      return <LivePipelineV4 events={events} goal={goal} phaseStatus={phaseStatus} compact />;
+    }
+    return (
+      <div className="v4" data-theme="v4" style={{ padding: "48px 0" }}>
+        <div style={{ maxWidth: 1200, margin: "0 auto", padding: "0 48px" }}>
+          <LivePipelineV4 events={events} goal={goal} phaseStatus={phaseStatus} />
+        </div>
+      </div>
+    );
+  }
+
+  const phases = PHASES;
 
   const currentPhase = useMemo(() => {
     for (let i = events.length - 1; i >= 0; i--) {
@@ -195,15 +404,13 @@ export function LivePipeline({
         </div>
       </div>
 
-      {/* Stats (v3 only — v4 has no scout/connection metrics) */}
-      {mode !== "v4" && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <Stat label="Scout-задач" value={stats.scouts} icon={Radar} />
-          <Stat label="Блоков собрано" value={stats.blocks} icon={Brain} />
-          <Stat label="Доменов в поиске" value={stats.domains} icon={Search} />
-          <Stat label="Связей" value={stats.connections} icon={Link2} />
-        </div>
-      )}
+      {/* Stats — v3 only (v4 returns early above) */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <Stat label="Scout-задач" value={stats.scouts} icon={Radar} />
+        <Stat label="Блоков собрано" value={stats.blocks} icon={Brain} />
+        <Stat label="Доменов в поиске" value={stats.domains} icon={Search} />
+        <Stat label="Связей" value={stats.connections} icon={Link2} />
+      </div>
 
       {/* Live feed */}
       <div className="paper-panel">

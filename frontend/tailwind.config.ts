@@ -26,6 +26,10 @@ const config: Config = {
       },
       fontFamily: {
         sans: ["ui-sans-serif", "system-ui", "-apple-system", "Segoe UI", "Roboto", "Inter", "sans-serif"],
+        // v4 — resolve through CSS vars set by next/font
+        display: ["var(--v4-f-display)", "Spectral", "Georgia", "serif"],
+        body:    ["var(--v4-f-body)",    "Geist", "ui-sans-serif", "sans-serif"],
+        mono:    ["var(--v4-f-mono)",    "JetBrains Mono", "ui-monospace", "monospace"],
       },
       boxShadow: {
         soft: "0 1px 2px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.06)",
