@@ -29,6 +29,7 @@ from .models import (
 from .analyzer import analyze_reports
 from .bibliography import generate_bibliography
 from .data_audit import CoverageReport, audit_fact_coverage, build_retry_feedback
+from .intake import normalize_all_reports
 from .prompt_master import generate_research_prompt
 from .synthesis_critic import ConsistencyReport, validate_consistency
 from .synthesizer import full_report_text, synthesize_final_report
@@ -128,10 +129,24 @@ class V4Orchestrator:
         session.status = "reports_uploaded"
         self.store.update(session)
 
+        # v4.5: normalize each source report (extract citations + numeric/qualitative facts)
+        research_prompt_text = (
+            session.research_prompt.full_prompt if session.research_prompt else session.raw_question
+        )
+        normalized_reports = await normalize_all_reports(
+            session.source_reports,
+            research_prompt=research_prompt_text,
+            emitter=self.emitter,
+            log_dir=self.log_dir,
+            mock=self.mock,
+        )
+        session.normalized_reports = normalized_reports
+
         analysis, cost_rub = await analyze_reports(
             question=session.raw_question,
             research_prompt=session.research_prompt,
             source_reports=session.source_reports,
+            normalized_reports=normalized_reports,
             emitter=self.emitter,
             log_dir=self.log_dir,
             mock=self.mock,
