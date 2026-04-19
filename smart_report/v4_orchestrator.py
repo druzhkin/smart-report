@@ -184,6 +184,13 @@ class V4Orchestrator:
 
         # Step 3b: bibliography post-processing
         final, _ = generate_bibliography(final)
+
+        # COMMIT the first-pass result IMMEDIATELY so downstream retry failures
+        # (coverage/consistency/language) don't lose the report we already paid for.
+        # Any subsequent retries mutate `final` in-place and re-commit.
+        session.final_report = final
+        session.status = "synthesized"
+        self.store.update(session)
         self.emitter.emit(
             "bibliography",
             "Bibliography generated",
@@ -206,7 +213,7 @@ class V4Orchestrator:
             },
         )
 
-        # Step 3d: one retry on coverage failure
+        # Step 3d: one retry on coverage failure (best-effort — don't nuke first pass)
         if coverage_report.verdict in ("poor", "critical_failure") and not self.mock:
             feedback = build_retry_feedback(coverage_report)
             if feedback and session.analysis.high_relevance_facts:
@@ -218,16 +225,21 @@ class V4Orchestrator:
                 session.analysis.quality_notes = (
                     (session.analysis.quality_notes or "") + "\n\n" + feedback
                 )
-                final_retry, cost_rub_retry = await synthesize_final_report(
-                    session,
-                    emitter=self.emitter,
-                    log_dir=self.log_dir,
-                    mock=self.mock,
-                )
-                session = self._accumulate_cost(session, cost_rub_retry)
-                final_retry, _ = generate_bibliography(final_retry)
-                coverage_report = audit_fact_coverage(session.analysis, final_retry)
-                final = final_retry
+                try:
+                    final_retry, cost_rub_retry = await synthesize_final_report(
+                        session,
+                        emitter=self.emitter,
+                        log_dir=self.log_dir,
+                        mock=self.mock,
+                    )
+                    session = self._accumulate_cost(session, cost_rub_retry)
+                    final_retry, _ = generate_bibliography(final_retry)
+                    coverage_report = audit_fact_coverage(session.analysis, final_retry)
+                    final = final_retry
+                    session.final_report = final
+                    self.store.update(session)
+                except Exception as e:
+                    self.emitter.emit("synthesizer", f"Coverage retry failed: {e!r} — keeping first pass", data={})
 
         final.metadata["coverage_audit"] = {
             "coverage_pct": coverage_report.coverage_pct,
@@ -236,33 +248,44 @@ class V4Orchestrator:
             "verdict": coverage_report.verdict,
             "detail": coverage_report.detail,
         }
+        self.store.update(session)
 
-        # Step 3e: Consistency Critic loop (max 1 retry)
-        consistency = await validate_consistency(
-            final,
-            emitter=self.emitter,
-            log_dir=self.log_dir,
-            mock=self.mock,
-        )
-        if consistency.overall_verdict == "critical_failure":
-            final, cost_rub_c = await synthesize_final_report(
-                session,
-                emitter=self.emitter,
-                log_dir=self.log_dir,
-                mock=self.mock,
-                consistency_feedback=consistency,
-            )
-            session = self._accumulate_cost(session, cost_rub_c)
-            final, _ = generate_bibliography(final)
+        # Step 3e: Consistency Critic loop (max 1 retry, best-effort)
+        try:
             consistency = await validate_consistency(
                 final,
                 emitter=self.emitter,
                 log_dir=self.log_dir,
                 mock=self.mock,
             )
-        final.metadata["consistency_check"] = consistency.model_dump()
+            if consistency.overall_verdict == "critical_failure":
+                try:
+                    final, cost_rub_c = await synthesize_final_report(
+                        session,
+                        emitter=self.emitter,
+                        log_dir=self.log_dir,
+                        mock=self.mock,
+                        consistency_feedback=consistency,
+                    )
+                    session = self._accumulate_cost(session, cost_rub_c)
+                    final, _ = generate_bibliography(final)
+                    consistency = await validate_consistency(
+                        final,
+                        emitter=self.emitter,
+                        log_dir=self.log_dir,
+                        mock=self.mock,
+                    )
+                    session.final_report = final
+                    self.store.update(session)
+                except Exception as e:
+                    self.emitter.emit("synthesizer", f"Consistency retry failed: {e!r} — keeping current", data={})
+            final.metadata["consistency_check"] = consistency.model_dump()
+        except Exception as e:
+            self.emitter.emit("critic", f"Consistency check failed: {e!r} — skipping", data={})
+            final.metadata["consistency_check"] = {"error": str(e), "overall_verdict": "skipped"}
+        self.store.update(session)
 
-        # Step 3f: Language lint (Track 3) — one retry if >20 warnings
+        # Step 3f: Language lint (Track 3) — one retry if >20 warnings, best-effort
         lint_warnings = lint_output_language(full_report_text(final))
         if len(lint_warnings) > 20 and not self.mock:
             self.emitter.emit(
@@ -270,16 +293,22 @@ class V4Orchestrator:
                 f"Language lint: {len(lint_warnings)} warnings — retrying Synthesizer",
                 data={"warnings_count": len(lint_warnings)},
             )
-            final, cost_rub_l = await synthesize_final_report(
-                session,
-                emitter=self.emitter,
-                log_dir=self.log_dir,
-                mock=self.mock,
-                language_feedback=[w.model_dump() for w in lint_warnings],
-            )
-            session = self._accumulate_cost(session, cost_rub_l)
-            final, _ = generate_bibliography(final)
-            lint_warnings = lint_output_language(full_report_text(final))
+            try:
+                final_l, cost_rub_l = await synthesize_final_report(
+                    session,
+                    emitter=self.emitter,
+                    log_dir=self.log_dir,
+                    mock=self.mock,
+                    language_feedback=[w.model_dump() for w in lint_warnings],
+                )
+                session = self._accumulate_cost(session, cost_rub_l)
+                final_l, _ = generate_bibliography(final_l)
+                lint_warnings = lint_output_language(full_report_text(final_l))
+                final = final_l
+                session.final_report = final
+                self.store.update(session)
+            except Exception as e:
+                self.emitter.emit("orchestrator", f"Language retry failed: {e!r} — keeping current", data={})
 
         final.metadata["language_lint"] = {
             "warnings_count": len(lint_warnings),
