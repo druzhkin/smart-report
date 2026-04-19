@@ -48,7 +48,7 @@ export interface Project {
 }
 
 export interface Artifact {
-  kind: "prompt" | "upload" | "upload-stage" | "critique" | "report";
+  kind: "prompt" | "upload" | "upload-stage" | "critique" | "topup" | "report";
   // Real API data payload (present when connected to backend)
   data?: unknown;
 }

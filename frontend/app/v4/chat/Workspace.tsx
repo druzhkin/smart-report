@@ -243,6 +243,18 @@ export default function Workspace() {
     showToast(`Промт скопирован — ${promptData.full_prompt.length} символов`);
   }, [promptData]);
 
+  const copyFollowupPrompt = useCallback(() => {
+    const fu = analysisData?.followup_prompt;
+    if (!fu) {
+      showToast("Followup-промт ещё не готов");
+      return;
+    }
+    try {
+      navigator.clipboard.writeText(fu.prompt);
+    } catch (_) {}
+    showToast(`Followup-промт скопирован — ${fu.prompt.length} символов`);
+  }, [analysisData]);
+
   // ===== Real flow handlers =====
   const onSubmitQuestion = useCallback(
     async (text: string) => {
@@ -424,13 +436,17 @@ export default function Workspace() {
       push({
         role: "system",
         kind: "text",
-        content: `Followup-промт готов. Скопируйте его, запустите в DR, загрузите результат.\n\n**Цель:** ${fu.target_info}`,
+        content: `Followup-промт готов. Скопируйте его, запустите в DR, загрузите результат.`,
       });
       push({
         role: "system",
-        kind: "text",
-        content: fu.prompt,
+        kind: "ref",
+        refKind: "topup",
+        title: "Followup-промт",
+        subtitle: `${fu.prompt.length.toLocaleString("ru-RU")} символов · ${fu.target_info || "готов к копированию"}`,
+        accent: true,
       });
+      setArtifact({ kind: "topup" });
     } else {
       push({
         role: "system",
@@ -764,6 +780,19 @@ export default function Workspace() {
           >
             запустить добор
           </button>
+        ),
+      };
+    }
+    if (artifact.kind === "topup") {
+      return {
+        kind: "Добор",
+        title: "Followup-промт",
+        actions: (
+          <>
+            <button className="icon-btn primary" onClick={copyFollowupPrompt}>
+              скопировать
+            </button>
+          </>
         ),
       };
     }
@@ -1184,6 +1213,54 @@ export default function Workspace() {
                     Perplexity и OpenAI DR — .md или копия текста. Можно загружать несколько файлов сразу.
                   </div>
                 </div>
+              )}
+              {artifact.kind === "topup" && analysisData?.followup_prompt && (
+                <div className="prompt-doc">
+                  <h1>Followup-промт</h1>
+                  <div className="prompt-subhead">
+                    <span>{analysisData.followup_prompt.prompt.length.toLocaleString("ru-RU")} символов</span>
+                    <span>·</span>
+                    <span>{analysisData.followup_prompt.intent}</span>
+                    <span>·</span>
+                    <span>{analysisData.followup_prompt.suggested_tool}</span>
+                  </div>
+                  {analysisData.followup_prompt.target_info && (
+                    <div className="prompt-rec-block">
+                      <div className="rec-label">Цель</div>
+                      <p style={{ fontSize: 13, lineHeight: 1.55, color: "var(--ink-2)" }}>
+                        {analysisData.followup_prompt.target_info}
+                      </p>
+                    </div>
+                  )}
+                  <div className="prompt-section">
+                    <pre
+                      style={{
+                        whiteSpace: "pre-wrap",
+                        fontFamily: "var(--mono)",
+                        fontSize: 12,
+                        lineHeight: 1.6,
+                        color: "var(--ink-2)",
+                        background: "var(--paper-2)",
+                        padding: "16px",
+                        borderRadius: 4,
+                        border: "1px solid var(--rule)",
+                      }}
+                    >
+                      {analysisData.followup_prompt.prompt}
+                    </pre>
+                  </div>
+                  {analysisData.followup_prompt.suggested_source_site && (
+                    <div className="prompt-section">
+                      <div className="ps-title">Рекомендованный сайт</div>
+                      <p style={{ fontSize: 13, lineHeight: 1.55, fontFamily: "var(--mono)" }}>
+                        {analysisData.followup_prompt.suggested_source_site}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+              {artifact.kind === "topup" && !analysisData?.followup_prompt && (
+                <div style={{ padding: 24, color: "var(--ink-3)" }}>Followup-промт не сгенерирован</div>
               )}
               {artifact.kind === "critique" && analysisData && (
                 <CritiqueArtifact
