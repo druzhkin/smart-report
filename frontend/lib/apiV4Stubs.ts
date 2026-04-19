@@ -104,6 +104,17 @@ export const STUB_ANALYSIS: AnalysisOutput = {
   ],
   quality_notes:
     "Три источника согласны в главном (лидеры = Донстрой+Sminex), расходятся в причинах (цифры vs нарратив). Один критический конфликт по роли скорости, один серьёзный gap по маркетинг-бюджетам.",
+  followup_prompt: {
+    prompt_id: "f_consolidated",
+    intent: "fill_gap",
+    prompt:
+      "Найди на spark-interfax.ru маркетинговые расходы как % от выручки за 2023–2024 для: Донстрой, MR Group, Level Group, ПИК, Эталон, Sminex. По каждому — абсолютная сумма и процент, со ссылкой на конкретную страницу отчётности.",
+    target_info: "Маркетинг-бюджет / выручка",
+    suggested_tool: "perplexity",
+    suggested_source_site: "spark-interfax.ru",
+    priority: "must",
+    linked_to: "gap-1",
+  },
   followup_prompts: [
     {
       prompt_id: "f1",
