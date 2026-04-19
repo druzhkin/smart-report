@@ -17,6 +17,11 @@ function getStep(pathname: string): number {
   return 1;
 }
 
+/** doc routes have their own DocTopbar — suppress V4Shell masthead there */
+function isDocRoute(pathname: string): boolean {
+  return /\/v4\/doc/.test(pathname);
+}
+
 export function Masthead({
   cost,
   onReset,
@@ -30,6 +35,9 @@ export function Masthead({
 
   // Screen 6 has its own document-style masthead; hide the chrome bar there
   if (step === 6) return null;
+
+  // /v4/doc routes have their own DocTopbar — suppress this masthead
+  if (isDocRoute(pathname)) return null;
 
   const dateStr = new Intl.DateTimeFormat("ru-RU", {
     day: "numeric",

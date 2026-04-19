@@ -3,17 +3,24 @@
 /**
  * /v4/doc — entry point for the Swiss document UI.
  * Creates a session and navigates to /v4/doc/[id].
+ * Accepts ?q= query param (e.g. from /v4/new redirect).
  */
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createSession } from "@/lib/apiV4";
 
 export default function DocEntryPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const q = searchParams.get("q");
+    if (q) setQuestion(q);
+  }, [searchParams]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
