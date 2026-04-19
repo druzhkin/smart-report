@@ -7,12 +7,17 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { ActivePipeline } from "@/components/ActivePipeline";
 
 const MARKETING_ROUTES = ["/login", "/verify"];
+// v4 has its own full-viewport chrome and must NOT get the v2 AppShell sidebar —
+// AppShell's ActivePipeline polls /api/reports + /api/research/:id/status on a
+// 5-second tick, which spams the console with 404s on v4 routes.
+const V4_ROUTES = ["/v4"];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() || "/";
   const isMarketing = MARKETING_ROUTES.some((r) => pathname === r || pathname.startsWith(r + "/"));
+  const isV4 = V4_ROUTES.some((r) => pathname === r || pathname.startsWith(r + "/"));
 
-  if (isMarketing) {
+  if (isMarketing || isV4) {
     return <main className="flex-1 flex flex-col min-w-0 relative z-10">{children}</main>;
   }
 
