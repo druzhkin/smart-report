@@ -93,3 +93,24 @@ class ModelConfig:
 
     # §5 Critic: Opus fixed per user decision (FP risk too high to downgrade)
     SYNTHESIS_CRITIC_MODEL: str = "anthropic/claude-opus-4.7"
+
+
+def models_for_preference(pref: str | None) -> dict[str, str]:
+    """Map UI pipeline-model toggle to concrete OpenRouter IDs.
+
+    pref=None -> winner config (§1 GPT-4o PM, §3/5 Opus, §4 Sonnet).
+    pref='sonnet' -> Sonnet 4.6 everywhere (fastest/cheapest).
+    pref='opus' -> Opus 4.7 everywhere (highest quality, expensive).
+    """
+    if pref == "opus":
+        m = "anthropic/claude-opus-4.7"
+        return {"prompt_master": m, "analyzer": m, "synthesizer": m, "critic": m}
+    if pref == "sonnet":
+        m = "anthropic/claude-sonnet-4.6"
+        return {"prompt_master": m, "analyzer": m, "synthesizer": m, "critic": m}
+    return {
+        "prompt_master": ModelConfig.PROMPT_MASTER_MODEL,
+        "analyzer": ModelConfig.ANALYZER_MODEL,
+        "synthesizer": ModelConfig.SYNTHESIZER_MODEL,
+        "critic": ModelConfig.SYNTHESIS_CRITIC_MODEL,
+    }
