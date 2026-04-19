@@ -248,7 +248,16 @@ class Claim(BaseModel):
 
 
 class NumericFact(BaseModel):
-    """A single numeric fact with deterministic ID and source attribution."""
+    """A single numeric fact with deterministic ID and source attribution.
+
+    Fields added in v4.5 Track 4 (table parser path):
+      - source_quote: verbatim quote from the source document (optional)
+      - is_author_synthesis: True when the fact is marked as author synthesis
+        rather than a directly cited data point (optional, default False)
+
+    Both new fields are optional for full backward compatibility — the LLM
+    fallback path leaves them unset (None / False).
+    """
 
     model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
 
@@ -263,6 +272,9 @@ class NumericFact(BaseModel):
         "price", "volume", "share", "growth_rate", "capex", "opex",
         "premium_pct", "area", "count", "ratio", "ranking_position", "other"
     ] = "other"
+    # v4.5 Track 4 table-parser additions (optional, backward-compatible)
+    source_quote: str | None = None
+    is_author_synthesis: bool = False
 
     @staticmethod
     def make_id(value: str, metric: str, subject: str) -> str:
@@ -312,7 +324,15 @@ class NumberedSource(BaseModel):
 
 
 class NormalizedReport(BaseModel):
-    """Output of the Intake step for a single uploaded markdown file."""
+    """Output of the Intake step for a single uploaded markdown file.
+
+    v4.5 Track 4 additions (backward-compatible, all default to neutral values):
+      - facts_table_found: True when a "Сводная таблица данных" was parsed
+        and used as the primary fact source (skipping LLM extraction).
+      - facts_table_row_count: number of rows parsed from the table.
+      - fallback_used: True when the LLM extraction path ran because no table
+        was found (or the table was malformed / had zero valid rows).
+    """
 
     model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
 
@@ -325,6 +345,10 @@ class NormalizedReport(BaseModel):
     extracted_qualitative_facts: list[QualitativeFact] = Field(default_factory=list)
     fact_count_summary: dict[str, int] = Field(default_factory=dict)
     metadata: dict = Field(default_factory=dict)
+    # v4.5 Track 4 table-parser tracking (optional, backward-compatible)
+    facts_table_found: bool = False
+    facts_table_row_count: int = 0
+    fallback_used: bool = False  # True when LLM extraction ran (no table present)
 
 
 # ---------------------------------------------------------------------------

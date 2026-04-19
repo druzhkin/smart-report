@@ -6,9 +6,12 @@ Responsibilities:
    - citeturnXviewY      OpenAI DR opaque tokens
    - [N] + bibliography  Numbered reference + end-of-doc list
    - [text](url)         Plain markdown links
-2. For each source markdown, extract ALL numeric facts via LLM.
-3. Populate extracted_sources_inventory (dedup by url).
-4. Assess relevance_to_question against the research_prompt.
+2. For each source markdown, attempt deterministic table parsing first
+   (parse_data_table). If a "Сводная таблица данных" table is found, use
+   those facts directly — no LLM call needed.
+3. If no table is present, fall back to LLM fact extraction (existing path).
+4. Populate extracted_sources_inventory (dedup by url).
+5. Assess relevance_to_question against the research_prompt.
 
 Target: 200–1000 NumericFact per ~500-line source document.
 """
@@ -226,6 +229,278 @@ def extract_sources_near_claim(
             found.append(url_to_ref[url])
 
     return found
+
+
+# ---------------------------------------------------------------------------
+# Deterministic table parser (Track 4 fast path)
+# ---------------------------------------------------------------------------
+
+# Headers that signal a structured data table (case-insensitive, Russian + English).
+# The pattern deliberately requires both key words so a lone "таблица" or "данных"
+# in a table-of-contents entry does not trigger a false positive.
+_RE_TABLE_HEADER = re.compile(
+    r"(?i)"
+    r"(?:"
+    r"сводная\s+таблица\s+(?:данных|фактов)"
+    r"|data\s+summary\s+table"
+    r"|reference\s+table"
+    r"|таблица\s+(?:данных|фактов)"
+    r")"
+)
+
+# Markdown link syntax: [text](url)
+_RE_MD_LINK_SIMPLE = re.compile(r"\[([^\]]*)\]\(([^)]+)\)")
+
+# Russian guillemet quotes or plain ASCII double-quotes
+_RE_STRIP_QUOTES = re.compile(r'^[«""\'"](.*?)[»""\'"]+$', re.DOTALL)
+
+# Keyword → fact_category mapping (checked against metric text, lower-cased)
+_CATEGORY_KEYWORDS: list[tuple[list[str], str]] = [
+    (["цена", "price", "стоимость", "тариф"], "price"),
+    (["доля", "share", "%"], "share"),
+    (["рост", "growth", "прирост", "cagr"], "growth_rate"),
+    (["capex", "капвложения", "капитальные"], "capex"),
+    (["opex", "операционные расходы"], "opex"),
+    (["премия", "premium"], "premium_pct"),
+    (["м²", "площадь", "area", "кв. м", "кв.м"], "area"),
+    (["число", "количество", "count", "кол-во", "лотов", "проектов"], "count"),
+    (["объём", "volume", "объем"], "volume"),
+    (["рейтинг", "ranking", "позиция", "место"], "ranking_position"),
+    (["коэффициент", "ratio", "соотношение"], "ratio"),
+]
+
+
+def _infer_fact_category(metric: str) -> str:
+    """Return a fact_category literal based on keywords in the metric string."""
+    lower = metric.lower()
+    for keywords, category in _CATEGORY_KEYWORDS:
+        if any(kw in lower for kw in keywords):
+            return category
+    return "other"
+
+
+def _strip_md_link(cell: str) -> str:
+    """Extract URL from [text](url) markdown link or return plain text."""
+    m = _RE_MD_LINK_SIMPLE.search(cell)
+    if m:
+        return m.group(2).strip()
+    return cell.strip()
+
+
+def _strip_surrounding_quotes(cell: str) -> str:
+    """Remove wrapping Russian guillemet quotes (« ») or ASCII quotes."""
+    stripped = cell.strip()
+    m = _RE_STRIP_QUOTES.match(stripped)
+    if m:
+        return m.group(1).strip()
+    return stripped
+
+
+def _is_author_synthesis_cell(cell: str) -> bool:
+    """Return True if the quote/source cell marks an author-synthesis entry."""
+    lower = cell.lower()
+    return (
+        "авторский синтез" in lower
+        or "[author synthesis]" in lower
+        or "[авторский синтез]" in lower
+        or cell.strip() == ""
+    )
+
+
+def _col_index(headers: list[str], *keywords: str) -> int:
+    """Return index of first header cell that contains any of the keywords (case-insensitive).
+
+    Returns -1 if no match found.
+    """
+    for kw in keywords:
+        kw_l = kw.lower()
+        for i, h in enumerate(headers):
+            if kw_l in h.lower():
+                return i
+    return -1
+
+
+def parse_data_table(
+    content: str,
+    research_prompt: str = "",
+) -> list[NumericFact] | None:
+    """Parse a "Сводная таблица данных" from markdown content.
+
+    Algorithm:
+    1. Scan for a recognised heading (case-insensitive, Russian or English).
+    2. After the heading, find the next contiguous block of markdown table rows
+       (lines starting with ``|``).
+    3. Map table columns to NumericFact fields by header keyword matching.
+    4. Parse each data row into a NumericFact.
+
+    Returns:
+        A list of NumericFact if ≥1 valid row was parsed, else None.
+        Returns None (not an empty list) for malformed / missing tables so
+        callers can reliably distinguish "no table" from "empty table".
+
+    Edge-cases handled:
+    - The header may appear at any Markdown heading level (#, ##, ###, …).
+    - Separator rows (|---|---| style) are skipped automatically.
+    - If the required "value" column is absent the table is considered malformed
+      and None is returned (prevents false positives on TOC-style tables).
+    - The ``research_prompt`` is used to bump relevance to "high" when the
+      metric or subject text overlaps with its keywords.
+    """
+    lines = content.splitlines()
+
+    # Step 1: locate the heading line
+    header_line_idx: int = -1
+    for i, line in enumerate(lines):
+        # Strip leading # and whitespace from heading, then test the pattern
+        text = re.sub(r"^#+\s*", "", line).strip()
+        if _RE_TABLE_HEADER.search(text):
+            header_line_idx = i
+            break
+
+    if header_line_idx == -1:
+        return None  # no recognised heading
+
+    # Step 2: find the first markdown table block after the heading
+    table_start: int = -1
+    for i in range(header_line_idx + 1, len(lines)):
+        stripped = lines[i].strip()
+        if stripped.startswith("|"):
+            table_start = i
+            break
+        # Skip blank lines between heading and table; stop on non-blank non-table
+        if stripped and not stripped.startswith("|"):
+            break  # prose between heading and table — abort
+
+    if table_start == -1:
+        return None  # heading found but no table follows
+
+    # Collect all contiguous table lines
+    table_lines: list[str] = []
+    for i in range(table_start, len(lines)):
+        stripped = lines[i].strip()
+        if stripped.startswith("|"):
+            table_lines.append(stripped)
+        elif stripped == "":
+            # A blank line inside a table block ends the table
+            if table_lines:
+                break
+        else:
+            break  # non-table content ends the table
+
+    if len(table_lines) < 2:
+        # Need at least a header row and one data row
+        return None
+
+    def _split_row(row: str) -> list[str]:
+        """Split a markdown table row into cells, stripping leading/trailing |."""
+        row = row.strip()
+        if row.startswith("|"):
+            row = row[1:]
+        if row.endswith("|"):
+            row = row[:-1]
+        return [c.strip() for c in row.split("|")]
+
+    # Step 3: parse the header row
+    col_headers = _split_row(table_lines[0])
+
+    # Detect required column: value
+    idx_value = _col_index(col_headers, "Значение", "Value")
+    if idx_value == -1:
+        return None  # required column missing — not a data table
+
+    # Detect other columns (optional presence)
+    idx_metric = _col_index(col_headers, "Метрика", "Суть", "Metric")
+    idx_subject = _col_index(col_headers, "Субъект", "Subject")
+    idx_source_url = _col_index(col_headers, "Источник", "URL", "Source")
+    idx_source_quote = _col_index(col_headers, "Цитата", "Quote")
+    idx_timeframe = _col_index(col_headers, "Период", "Timeframe")
+
+    # Pre-compute prompt keywords for relevance bumping (lower-cased words ≥4 chars)
+    prompt_keywords: set[str] = set()
+    if research_prompt:
+        prompt_keywords = {
+            w.lower() for w in re.split(r"\W+", research_prompt) if len(w) >= 4
+        }
+
+    # Step 4: parse data rows (skip the separator row)
+    facts: list[NumericFact] = []
+    seen_ids: set[str] = set()
+
+    for row_line in table_lines[1:]:
+        # Skip separator rows (|---|---|)
+        if re.match(r"^\|[\s|:-]+\|$", row_line):
+            continue
+
+        cells = _split_row(row_line)
+
+        # Pad cells if row is shorter than headers
+        while len(cells) < len(col_headers):
+            cells.append("")
+
+        def _cell(idx: int) -> str:
+            if idx == -1 or idx >= len(cells):
+                return ""
+            return cells[idx].strip()
+
+        value = _cell(idx_value)
+        if not value:
+            continue  # skip rows without a value
+
+        metric = _cell(idx_metric)
+        subject = _cell(idx_subject)
+        timeframe = _cell(idx_timeframe) or None
+        raw_url = _cell(idx_source_url)
+        raw_quote = _cell(idx_source_quote)
+
+        # Normalise source URL
+        source_url = _strip_md_link(raw_url) if raw_url else ""
+
+        # Normalise quote
+        source_quote: str | None = None
+        is_synthesis = False
+        if raw_quote:
+            if _is_author_synthesis_cell(raw_quote):
+                is_synthesis = True
+                source_quote = None
+            else:
+                source_quote = _strip_surrounding_quotes(raw_quote) or None
+
+        # Build SourceRef if URL present
+        fact_sources: list[SourceRef] = []
+        if source_url:
+            fact_sources = [SourceRef(url=source_url, confidence="primary")]
+
+        # Infer category
+        fact_category = _infer_fact_category(metric)
+
+        # Assess relevance
+        relevance: str = "medium"
+        if prompt_keywords:
+            combined = f"{metric} {subject}".lower()
+            if any(kw in combined for kw in prompt_keywords):
+                relevance = "high"
+
+        fact_id = NumericFact.make_id(value, metric, subject)
+        if fact_id in seen_ids:
+            continue
+        seen_ids.add(fact_id)
+
+        facts.append(
+            NumericFact(
+                fact_id=fact_id,
+                value=value,
+                metric=metric,
+                subject=subject,
+                timeframe=timeframe,
+                sources=fact_sources,
+                relevance_to_question=relevance,  # type: ignore[arg-type]
+                fact_category=fact_category,  # type: ignore[arg-type]
+                source_quote=source_quote,
+                is_author_synthesis=is_synthesis,
+            )
+        )
+
+    return facts if facts else None
 
 
 # ---------------------------------------------------------------------------
@@ -538,10 +813,20 @@ async def normalize_report(
 ) -> NormalizedReport:
     """Parse an UploadedMarkdown into a fully-populated NormalizedReport.
 
+    Fast path (Track 4): if the document contains a "Сводная таблица данных"
+    section, parse it deterministically — no LLM call is made for fact
+    extraction. This is both faster and cheaper.
+
+    Fallback path: if no table is found (or the table is malformed), run the
+    existing LLM-based extraction (extract_numeric_facts_via_llm).
+
+    Both paths still run the regex-based citation/link extraction (Step 1).
+
     Steps:
-    1. Extract all source URLs via regex (4 formats)
-    2. Call LLM to extract numeric + qualitative facts
-    3. Return NormalizedReport with complete inventory
+    1. Extract all source URLs via regex (4 formats) — always runs.
+    2a. [Fast] Parse "Сводная таблица данных" if present → numeric_facts.
+    2b. [Fallback] Call LLM to extract numeric + qualitative facts.
+    3. Return NormalizedReport with complete inventory.
     """
     em: EventEmitter = emitter or NullEmitter()
     em.emit(
@@ -550,7 +835,7 @@ async def normalize_report(
         data={"word_count": report.word_count},
     )
 
-    # Step 1: regex-based source extraction
+    # Step 1: regex-based source extraction (runs regardless of path)
     sources_inventory = extract_sources_from_markdown(report.content, report.filename)
 
     em.emit(
@@ -559,15 +844,41 @@ async def normalize_report(
         data={"source_count": len(sources_inventory), "filename": report.filename},
     )
 
-    # Step 2: LLM fact extraction
-    numeric_facts, qualitative_facts, claims = await extract_numeric_facts_via_llm(
-        content=report.content,
-        filename=report.filename,
-        research_prompt=research_prompt,
-        sources_inventory=sources_inventory,
-        log_dir=log_dir,
-        mock=mock,
-    )
+    # Step 2: attempt deterministic table parse first
+    table_facts = parse_data_table(report.content, research_prompt=research_prompt)
+
+    facts_table_found = False
+    facts_table_row_count = 0
+    fallback_used = False
+    qualitative_facts: list[QualitativeFact] = []
+    claims: list[Claim] = []
+
+    if table_facts is not None:
+        # Fast path: table was parsed successfully
+        numeric_facts = table_facts
+        facts_table_found = True
+        facts_table_row_count = len(table_facts)
+        em.emit(
+            "intake",
+            "Таблица данных разобрана (без LLM)",
+            data={"row_count": facts_table_row_count, "filename": report.filename},
+        )
+    else:
+        # Fallback: LLM fact extraction
+        fallback_used = True
+        em.emit(
+            "intake",
+            "Таблица не найдена — запускаю LLM-извлечение",
+            data={"filename": report.filename},
+        )
+        numeric_facts, qualitative_facts, claims = await extract_numeric_facts_via_llm(
+            content=report.content,
+            filename=report.filename,
+            research_prompt=research_prompt,
+            sources_inventory=sources_inventory,
+            log_dir=log_dir,
+            mock=mock,
+        )
 
     # Detect source_tool
     source_tool = _detect_source_tool(report.filename, report.detected_tool)
@@ -577,6 +888,7 @@ async def normalize_report(
         "qualitative": len(qualitative_facts),
         "claims": len(claims),
         "sources": len(sources_inventory),
+        "from_table": int(facts_table_found),
     }
 
     em.emit(
@@ -598,6 +910,9 @@ async def normalize_report(
             "detected_tool": report.detected_tool,
             "word_count": report.word_count,
         },
+        facts_table_found=facts_table_found,
+        facts_table_row_count=facts_table_row_count,
+        fallback_used=fallback_used,
     )
 
 
