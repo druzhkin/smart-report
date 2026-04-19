@@ -56,14 +56,29 @@ def extract_json(raw: str) -> Any:
         return json.loads(sliced)
     except json.JSONDecodeError as err:
         pass
-    # Layer 3: repair common LLM mistakes
+    # Layer 3: repair common LLM mistakes (unescaped quotes, trailing commas, control chars)
     repaired = _repair_llm_json(sliced)
     try:
         return json.loads(repaired)
-    except json.JSONDecodeError as err:
-        # Final failure — include error location for debugging
+    except json.JSONDecodeError:
+        pass
+    # Layer 4: production-grade repair via json_repair library (handles missing commas,
+    # missing closing braces, truncated strings, and a dozen other LLM emission bugs
+    # that our hand-rolled Layer 3 doesn't cover). Installed 2026-04-19 after Sonnet
+    # on session 47d6 emitted missing-comma structure Layer 3 couldn't fix.
+    try:
+        from json_repair import repair_json as _library_repair
+    except ImportError:
+        # library not installed — surface a helpful error
         raise ValueError(
-            f"JSON unparseable even after repair: {err.msg} at line {err.lineno} col {err.colno} (char {err.pos}). "
+            "JSON unparseable after Layer 3 repair; install `json-repair` for Layer 4 "
+            f"fallback. Slice head: {sliced[:120]!r}"
+        )
+    try:
+        return json.loads(_library_repair(sliced))
+    except json.JSONDecodeError as err:
+        raise ValueError(
+            f"JSON unparseable even after json_repair Layer 4: {err.msg} at line {err.lineno} col {err.colno} (char {err.pos}). "
             f"Slice head: {sliced[:120]!r}"
         ) from err
 
