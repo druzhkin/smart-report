@@ -1074,6 +1074,109 @@ def _render_sources(doc: Document, report: FinalReport) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Consistency appendix (non-invasive, only material/minor issues)
+# ---------------------------------------------------------------------------
+
+
+def _render_consistency_appendix(doc: Document, report: FinalReport) -> None:
+    """Render an optional appendix with methodological notes from the Critic.
+
+    Only renders if report.metadata["consistency_check"] exists and has
+    material or minor issues. Critical issues are expected to be resolved
+    in the retry pass and should NOT appear here.
+
+    This appendix turns unresolved nuances into explicit honesty about edge
+    cases, improving trust rather than hiding imperfections.
+    """
+    cc = report.metadata.get("consistency_check")
+    if not isinstance(cc, dict):
+        return
+
+    issues_raw = cc.get("issues", [])
+    if not isinstance(issues_raw, list):
+        return
+
+    # Filter to material/minor only (critical should have been resolved)
+    non_critical = [
+        i for i in issues_raw
+        if isinstance(i, dict) and i.get("severity") in ("material", "minor")
+    ]
+    if not non_critical:
+        return
+
+    _insert_page_break(doc)
+
+    p_h = doc.add_heading("Приложение: Методологические замечания", level=1)
+    _style_heading(p_h, level=1)
+
+    intro = doc.add_paragraph(
+        "В ходе внутреннего аудита отчёта выявлены следующие nuance-моменты, "
+        "которые не являются ошибками, но требуют внимания читателя "
+        "при интерпретации данных:"
+    )
+    _set_run_font(intro.runs[0] if intro.runs else intro.add_run(""), FONT_BODY, PT_BODY)
+    _set_para_spacing(intro, before_pt=6, after_pt=12)
+
+    sev_labels = {"material": "Существенное", "minor": "Незначительное"}
+    cat_labels = {
+        "number_conflict": "Числовое расхождение",
+        "ranking_qa_mismatch": "Расхождение ранжирования и Q&A",
+        "verdict_evidence_gap": "Вердикт vs данные",
+        "table_prose_disagreement": "Таблица vs текст",
+        "source_attribution_inconsistency": "Атрибуция источников",
+    }
+
+    for i, issue in enumerate(non_critical, 1):
+        sev = issue.get("severity", "minor")
+        cat = issue.get("category", "")
+        sev_label = sev_labels.get(sev, sev)
+        cat_label = cat_labels.get(cat, cat)
+
+        p_item_h = doc.add_heading(f"Замечание {i}: {cat_label} ({sev_label})", level=2)
+        _style_heading(p_item_h, level=2)
+
+        loc_a = issue.get("location_a", "")
+        stmt_a = issue.get("statement_a", "")
+        loc_b = issue.get("location_b", "")
+        stmt_b = issue.get("statement_b", "")
+        why = issue.get("why_inconsistent", "")
+        fix = issue.get("suggested_fix", "")
+
+        if loc_a and stmt_a:
+            p = doc.add_paragraph()
+            run_loc = p.add_run(f"{loc_a}: ")
+            _set_run_font(run_loc, FONT_BODY, PT_BODY, bold=True)
+            run_stmt = p.add_run(f'"{stmt_a}"')
+            _set_run_font(run_stmt, FONT_BODY, PT_BODY, italic=True)
+            _set_para_spacing(p, before_pt=4, after_pt=2)
+
+        if loc_b and stmt_b:
+            p = doc.add_paragraph()
+            run_loc = p.add_run(f"{loc_b}: ")
+            _set_run_font(run_loc, FONT_BODY, PT_BODY, bold=True)
+            run_stmt = p.add_run(f'"{stmt_b}"')
+            _set_run_font(run_stmt, FONT_BODY, PT_BODY, italic=True)
+            _set_para_spacing(p, before_pt=2, after_pt=2)
+
+        if why:
+            p = doc.add_paragraph()
+            run_lbl = p.add_run("Суть: ")
+            _set_run_font(run_lbl, FONT_BODY, PT_BODY, bold=True)
+            run_why = p.add_run(why)
+            _set_run_font(run_why, FONT_BODY, PT_BODY)
+            _set_para_spacing(p, before_pt=2, after_pt=2)
+
+        if fix:
+            p = doc.add_paragraph()
+            run_lbl = p.add_run("Рекомендация: ")
+            _set_run_font(run_lbl, FONT_BODY, PT_SMALL, bold=True,
+                          color=ACCENT_COLOR)
+            run_fix = p.add_run(fix)
+            _set_run_font(run_fix, FONT_BODY, PT_SMALL)
+            _set_para_spacing(p, before_pt=2, after_pt=8)
+
+
+# ---------------------------------------------------------------------------
 # Heading styles
 # ---------------------------------------------------------------------------
 
@@ -1141,6 +1244,10 @@ def render_consulting_docx(
 
     # 6. Sources
     _render_sources(doc, report)
+
+    # 7. Methodological notes appendix (non-invasive — only if consistency_check has
+    #    material/minor issues; critical issues should have been resolved in retry)
+    _render_consistency_appendix(doc, report)
 
     doc.save(str(output_path))
     return output_path

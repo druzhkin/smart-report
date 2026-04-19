@@ -11,7 +11,10 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .synthesis_critic import ConsistencyReport
 
 from .events import EventEmitter, NullEmitter
 from .io import extract_json, load_prompt
@@ -43,7 +46,15 @@ async def synthesize_final_report(
     emitter: EventEmitter | None = None,
     log_dir: Path | None = None,
     mock: bool = False,
+    consistency_feedback: "ConsistencyReport | None" = None,
 ) -> tuple[FinalReport, float]:
+    """Generate a FinalReport from the session.
+
+    When ``consistency_feedback`` is provided (retry path), the Synthesizer
+    prompt is prefixed with a structured block listing critical issues found
+    by the Consistency Critic, so the LLM can resolve them in the new version.
+    The retry path must not destroy other content — only reconcile conflicts.
+    """
     em: EventEmitter = emitter or NullEmitter()
     if not session.source_reports:
         raise ValueError(
@@ -54,12 +65,14 @@ async def synthesize_final_report(
             "synthesize_final_report: session.analysis is None; call analyze first"
         )
 
+    is_retry = consistency_feedback is not None
     em.emit(
         "synthesizer",
-        "Собираю финальный отчёт",
+        "Собираю финальный отчёт (retry с фидбеком критика)" if is_retry else "Собираю финальный отчёт",
         data={
             "source_reports": len(session.source_reports),
             "followup_reports": len(session.followup_reports),
+            "consistency_retry": is_retry,
         },
     )
 
@@ -67,7 +80,7 @@ async def synthesize_final_report(
     if not system:
         raise RuntimeError("prompts/synthesizer.md not found")
 
-    user = _build_user_message(session)
+    user = _build_user_message(session, consistency_feedback=consistency_feedback)
 
     data, cost_rub = await _call_synth_with_retry(
         system=system, user=user, log_dir=log_dir, mock=mock
@@ -94,10 +107,21 @@ async def synthesize_final_report(
     return final, cost_rub
 
 
-def _build_user_message(session: V4Session) -> str:
-    parts: list[str] = [
-        f"## Original analyst question\n{session.raw_question}\n",
-    ]
+def _build_user_message(
+    session: V4Session,
+    *,
+    consistency_feedback: "ConsistencyReport | None" = None,
+) -> str:
+    parts: list[str] = []
+
+    # Inject consistency critic feedback at the TOP if this is a retry
+    if consistency_feedback is not None:
+        from .synthesis_critic import build_consistency_feedback_text
+        feedback_text = build_consistency_feedback_text(consistency_feedback)
+        if feedback_text:
+            parts.append(f"## КРИТИК: ОБЯЗАТЕЛЬНО ИСПРАВИТЬ\n\n{feedback_text}\n")
+
+    parts.append(f"## Original analyst question\n{session.raw_question}\n")
     if session.research_prompt is not None:
         parts.append(
             "## Research prompt used in round 1\n"

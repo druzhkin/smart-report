@@ -27,6 +27,7 @@ from .models import (
 )
 from .analyzer import analyze_reports
 from .prompt_master import generate_research_prompt
+from .synthesis_critic import ConsistencyReport, validate_consistency
 from .synthesizer import synthesize_final_report
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -159,10 +160,40 @@ class V4Orchestrator:
             log_dir=self.log_dir,
             mock=self.mock,
         )
+        session = self._accumulate_cost(session, cost_rub)
+
+        # --- Consistency Critic loop (max 1 retry) ---
+        consistency = await validate_consistency(
+            final,
+            emitter=self.emitter,
+            log_dir=self.log_dir,
+            mock=self.mock,
+        )
+
+        if consistency.overall_verdict == "critical_failure":
+            # Retry synthesizer once with consistency feedback injected into prompt
+            final, cost_rub = await synthesize_final_report(
+                session,
+                emitter=self.emitter,
+                log_dir=self.log_dir,
+                mock=self.mock,
+                consistency_feedback=consistency,
+            )
+            session = self._accumulate_cost(session, cost_rub)
+            # Re-validate after retry (record result, don't retry again)
+            consistency = await validate_consistency(
+                final,
+                emitter=self.emitter,
+                log_dir=self.log_dir,
+                mock=self.mock,
+            )
+
+        # Always save consistency check to report metadata
+        final.metadata["consistency_check"] = consistency.model_dump()
+
         session.final_report = final
         session.status = "synthesized"
         self.store.update(session)
-        session = self._accumulate_cost(session, cost_rub)
         return final
 
     # --- cost accounting ---
