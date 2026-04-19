@@ -557,7 +557,7 @@ async def test_retry_loop_reduces_issues():
     critic_call_count = 0
 
     async def mock_synthesize(session, *, emitter=None, log_dir=None, mock=False,
-                               consistency_feedback=None):
+                               consistency_feedback=None, model=None, language_feedback=None):
         nonlocal synth_call_count
         synth_call_count += 1
         if synth_call_count == 1:
@@ -565,7 +565,7 @@ async def test_retry_loop_reduces_issues():
         else:
             return _clean_report(), 0.0
 
-    async def mock_validate(report, *, emitter=None, log_dir=None, mock=False):
+    async def mock_validate(report, *, emitter=None, log_dir=None, mock=False, model=None):
         nonlocal critic_call_count
         critic_call_count += 1
         if critic_call_count == 1:

@@ -28,6 +28,7 @@ async def generate_research_prompt(
     emitter: EventEmitter | None = None,
     log_dir: Path | None = None,
     mock: bool = False,
+    model: str | None = None,
 ) -> tuple[ResearchPrompt, float]:
     """Call the Prompt Master LLM and return ``(ResearchPrompt, cost_rub)``.
 
@@ -64,7 +65,7 @@ async def generate_research_prompt(
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ],
-        model=PROMPT_MASTER_MODEL,
+        model=model or PROMPT_MASTER_MODEL,
         temperature=0.4,
         mock=mock,
         log_dir=log_dir,

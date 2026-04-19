@@ -165,6 +165,7 @@ async def validate_consistency(
     emitter: EventEmitter | None = None,
     log_dir: Path | None = None,
     mock: bool = False,
+    model: str | None = None,
 ) -> ConsistencyReport:
     """Call Opus to scan the full FinalReport for internal contradictions.
 
@@ -202,7 +203,7 @@ async def validate_consistency(
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-            model=CRITIC_MODEL,
+            model=model or CRITIC_MODEL,
             temperature=0.2,
             mock=False,
             log_dir=log_dir,

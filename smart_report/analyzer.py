@@ -51,6 +51,7 @@ async def analyze_reports(
     emitter: EventEmitter | None = None,
     log_dir: Path | None = None,
     mock: bool = False,
+    model: str | None = None,
 ) -> tuple[AnalysisOutput, float]:
     """Run the Analyzer over uploaded source reports.
 
@@ -82,6 +83,7 @@ async def analyze_reports(
         user=user,
         log_dir=log_dir,
         mock=mock,
+        model=model,
     )
 
     out = _coerce_analysis(data)
@@ -139,7 +141,7 @@ def _build_user_message(
 
 
 async def _call_analyzer_with_retry(
-    *, system: str, user: str, log_dir: Path | None, mock: bool
+    *, system: str, user: str, log_dir: Path | None, mock: bool, model: str | None = None
 ) -> tuple[dict[str, Any], float]:
     """Call the analyzer LLM with retry; return ``(parsed_dict, cost_rub)``.
 
@@ -154,7 +156,7 @@ async def _call_analyzer_with_retry(
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-            model=ANALYZER_MODEL,
+            model=model or ANALYZER_MODEL,
             temperature=0.3,
             mock=mock,
             log_dir=log_dir,

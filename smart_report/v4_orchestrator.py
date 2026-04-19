@@ -28,6 +28,7 @@ from .models import (
 )
 from .analyzer import analyze_reports
 from .bibliography import generate_bibliography
+from .config import models_for_preference
 from .data_audit import CoverageReport, audit_fact_coverage, build_retry_feedback
 from .intake import normalize_all_reports
 from .prompt_master import generate_research_prompt
@@ -96,15 +97,17 @@ class V4Orchestrator:
 
     # --- step 1: Prompt Master ---
     async def generate_prompt(
-        self, session_id: str, question: str | None = None
+        self, session_id: str, question: str | None = None, model_preference: str | None = None
     ) -> ResearchPrompt:
         session = self.store.get(session_id)
         q = question if question is not None else session.raw_question
+        models = models_for_preference(model_preference)
         prompt, cost_rub = await generate_research_prompt(
             q,
             emitter=self.emitter,
             log_dir=self.log_dir,
             mock=self.mock,
+            model=models["prompt_master"],
         )
         session.research_prompt = prompt
         session.status = "prompt_ready"
@@ -117,6 +120,7 @@ class V4Orchestrator:
         self,
         session_id: str,
         reports: list[UploadedMarkdown] | None = None,
+        model_preference: str | None = None,
     ) -> AnalysisOutput:
         session = self.store.get(session_id)
         if reports:
@@ -142,6 +146,7 @@ class V4Orchestrator:
         )
         session.normalized_reports = normalized_reports
 
+        models = models_for_preference(model_preference)
         analysis, cost_rub = await analyze_reports(
             question=session.raw_question,
             research_prompt=session.research_prompt,
@@ -150,6 +155,7 @@ class V4Orchestrator:
             emitter=self.emitter,
             log_dir=self.log_dir,
             mock=self.mock,
+            model=models["analyzer"],
         )
         session.analysis = analysis
         session.status = "analyzed"
@@ -162,6 +168,7 @@ class V4Orchestrator:
         self,
         session_id: str,
         followup: list[UploadedMarkdown] | None = None,
+        model_preference: str | None = None,
     ) -> FinalReport:
         session = self.store.get(session_id)
         if followup:
@@ -174,11 +181,13 @@ class V4Orchestrator:
             )
 
         # Step 3a: first synthesis pass
+        models = models_for_preference(model_preference)
         final, cost_rub = await synthesize_final_report(
             session,
             emitter=self.emitter,
             log_dir=self.log_dir,
             mock=self.mock,
+            model=models["synthesizer"],
         )
         session = self._accumulate_cost(session, cost_rub)
 
@@ -231,6 +240,7 @@ class V4Orchestrator:
                         emitter=self.emitter,
                         log_dir=self.log_dir,
                         mock=self.mock,
+                        model=models["synthesizer"],
                     )
                     session = self._accumulate_cost(session, cost_rub_retry)
                     final_retry, _ = generate_bibliography(final_retry)
@@ -257,6 +267,7 @@ class V4Orchestrator:
                 emitter=self.emitter,
                 log_dir=self.log_dir,
                 mock=self.mock,
+                model=models["critic"],
             )
             if consistency.overall_verdict == "critical_failure":
                 try:
@@ -266,6 +277,7 @@ class V4Orchestrator:
                         log_dir=self.log_dir,
                         mock=self.mock,
                         consistency_feedback=consistency,
+                        model=models["synthesizer"],
                     )
                     session = self._accumulate_cost(session, cost_rub_c)
                     final, _ = generate_bibliography(final)
@@ -274,6 +286,7 @@ class V4Orchestrator:
                         emitter=self.emitter,
                         log_dir=self.log_dir,
                         mock=self.mock,
+                        model=models["critic"],
                     )
                     session.final_report = final
                     self.store.update(session)
@@ -300,6 +313,7 @@ class V4Orchestrator:
                     log_dir=self.log_dir,
                     mock=self.mock,
                     language_feedback=[w.model_dump() for w in lint_warnings],
+                    model=models["synthesizer"],
                 )
                 session = self._accumulate_cost(session, cost_rub_l)
                 final_l, _ = generate_bibliography(final_l)

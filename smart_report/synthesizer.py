@@ -54,6 +54,7 @@ async def synthesize_final_report(
     mock: bool = False,
     consistency_feedback: "ConsistencyReport | None" = None,
     language_feedback: list[Any] | None = None,
+    model: str | None = None,
 ) -> tuple[FinalReport, float]:
     """Generate a FinalReport from the session.
 
@@ -98,7 +99,7 @@ async def synthesize_final_report(
     )
 
     data, cost_rub = await _call_synth_with_retry(
-        system=system, user=user, log_dir=log_dir, mock=mock
+        system=system, user=user, log_dir=log_dir, mock=mock, model=model
     )
     final = _coerce_final_report(data, session=session)
 
@@ -244,7 +245,7 @@ def _build_facts_section(analysis: "AnalysisOutput") -> str:
 
 
 async def _call_synth_with_retry(
-    *, system: str, user: str, log_dir: Path | None, mock: bool
+    *, system: str, user: str, log_dir: Path | None, mock: bool, model: str | None = None
 ) -> tuple[dict[str, Any], float]:
     """Call the synthesizer LLM with retry; return ``(parsed_dict, cost_rub)``.
 
@@ -275,7 +276,7 @@ async def _call_synth_with_retry(
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-            model=SYNTHESIZER_MODEL,
+            model=model or SYNTHESIZER_MODEL,
             temperature=temp,
             mock=mock,
             log_dir=log_dir,
@@ -292,9 +293,10 @@ async def _call_synth_with_retry(
                 dump_dir = _Path("runs") / "malformed_llm"
                 dump_dir.mkdir(parents=True, exist_ok=True)
                 ts = _dt.utcnow().strftime("%Y%m%dT%H%M%SZ")
-                dump_path = dump_dir / f"{ts}_attempt{attempt}_{SYNTHESIZER_MODEL.replace('/', '_')}.txt"
+                _active_model = model or SYNTHESIZER_MODEL
+                dump_path = dump_dir / f"{ts}_attempt{attempt}_{_active_model.replace('/', '_')}.txt"
                 dump_path.write_text(
-                    f"# error: {err!r}\n# model: {SYNTHESIZER_MODEL}\n# temp: {temp}\n# attempt: {attempt}\n# cost_this_call: {llm_result.cost_rub}\n# total_cost_so_far: {total_cost}\n\n{llm_result.text}",
+                    f"# error: {err!r}\n# model: {_active_model}\n# temp: {temp}\n# attempt: {attempt}\n# cost_this_call: {llm_result.cost_rub}\n# total_cost_so_far: {total_cost}\n\n{llm_result.text}",
                     encoding="utf-8",
                 )
             except Exception:
