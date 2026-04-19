@@ -8,6 +8,7 @@ import pytest
 
 from smart_report import prompt_master as pm_module
 from smart_report.events import ListEmitter
+from smart_report.llm import LLMResult
 from smart_report.models import ResearchPrompt
 from smart_report.prompt_master import generate_research_prompt
 
@@ -40,26 +41,27 @@ def mock_chat(monkeypatch):
 
     async def _stub(*args, **kwargs):
         calls.append(kwargs)
-        return _STUB_RESPONSE
+        return LLMResult(text=_STUB_RESPONSE, cost_rub=0.0)
 
-    monkeypatch.setattr(pm_module, "chat", _stub)
+    monkeypatch.setattr(pm_module, "call_json", _stub)
     return calls
 
 
 @pytest.mark.asyncio
 async def test_generate_research_prompt_returns_research_prompt(mock_chat):
-    rp = await generate_research_prompt("what defines developer success in Moscow?")
+    rp, cost_rub = await generate_research_prompt("what defines developer success in Moscow?")
     assert isinstance(rp, ResearchPrompt)
     assert len(rp.full_prompt) > 200
     assert "PIK" in rp.key_entities
     assert len(rp.expected_structure) == 6
     assert rp.reasoning
+    assert cost_rub == 0.0  # mocked
 
 
 @pytest.mark.asyncio
 async def test_generate_research_prompt_uses_opus_4_7(mock_chat):
     await generate_research_prompt("short question")
-    assert mock_chat, "chat() was not called"
+    assert mock_chat, "call_json() was not called"
     assert mock_chat[0]["model"] == "anthropic/claude-opus-4-7"
     assert mock_chat[0]["role"] == "prompt_master"
 
@@ -81,8 +83,8 @@ async def test_generate_research_prompt_rejects_empty_question(mock_chat):
 @pytest.mark.asyncio
 async def test_generate_research_prompt_rejects_missing_full_prompt(monkeypatch):
     async def _bad_stub(*args, **kwargs):
-        return json.dumps({"reasoning": "no full_prompt here"})
+        return LLMResult(text=json.dumps({"reasoning": "no full_prompt here"}), cost_rub=0.0)
 
-    monkeypatch.setattr(pm_module, "chat", _bad_stub)
+    monkeypatch.setattr(pm_module, "call_json", _bad_stub)
     with pytest.raises(ValueError):
         await generate_research_prompt("x?")

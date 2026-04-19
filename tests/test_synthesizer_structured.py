@@ -21,6 +21,7 @@ from pathlib import Path
 import pytest
 
 from smart_report import synthesizer as synth_module
+from smart_report.llm import LLMResult
 from smart_report.models import (
     AnalysisOutput,
     CalloutBlock,
@@ -429,9 +430,9 @@ def mock_structured_llm(monkeypatch):
     """Monkeypatch LLM to return structured mock JSON."""
 
     async def _stub(*args, **kwargs):
-        return json.dumps(_MOCK_STRUCTURED_JSON, ensure_ascii=False)
+        return LLMResult(text=json.dumps(_MOCK_STRUCTURED_JSON, ensure_ascii=False), cost_rub=0.0)
 
-    monkeypatch.setattr(synth_module, "chat", _stub)
+    monkeypatch.setattr(synth_module, "call_json", _stub)
 
 
 # ---------------------------------------------------------------------------
@@ -443,7 +444,7 @@ def mock_structured_llm(monkeypatch):
 async def test_synthesizer_returns_structured_final_report(mock_structured_llm):
     """Synthesizer with new prompt returns FinalReport with all structured fields."""
     session = _make_session()
-    final = await synthesize_final_report(session)
+    final, _ = await synthesize_final_report(session)
 
     assert isinstance(final, FinalReport)
     assert final.session_id == "night-test-01"  # session_id overrides LLM echo
@@ -457,7 +458,7 @@ async def test_synthesizer_returns_structured_final_report(mock_structured_llm):
 @pytest.mark.asyncio
 async def test_qa_section_has_minimum_4_items(mock_structured_llm):
     """qa_section must have at least 4 items (DoD)."""
-    final = await synthesize_final_report(_make_session())
+    final, _ = await synthesize_final_report(_make_session())
     assert len(final.qa_section) >= 4, (
         f"qa_section has {len(final.qa_section)} items, DoD requires >= 4"
     )
@@ -466,7 +467,7 @@ async def test_qa_section_has_minimum_4_items(mock_structured_llm):
 @pytest.mark.asyncio
 async def test_qa_section_covers_all_5_sub_questions(mock_structured_llm):
     """qa_section must cover all 5 sub-questions from the amenities request."""
-    final = await synthesize_final_report(_make_session())
+    final, _ = await synthesize_final_report(_make_session())
 
     # The 5 sub-questions from spec §3
     expected_keywords = [
@@ -501,7 +502,7 @@ async def test_qa_section_covers_all_5_sub_questions(mock_structured_llm):
 @pytest.mark.asyncio
 async def test_tables_has_minimum_3(mock_structured_llm):
     """tables must have at least 3 Table objects (DoD)."""
-    final = await synthesize_final_report(_make_session())
+    final, _ = await synthesize_final_report(_make_session())
     assert len(final.tables) >= 3, (
         f"tables has {len(final.tables)} items, DoD requires >= 3"
     )
@@ -510,7 +511,7 @@ async def test_tables_has_minimum_3(mock_structured_llm):
 @pytest.mark.asyncio
 async def test_charts_has_minimum_3(mock_structured_llm):
     """charts must have at least 3 ChartSpec objects (DoD)."""
-    final = await synthesize_final_report(_make_session())
+    final, _ = await synthesize_final_report(_make_session())
     assert len(final.charts) >= 3, (
         f"charts has {len(final.charts)} items, DoD requires >= 3"
     )
@@ -519,7 +520,7 @@ async def test_charts_has_minimum_3(mock_structured_llm):
 @pytest.mark.asyncio
 async def test_callouts_has_minimum_3(mock_structured_llm):
     """callouts must have at least 3 CalloutBlock objects (DoD)."""
-    final = await synthesize_final_report(_make_session())
+    final, _ = await synthesize_final_report(_make_session())
     assert len(final.callouts) >= 3, (
         f"callouts has {len(final.callouts)} items, DoD requires >= 3"
     )
@@ -528,7 +529,7 @@ async def test_callouts_has_minimum_3(mock_structured_llm):
 @pytest.mark.asyncio
 async def test_key_numbers_highlight_between_5_and_7(mock_structured_llm):
     """key_numbers_highlight must have 5–7 items (DoD)."""
-    final = await synthesize_final_report(_make_session())
+    final, _ = await synthesize_final_report(_make_session())
     assert 5 <= len(final.key_numbers_highlight) <= 7, (
         f"key_numbers_highlight has {len(final.key_numbers_highlight)} items, DoD requires 5–7"
     )
@@ -537,7 +538,7 @@ async def test_key_numbers_highlight_between_5_and_7(mock_structured_llm):
 @pytest.mark.asyncio
 async def test_ranking_structured_with_weights(mock_structured_llm):
     """ranking must be structured and have weight values (DoD)."""
-    final = await synthesize_final_report(_make_session())
+    final, _ = await synthesize_final_report(_make_session())
     assert len(final.ranking) > 0, "ranking must not be empty"
     items_with_weight = [r for r in final.ranking if r.weight is not None]
     assert len(items_with_weight) > 0, "At least some ranking items must have weight"
@@ -551,7 +552,7 @@ async def test_ranking_structured_with_weights(mock_structured_llm):
 @pytest.mark.asyncio
 async def test_qa_section_items_are_qa_item_instances(mock_structured_llm):
     """Each element of qa_section is a QAItem with non-empty fields."""
-    final = await synthesize_final_report(_make_session())
+    final, _ = await synthesize_final_report(_make_session())
     for item in final.qa_section:
         assert isinstance(item, QAItem)
         assert item.question
@@ -561,7 +562,7 @@ async def test_qa_section_items_are_qa_item_instances(mock_structured_llm):
 @pytest.mark.asyncio
 async def test_ranking_items_are_ranking_item_instances(mock_structured_llm):
     """Each element of ranking is a RankingItem with valid evidence_strength."""
-    final = await synthesize_final_report(_make_session())
+    final, _ = await synthesize_final_report(_make_session())
     valid_strengths = {"high", "medium", "low"}
     for item in final.ranking:
         assert isinstance(item, RankingItem)
@@ -572,7 +573,7 @@ async def test_ranking_items_are_ranking_item_instances(mock_structured_llm):
 @pytest.mark.asyncio
 async def test_tables_have_valid_structure(mock_structured_llm):
     """Each Table has title, columns and rows that match column count."""
-    final = await synthesize_final_report(_make_session())
+    final, _ = await synthesize_final_report(_make_session())
     for tbl in final.tables:
         assert isinstance(tbl, Table)
         assert tbl.title
@@ -587,7 +588,7 @@ async def test_tables_have_valid_structure(mock_structured_llm):
 async def test_charts_have_valid_type_and_data(mock_structured_llm):
     """Each ChartSpec has a valid chart_type and non-empty data dict."""
     valid_types = {"bar", "line", "pie", "scatter", "stacked_bar", "waterfall"}
-    final = await synthesize_final_report(_make_session())
+    final, _ = await synthesize_final_report(_make_session())
     for chart in final.charts:
         assert isinstance(chart, ChartSpec)
         assert chart.chart_type in valid_types
@@ -600,7 +601,7 @@ async def test_charts_have_valid_type_and_data(mock_structured_llm):
 async def test_callouts_have_valid_kind(mock_structured_llm):
     """Each CalloutBlock has a valid kind."""
     valid_kinds = {"insight", "warning", "key_number", "note"}
-    final = await synthesize_final_report(_make_session())
+    final, _ = await synthesize_final_report(_make_session())
     for callout in final.callouts:
         assert isinstance(callout, CalloutBlock)
         assert callout.kind in valid_kinds
@@ -612,7 +613,7 @@ async def test_callouts_have_valid_kind(mock_structured_llm):
 async def test_key_numbers_highlight_have_valid_importance(mock_structured_llm):
     """Each KeyNumberHighlight has a valid importance level."""
     valid_importance = {"headline", "primary", "secondary"}
-    final = await synthesize_final_report(_make_session())
+    final, _ = await synthesize_final_report(_make_session())
     for kn in final.key_numbers_highlight:
         assert isinstance(kn, KeyNumberHighlight)
         assert kn.value
@@ -629,7 +630,7 @@ async def test_key_numbers_highlight_have_valid_importance(mock_structured_llm):
 async def test_existing_fields_still_work(mock_structured_llm):
     """Existing FinalReport fields are still populated correctly."""
     session = _make_session()
-    final = await synthesize_final_report(session)
+    final, _ = await synthesize_final_report(session)
 
     # Existing fields must still work
     assert final.session_id == session.session_id

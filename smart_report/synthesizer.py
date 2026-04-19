@@ -15,7 +15,7 @@ from typing import Any
 
 from .events import EventEmitter, NullEmitter
 from .io import extract_json, load_prompt
-from .llm import chat
+from .llm import LLMResult, call_json
 from .models import (
     AnalysisOutput,
     CalloutBlock,
@@ -43,7 +43,7 @@ async def synthesize_final_report(
     emitter: EventEmitter | None = None,
     log_dir: Path | None = None,
     mock: bool = False,
-) -> FinalReport:
+) -> tuple[FinalReport, float]:
     em: EventEmitter = emitter or NullEmitter()
     if not session.source_reports:
         raise ValueError(
@@ -69,7 +69,7 @@ async def synthesize_final_report(
 
     user = _build_user_message(session)
 
-    data = await _call_synth_with_retry(
+    data, cost_rub = await _call_synth_with_retry(
         system=system, user=user, log_dir=log_dir, mock=mock
     )
     final = _coerce_final_report(data, session=session)
@@ -88,9 +88,10 @@ async def synthesize_final_report(
             "callouts": len(final.callouts),
             "key_numbers_highlight": len(final.key_numbers_highlight),
             "ranking": len(final.ranking),
+            "cost_rub": cost_rub,
         },
     )
-    return final
+    return final, cost_rub
 
 
 def _build_user_message(session: V4Session) -> str:
@@ -143,10 +144,14 @@ def _build_user_message(session: V4Session) -> str:
 
 async def _call_synth_with_retry(
     *, system: str, user: str, log_dir: Path | None, mock: bool
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], float]:
+    """Call the synthesizer LLM with retry; return ``(parsed_dict, cost_rub)``.
+
+    cost_rub is taken from the last successful attempt only.
+    """
     last_err: Exception | None = None
     for attempt in range(_MAX_JSON_RETRIES + 1):
-        raw = await chat(
+        llm_result: LLMResult = await call_json(
             role="synthesizer",
             messages=[
                 {"role": "system", "content": system},
@@ -159,7 +164,7 @@ async def _call_synth_with_retry(
             response_format={"type": "json_object"} if not mock else None,
         )
         try:
-            data = extract_json(raw)
+            data = extract_json(llm_result.text)
         except (ValueError, json.JSONDecodeError) as err:
             last_err = err
             if attempt < _MAX_JSON_RETRIES:
@@ -172,7 +177,7 @@ async def _call_synth_with_retry(
             if attempt < _MAX_JSON_RETRIES:
                 continue
             raise last_err
-        return data
+        return data, llm_result.cost_rub
     assert last_err is not None
     raise last_err
 
