@@ -216,7 +216,7 @@ export async function createSession(
   });
 }
 
-export async function generatePrompt(id: string): Promise<ResearchPrompt> {
+export async function generatePrompt(id: string, modelPreference?: "sonnet" | "opus"): Promise<ResearchPrompt> {
   if (STUB) {
     await new Promise((r) => setTimeout(r, 600));
     const key = `v4:${id}`;
@@ -231,9 +231,10 @@ export async function generatePrompt(id: string): Promise<ResearchPrompt> {
     }
     return STUB_PROMPT;
   }
+  const body = modelPreference ? JSON.stringify({ model_preference: modelPreference }) : undefined;
   return jv4<ResearchPrompt>(
     `/api/v4/sessions/${encodeURIComponent(id)}/generate-prompt`,
-    { method: "POST" }
+    { method: "POST", body }
   );
 }
 
@@ -272,7 +273,7 @@ export async function uploadReports(
   return res.json();
 }
 
-export async function analyze(id: string): Promise<AnalysisOutput> {
+export async function analyze(id: string, modelPreference?: "sonnet" | "opus"): Promise<AnalysisOutput> {
   if (STUB) {
     await new Promise((r) => setTimeout(r, 1200));
     const key = `v4:${id}`;
@@ -288,9 +289,10 @@ export async function analyze(id: string): Promise<AnalysisOutput> {
     }
     return STUB_ANALYSIS;
   }
+  const body = modelPreference ? JSON.stringify({ model_preference: modelPreference }) : undefined;
   return jv4<AnalysisOutput>(
     `/api/v4/sessions/${encodeURIComponent(id)}/analyze`,
-    { method: "POST" }
+    { method: "POST", body }
   );
 }
 
@@ -329,7 +331,7 @@ export async function uploadFollowup(
   return res.json();
 }
 
-export async function synthesize(id: string): Promise<FinalReport> {
+export async function synthesize(id: string, modelPreference?: "sonnet" | "opus"): Promise<FinalReport> {
   if (STUB) {
     await new Promise((r) => setTimeout(r, 1500));
     const key = `v4:${id}`;
@@ -354,9 +356,10 @@ export async function synthesize(id: string): Promise<FinalReport> {
     }
     return fr;
   }
+  const body = modelPreference ? JSON.stringify({ model_preference: modelPreference }) : undefined;
   return jv4<FinalReport>(
     `/api/v4/sessions/${encodeURIComponent(id)}/synthesize`,
-    { method: "POST" }
+    { method: "POST", body }
   );
 }
 
