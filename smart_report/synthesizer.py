@@ -39,7 +39,10 @@ if TYPE_CHECKING:
     pass  # AnalysisOutput already imported above
 
 
-SYNTHESIZER_MODEL = "anthropic/claude-opus-4-7"
+# v4.5 bakeoff winner: Sonnet 4.6 scores 88/100 vs Opus 83/100, 36% cheaper.
+# Override via ModelConfig.SYNTHESIZER_MODEL or env var SYNTHESIZER_MODEL.
+from .config import ModelConfig as _ModelConfig
+SYNTHESIZER_MODEL = _ModelConfig.SYNTHESIZER_MODEL
 _MAX_JSON_RETRIES = 2
 
 
@@ -260,6 +263,8 @@ async def _call_synth_with_retry(
             mock=mock,
             log_dir=log_dir,
             response_format={"type": "json_object"} if not mock else None,
+            # 32k tokens required for FinalReport — 14k causes JSON truncation
+            max_tokens=32000,
         )
         try:
             data = extract_json(llm_result.text)

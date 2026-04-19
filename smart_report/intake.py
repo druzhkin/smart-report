@@ -59,7 +59,11 @@ _RE_BIB_LINE = re.compile(
     re.MULTILINE,
 )
 
-INTAKE_MODEL = "anthropic/claude-opus-4-7"
+# v4.5 bakeoff: Haiku 4.5 approved as LLM fallback (>70% retention vs Opus baseline).
+# In production with Track 0-compliant fixtures, the deterministic parser runs (no LLM).
+# Override via ModelConfig.INTAKE_LLM_FALLBACK_MODEL.
+from .config import ModelConfig as _ModelConfig
+INTAKE_MODEL = _ModelConfig.INTAKE_LLM_FALLBACK_MODEL
 _MAX_JSON_RETRIES = 2
 
 # ---------------------------------------------------------------------------

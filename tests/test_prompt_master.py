@@ -59,10 +59,17 @@ async def test_generate_research_prompt_returns_research_prompt(mock_chat):
 
 
 @pytest.mark.asyncio
-async def test_generate_research_prompt_uses_opus_4_7(mock_chat):
+async def test_generate_research_prompt_uses_configured_model(mock_chat):
+    """Verify PM calls the model from ModelConfig (bakeoff winner may not be Opus)."""
+    from smart_report.config import ModelConfig
+    from smart_report.prompt_master import PROMPT_MASTER_MODEL
+
     await generate_research_prompt("short question")
     assert mock_chat, "call_json() was not called"
-    assert mock_chat[0]["model"] == "anthropic/claude-opus-4-7"
+    assert mock_chat[0]["model"] == PROMPT_MASTER_MODEL, (
+        f"Expected model {PROMPT_MASTER_MODEL!r} but got {mock_chat[0]['model']!r}. "
+        "Update ModelConfig.PROMPT_MASTER_MODEL if the bakeoff winner changed."
+    )
     assert mock_chat[0]["role"] == "prompt_master"
 
 

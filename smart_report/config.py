@@ -49,3 +49,44 @@ def model_for(role: str) -> str:
 
 def temperature_for(role: str) -> float:
     return ROLE_TEMPERATURE.get(role, 0.2)
+
+
+# ---------------------------------------------------------------------------
+# v4.5 Bake-off winner configuration
+# ---------------------------------------------------------------------------
+# Generated after bakeoff run 2026-04-19T13:25:41Z
+# To revert to Opus everywhere, set all MODEL fields to "anthropic/claude-opus-4.7"
+#
+# Bake-off results summary:
+#   §1 PM:        GPT-4o (100/100, $0.02/call vs $0.18 Opus — all tied, cheapest wins)
+#   §2 Intake:    Haiku 4.5 fallback (>70% retention vs Opus baseline)
+#   §3 Analyzer:  Opus 4.7 (90/100 — only model above 70 floor; Sonnet gets 60)
+#   §4 Synth:     Sonnet 4.6 (88/100 — beats Opus 83/100 at 36% lower cost)
+#   §5 Critic:    Opus 4.7 fixed (per user decision)
+#   Total prod run cost (winner): ~$2.69 vs ~$3.06 Opus-everywhere (-12%)
+
+
+class ModelConfig:
+    """Winner model configuration from v4.5 bake-off (2026-04-19)."""
+
+    # §1 Prompt Master: GPT-4o scores 100/100, costs ~$0.02 vs $0.18 Opus
+    # Fallback: Sonnet 4.6 (also 100/100, $0.10) if GPT-4o prompts prove too short
+    PROMPT_MASTER_MODEL: str = "openai/gpt-4o"
+
+    # §2 Intake: deterministic parser runs first (no LLM).
+    # LLM fallback only triggered for legacy files without Сводная таблица данных section.
+    # Haiku 4.5 approved as fallback: >70% retention ratio vs Opus baseline at -81% cost.
+    INTAKE_LLM_FALLBACK_MODEL: str = "anthropic/claude-haiku-4.5"
+
+    # §3 Analyzer: only Opus passes 70 floor (90/100).
+    # Sonnet gets 60 (fails conflicts_ge5 and all_numeric_facts=0).
+    # Revisit if Analyzer prompt is tuned for non-Opus models.
+    ANALYZER_MODEL: str = "anthropic/claude-opus-4.7"
+
+    # §4 Synthesizer: Sonnet 4.6 wins with 88/100 vs Opus 83/100.
+    # Sonnet produces more source URLs (35 vs 23) and more tables (5 vs 4).
+    # Note: requires max_tokens=32000 to avoid JSON truncation on long outputs.
+    SYNTHESIZER_MODEL: str = "anthropic/claude-sonnet-4.6"
+
+    # §5 Critic: Opus fixed per user decision (FP risk too high to downgrade)
+    SYNTHESIS_CRITIC_MODEL: str = "anthropic/claude-opus-4.7"

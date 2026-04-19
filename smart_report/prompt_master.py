@@ -16,8 +16,10 @@ from .llm import LLMResult, call_json
 from .models import ResearchPrompt
 
 
-# v4 spec §7 rule 2: Opus 4.7, don't swap.
-PROMPT_MASTER_MODEL = "anthropic/claude-opus-4-7"
+# v4.5 bakeoff winner: GPT-4o scores 100/100 at $0.02/call (vs $0.18 Opus).
+# Override via ModelConfig.PROMPT_MASTER_MODEL.
+from .config import ModelConfig as _ModelConfig
+PROMPT_MASTER_MODEL = _ModelConfig.PROMPT_MASTER_MODEL
 
 
 async def generate_research_prompt(
