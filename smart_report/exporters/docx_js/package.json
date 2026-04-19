@@ -1,0 +1,17 @@
+{
+  "name": "smart-report-docx-renderer",
+  "version": "1.0.0",
+  "description": "Node.js DOCX v2 renderer using docx-js. Navy/gold palette, Calibri, KPI cards, [N] citation system.",
+  "type": "module",
+  "main": "main.js",
+  "scripts": {
+    "render": "node main.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "docx": "^9.6.1"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}
