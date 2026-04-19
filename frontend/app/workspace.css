@@ -1538,3 +1538,43 @@
 .ws-root .modal h3 { font-size: 17px; font-weight: 700; margin: 0 0 8px 0; letter-spacing: -0.01em; }
 .ws-root .modal p { font-size: 13px; color: var(--ink-2); line-height: 1.55; margin: 0 0 20px 0; }
 .ws-root .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* ===== ModelPicker in workspace topbar ===== */
+.ws-root .vd-model-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  border: 1px solid var(--rule);
+  background: transparent;
+  overflow: hidden;
+}
+.ws-root .vd-model-picker button {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  background: transparent;
+  border: none;
+  border-right: 1px solid var(--rule);
+  color: var(--ink-3);
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+  line-height: 1;
+}
+.ws-root .vd-model-picker button:last-child {
+  border-right: none;
+}
+.ws-root .vd-model-picker button:hover {
+  color: var(--ink);
+  background: var(--paper-2);
+}
+.ws-root .vd-model-picker button.active {
+  background: var(--ink);
+  color: var(--on-ink);
+}
+[data-theme="dark"] .ws-root .vd-model-picker button.active {
+  background: var(--ink);
+  color: var(--on-ink);
+}
