@@ -44,9 +44,34 @@ Last update: 2026-04-18
 
 ### Track 2 — Consistency Critic
 Owner: agent-consistency
-Branch: `v4.5/consistency`
-Started: — (stages after schema from Track 1+4 is ~stable)
-Last update: —
+Branch: `consistency-v45` (note: git prevents `v4.5/consistency` due to `v4.5` branch name conflict)
+Started: 2026-04-19
+Last update: 2026-04-19T09:00Z — COMPLETE
+
+#### Status: DONE
+
+**Files created/changed:**
+- `smart_report/synthesis_critic.py` — ConsistencyIssue, ConsistencyReport, validate_consistency(), build_consistency_feedback_text()
+- `prompts/synthesis_critic.md` — Critic prompt with 5 categories, hard rules, anti-patterns, 2 few-shot examples
+- `smart_report/v4_orchestrator.py` — consistency retry loop (max 1 retry, metadata saved always)
+- `smart_report/synthesizer.py` — consistency_feedback kwarg, _build_user_message injects feedback block at top
+- `smart_report/exporters/docx_v4_consulting.py` — _render_consistency_appendix (material/minor issues only)
+- `tests/test_synthesis_critic.py` — 20 new tests (all pass; old 193+20=213 total green)
+- `scripts/run_critic_baseline.py` — baseline runner script
+- `tests/fixtures/critic_baseline_regression.json` — saved baseline result
+
+**Real baseline run on cache_final.json:**
+- Verdict: pass (0 critical)
+- Issues found: 4 (2 material, 2 minor)
+  - material: NPV range in prose (592-712M) vs table (592M exact)
+  - material: Price used in NPV model (530k) vs reported market price (509k)
+  - minor: NPV callout (-350-400M) vs QA (-350M) rounding
+  - minor: Table shows bассейн and SPA separate, Ranking bundles them as +3-5%
+- Pool triangle: NOT flagged as critical (conflicts_section adequately resolves it)
+  - This is CORRECT behavior — the report does address the nuance, but incompletely
+  - Material issues found are real data integrity problems
+
+**Budget used:** ~$0.30 for real baseline run (Opus on cached report)
 
 ### Track 3 — Language Lint
 Owner: agent-language

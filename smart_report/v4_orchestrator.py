@@ -30,6 +30,7 @@ from .analyzer import analyze_reports
 from .bibliography import generate_bibliography
 from .data_audit import CoverageReport, audit_fact_coverage, build_retry_feedback
 from .prompt_master import generate_research_prompt
+from .synthesis_critic import ConsistencyReport, validate_consistency
 from .synthesizer import synthesize_final_report
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -166,7 +167,7 @@ class V4Orchestrator:
         session = self._accumulate_cost(session, cost_rub)
 
         # Step 3b: bibliography post-processing
-        final, coverage_pct = generate_bibliography(final)
+        final, _ = generate_bibliography(final)
         self.emitter.emit(
             "bibliography",
             "Bibliography generated",
@@ -189,7 +190,7 @@ class V4Orchestrator:
             },
         )
 
-        # Step 3d: one retry if coverage is poor/critical
+        # Step 3d: one retry on coverage failure
         if coverage_report.verdict in ("poor", "critical_failure") and not self.mock:
             feedback = build_retry_feedback(coverage_report)
             if feedback and session.analysis.high_relevance_facts:
@@ -198,7 +199,6 @@ class V4Orchestrator:
                     "Coverage below target — retrying with feedback",
                     data={"verdict": coverage_report.verdict},
                 )
-                # Add feedback to session metadata so synthesizer sees it
                 session.analysis.quality_notes = (
                     (session.analysis.quality_notes or "") + "\n\n" + feedback
                 )
@@ -209,22 +209,15 @@ class V4Orchestrator:
                     mock=self.mock,
                 )
                 session = self._accumulate_cost(session, cost_rub_retry)
-                # Re-run bibliography on retry result
                 final_retry, _ = generate_bibliography(final_retry)
-                coverage_report_retry = audit_fact_coverage(session.analysis, final_retry)
-                # Always proceed after single retry
+                coverage_report = audit_fact_coverage(session.analysis, final_retry)
                 final = final_retry
-                coverage_report = coverage_report_retry
                 self.emitter.emit(
                     "data_audit",
                     f"Post-retry coverage: {coverage_report.verdict}",
-                    data={
-                        "coverage_pct": coverage_report.coverage_pct,
-                        "verdict": coverage_report.verdict,
-                    },
+                    data={"coverage_pct": coverage_report.coverage_pct, "verdict": coverage_report.verdict},
                 )
 
-        # Save CoverageReport to metadata
         final.metadata["coverage_audit"] = {
             "coverage_pct": coverage_report.coverage_pct,
             "facts_in_final": coverage_report.facts_in_final,
@@ -232,6 +225,34 @@ class V4Orchestrator:
             "verdict": coverage_report.verdict,
             "detail": coverage_report.detail,
         }
+
+        # Step 3e: Consistency Critic loop (max 1 retry)
+        consistency = await validate_consistency(
+            final,
+            emitter=self.emitter,
+            log_dir=self.log_dir,
+            mock=self.mock,
+        )
+
+        if consistency.overall_verdict == "critical_failure":
+            final, cost_rub = await synthesize_final_report(
+                session,
+                emitter=self.emitter,
+                log_dir=self.log_dir,
+                mock=self.mock,
+                consistency_feedback=consistency,
+            )
+            session = self._accumulate_cost(session, cost_rub)
+            # Re-run bibliography after consistency retry so citations stay fresh
+            final, _ = generate_bibliography(final)
+            consistency = await validate_consistency(
+                final,
+                emitter=self.emitter,
+                log_dir=self.log_dir,
+                mock=self.mock,
+            )
+
+        final.metadata["consistency_check"] = consistency.model_dump()
 
         session.final_report = final
         session.status = "synthesized"
