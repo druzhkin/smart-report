@@ -56,7 +56,9 @@ def main() -> int:
     log(f"Output dir: {out_dir}")
 
     # trust_env=False bypasses system http_proxy trap on Windows
-    client = httpx.Client(base_url=API, timeout=300.0, trust_env=False)
+    # v4.5 synthesize can do up to 3 Opus calls (initial + coverage retry + consistency retry + language retry)
+    # so we budget 20 min for it
+    client = httpx.Client(base_url=API, timeout=1200.0, trust_env=False)
 
     # 1. Create session
     log("Step 1/4: createSession")
