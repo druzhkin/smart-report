@@ -214,6 +214,11 @@ class AnalysisOutput(_V4Base):
     gaps: list[Gap] = Field(default_factory=list)
     unverified_numbers: list[UnverifiedNumber] = Field(default_factory=list)
     quality_notes: str = ""
+    # Canonical single followup prompt — one DR run covers all gaps and conflicts.
+    # Populated by Analyzer v4.1+. If present, this is the source of truth.
+    followup_prompt: FollowupPrompt | None = None
+    # Legacy list kept for backward-compat with old readers.
+    # Shim: populated as [followup_prompt] when new field is present.
     followup_prompts: list[FollowupPrompt] = Field(default_factory=list)
 
 
