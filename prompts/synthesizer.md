@@ -429,3 +429,29 @@
 ## Style
 
 Русский. Позиция автора явная, не «взгляд со стороны». Конкретика. Минимум пассивных конструкций. Возвращай ТОЛЬКО JSON-объект, без markdown-обёртки вокруг, без комментариев.
+
+---
+
+## ЯЗЫК ВЫХОДА (Track 3 — Language Lint)
+
+ЯЗЫК ВЫХОДА: ИСКЛЮЧИТЕЛЬНО РУССКИЙ.
+
+Английские слова разрешены ТОЛЬКО из утверждённого whitelist:
+- Финансы: CAPEX, OPEX, NPV, EBITDA, ROI, GBA, NOI, IRR, WACC, FCF, EV, P/E
+- Сертификации: LEED, BREEAM, WELL, DGNB, ESG
+- Международные бренды: Knight Frank, Savills, JLL, Colliers, CBRE, McKinsey, NF Group, Nikoliers, bnMAP, Dataflat, Metrium
+- Недвижимость: premium, luxury, branded residences, lobby, concierge, amenities
+- Технологии: API, SaaS, CRM, BIM
+
+НЕ ДЕЛАТЬ:
+- "ranking" → "ранжирование" (или "приоритет", "порядок")
+- "Outdoor-стек" → "двор и парк" или "придомовое пространство"
+- "Arrival-стек" → "входная группа" или "лобби и консьерж"
+- "Fitness-first wellness" → "фитнес и спа"
+- "MANDATORY/OPTIONAL/EXCLUDE" → "обязательно/опционально/исключить"
+- "wine room" → "винная комната"
+- "dedicated cinema" → "приватный кинотеатр"
+- "Tech-stack" → "технологический набор"
+- "service charge" → "коммунальный сбор" (в российском контексте); допустимо "service charge" только если речь о зарубежных проектах
+
+ANTI-PATTERN: не используй англицизм потому что "так в источнике". Источники цитируются дословно в кавычках; твой собственный текст — на русском.

@@ -43,7 +43,20 @@ async def synthesize_final_report(
     emitter: EventEmitter | None = None,
     log_dir: Path | None = None,
     mock: bool = False,
+    language_feedback: list[Any] | None = None,
 ) -> tuple[FinalReport, float]:
+    """Synthesize a FinalReport from the session.
+
+    Args:
+        session: The V4Session with source_reports and analysis populated.
+        emitter: Optional event emitter for progress updates.
+        log_dir: Directory for LLM call logs.
+        mock: If True, use mock LLM instead of real API.
+        language_feedback: Optional list of LanguageWarning dicts from the
+            language lint post-processing step. When provided, an additional
+            section is prepended to the user message instructing the model to
+            fix the flagged anglicisms.
+    """
     em: EventEmitter = emitter or NullEmitter()
     if not session.source_reports:
         raise ValueError(
@@ -60,6 +73,7 @@ async def synthesize_final_report(
         data={
             "source_reports": len(session.source_reports),
             "followup_reports": len(session.followup_reports),
+            "language_retry": language_feedback is not None,
         },
     )
 
@@ -67,7 +81,7 @@ async def synthesize_final_report(
     if not system:
         raise RuntimeError("prompts/synthesizer.md not found")
 
-    user = _build_user_message(session)
+    user = _build_user_message(session, language_feedback=language_feedback)
 
     data, cost_rub = await _call_synth_with_retry(
         system=system, user=user, log_dir=log_dir, mock=mock
@@ -94,7 +108,10 @@ async def synthesize_final_report(
     return final, cost_rub
 
 
-def _build_user_message(session: V4Session) -> str:
+def _build_user_message(
+    session: V4Session,
+    language_feedback: list[Any] | None = None,
+) -> str:
     parts: list[str] = [
         f"## Original analyst question\n{session.raw_question}\n",
     ]
@@ -132,6 +149,23 @@ def _build_user_message(session: V4Session) -> str:
             "## Follow-up reports\n_No dobor was uploaded. "
             "Gaps remain open — mark them in gaps_filled_section._\n"
         )
+
+    # Language-lint feedback injection (Track 3 retry pass)
+    if language_feedback:
+        feedback_lines = [
+            "\n---",
+            "ПРЕДЫДУЩАЯ ВЕРСИЯ СОДЕРЖИТ АНГЛИЦИЗМЫ НЕ ИЗ WHITELIST:",
+            "",
+        ]
+        for warning in language_feedback:
+            token = warning.get("token", "") if isinstance(warning, dict) else getattr(warning, "token", "")
+            ctx = warning.get("location_context", "") if isinstance(warning, dict) else getattr(warning, "location_context", "")
+            feedback_lines.append(f'- "{token}" в контексте "...{ctx}..."')
+        feedback_lines.append(
+            "\nЗамени каждое на русский эквивалент. "
+            "Исключения ТОЛЬКО из whitelist выше.\n---"
+        )
+        parts.append("\n".join(feedback_lines))
 
     parts.append(
         "\n---\n"
@@ -442,3 +476,90 @@ def _enum(v: Any, allowed: tuple[str, ...], default: str) -> Any:
 
 # unused import guard (for tools that can't see analyzer's UploadedMarkdown usage)
 _ = UploadedMarkdown
+
+
+# ---------------------------------------------------------------------------
+# Language-lint helper: extract all user-visible text from a FinalReport
+# ---------------------------------------------------------------------------
+
+
+def full_report_text(report: FinalReport) -> str:
+    """Concatenate all user-visible text fields from *report* for language linting.
+
+    Deliberately excludes URLs, source titles, and internal metadata so the
+    linter focuses on prose authored by the Synthesizer, not on external data.
+    """
+    parts: list[str] = []
+
+    # Question / title fields
+    if report.question:
+        parts.append(report.question)
+
+    # Executive summary
+    es = report.executive_summary
+    if es.main_answer:
+        parts.append(es.main_answer)
+    parts.extend(es.top_findings)
+    if es.confidence_note:
+        parts.append(es.confidence_note)
+    if es.what_meta_adds:
+        parts.append(es.what_meta_adds)
+    for kn in es.key_numbers:
+        parts.append(kn.metric)
+        parts.append(kn.subject)
+
+    # Main body sections
+    for field in (
+        report.main_synthesis,
+        report.consensus_section,
+        report.conflicts_section,
+        report.gaps_filled_section,
+    ):
+        if field:
+            parts.append(field)
+
+    # Q&A section
+    for item in report.qa_section:
+        parts.append(item.question)
+        parts.append(item.answer)
+        if item.details_ref:
+            parts.append(item.details_ref)
+
+    # Ranking
+    for item in report.ranking:
+        parts.append(item.label)
+        if item.rationale:
+            parts.append(item.rationale)
+
+    # Tables (title + caption + column headers + cell text)
+    for table in report.tables:
+        parts.append(table.title)
+        parts.extend(table.columns)
+        for row in table.rows:
+            parts.extend(row)
+        if table.caption:
+            parts.append(table.caption)
+        if table.source_ref:
+            parts.append(table.source_ref)
+
+    # Charts (title + caption + axis labels)
+    for chart in report.charts:
+        parts.append(chart.title)
+        if chart.x_label:
+            parts.append(chart.x_label)
+        if chart.y_label:
+            parts.append(chart.y_label)
+        if chart.caption:
+            parts.append(chart.caption)
+
+    # Callouts
+    for callout in report.callouts:
+        parts.append(callout.title)
+        parts.append(callout.body)
+
+    # Key numbers highlight
+    for knh in report.key_numbers_highlight:
+        parts.append(knh.label)
+        parts.append(knh.source_ref)
+
+    return "\n".join(p for p in parts if p)

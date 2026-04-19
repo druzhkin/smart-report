@@ -27,7 +27,8 @@ from .models import (
 )
 from .analyzer import analyze_reports
 from .prompt_master import generate_research_prompt
-from .synthesizer import synthesize_final_report
+from .synthesizer import full_report_text, synthesize_final_report
+from .i18n import lint_output_language
 
 if TYPE_CHECKING:  # pragma: no cover
     pass
@@ -159,10 +160,42 @@ class V4Orchestrator:
             log_dir=self.log_dir,
             mock=self.mock,
         )
+        session = self._accumulate_cost(session, cost_rub)
+
+        # --- Language lint post-processing (Track 3) ---
+        # Run the linter on all user-visible text of the freshly synthesized report.
+        # If more than 20 warnings are found, do one retry with the flagged tokens
+        # as feedback so the Synthesizer can replace them with Russian equivalents.
+        # Threshold is 20 (not 10) so that test stubs with some English phrases do
+        # not accidentally trigger a retry; the v4 night baseline has ~30 warnings.
+        # We never retry more than once here to avoid runaway costs.
+        lint_warnings = lint_output_language(full_report_text(final))
+        if len(lint_warnings) > 20 and not self.mock:
+            self.emitter.emit(
+                "orchestrator",
+                f"Language lint: {len(lint_warnings)} warnings — retrying Synthesizer",
+                data={"warnings_count": len(lint_warnings)},
+            )
+            final, cost_rub2 = await synthesize_final_report(
+                session,
+                emitter=self.emitter,
+                log_dir=self.log_dir,
+                mock=self.mock,
+                language_feedback=[w.model_dump() for w in lint_warnings],
+            )
+            session = self._accumulate_cost(session, cost_rub2)
+            # Re-lint, but do not loop again
+            lint_warnings = lint_output_language(full_report_text(final))
+
+        # Store lint results in report metadata (capped at 20 for payload size)
+        final.metadata["language_lint"] = {
+            "warnings_count": len(lint_warnings),
+            "warnings": [w.model_dump() for w in lint_warnings[:20]],
+        }
+
         session.final_report = final
         session.status = "synthesized"
         self.store.update(session)
-        session = self._accumulate_cost(session, cost_rub)
         return final
 
     # --- cost accounting ---
