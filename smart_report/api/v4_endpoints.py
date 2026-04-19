@@ -31,6 +31,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+from typing import Literal
 
 from ..events import ALLOWED_PHASES, EventEmitter
 from ..exporters import (
@@ -112,6 +113,10 @@ class CreateSessionOut(BaseModel):
     session_id: str
 
 
+class ModelPreferenceIn(BaseModel):
+    model_preference: Literal["sonnet", "opus"] | None = None
+
+
 # ---- endpoints ----
 
 
@@ -125,13 +130,34 @@ async def create_session(payload: CreateSessionIn) -> CreateSessionOut:
     return CreateSessionOut(session_id=session_id)
 
 
+@router.post("/admin/restore-session")
+async def admin_restore_session(payload: dict) -> dict:
+    """Restore a full V4Session from a JSON dump (recovery after backend restart).
+
+    Body: full session JSON as returned by GET /api/v4/sessions/{id}.
+    Returns: {"session_id": "<id>", "restored": True}.
+    Dangerous; intended for local debugging only.
+    """
+    from ..models import V4Session
+    try:
+        session = V4Session.model_validate(payload)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"invalid session payload: {e!r}") from e
+    _V4_SESSIONS[session.session_id] = session
+    _V4_EVENTS.setdefault(session.session_id, [])
+    _V4_EVENT_SIGNALS.setdefault(session.session_id, asyncio.Event())
+    log.info("v4 session %s RESTORED (status=%s, cost=%s)", session.session_id, session.status, session.total_cost_rub)
+    return {"session_id": session.session_id, "restored": True, "status": session.status}
+
+
 @router.post("/sessions/{session_id}/generate-prompt", response_model=ResearchPrompt)
-async def generate_prompt(session_id: str) -> ResearchPrompt:
+async def generate_prompt(session_id: str, payload: ModelPreferenceIn | None = None) -> ResearchPrompt:
     if not _store.exists(session_id):
         raise HTTPException(status_code=404, detail=f"session {session_id} not found")
     orch = V4Orchestrator(_store, emitter=_SessionEmitter(session_id))
+    model_preference = payload.model_preference if payload else None
     try:
-        return await orch.generate_prompt(session_id)
+        return await orch.generate_prompt(session_id, model_preference=model_preference)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
@@ -157,12 +183,13 @@ async def upload_followup(
 
 
 @router.post("/sessions/{session_id}/analyze", response_model=AnalysisOutput)
-async def analyze(session_id: str) -> AnalysisOutput:
+async def analyze(session_id: str, payload: ModelPreferenceIn | None = None) -> AnalysisOutput:
     if not _store.exists(session_id):
         raise HTTPException(status_code=404, detail=f"session {session_id} not found")
     orch = V4Orchestrator(_store, emitter=_SessionEmitter(session_id))
+    model_preference = payload.model_preference if payload else None
     try:
-        return await orch.analyze(session_id)
+        return await orch.analyze(session_id, model_preference=model_preference)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
@@ -171,14 +198,16 @@ async def analyze(session_id: str) -> AnalysisOutput:
 
 
 @router.post("/sessions/{session_id}/synthesize", response_model=FinalReport)
-async def synthesize(session_id: str) -> FinalReport:
+async def synthesize(session_id: str, payload: ModelPreferenceIn | None = None) -> FinalReport:
     if not _store.exists(session_id):
         raise HTTPException(status_code=404, detail=f"session {session_id} not found")
     orch = V4Orchestrator(_store, emitter=_SessionEmitter(session_id))
+    model_preference = payload.model_preference if payload else None
     try:
-        return await orch.synthesize(session_id)
+        return await orch.synthesize(session_id, model_preference=model_preference)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
+        log.exception("v4 synthesize ValueError for %s", session_id)
+        raise HTTPException(status_code=400, detail=f"ValueError: {e}") from e
     except Exception as e:
         log.exception("v4 synthesize failed for %s", session_id)
         raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}") from e
