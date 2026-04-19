@@ -83,10 +83,15 @@ class ModelConfig:
     # Revisit if Analyzer prompt is tuned for non-Opus models.
     ANALYZER_MODEL: str = "anthropic/claude-opus-4.7"
 
-    # §4 Synthesizer: Sonnet 4.6 wins with 88/100 vs Opus 83/100.
-    # Sonnet produces more source URLs (35 vs 23) and more tables (5 vs 4).
+    # §4 Synthesizer: Opus 4.7 chosen by subjective spot-check (user read all 3 DOCX
+    # finalists: sonnet 88/100 auto, opus 83/100 auto, gemini 78/100 auto).
+    # Auto-metrics favoured Sonnet (more tables + sources), but user judged Opus
+    # gives deeper authorial synthesis — real conflict resolution, not restructured
+    # recapping. This is the exact hybrid-C evaluation protocol: rules filter, human
+    # decides between finalists on subjective depth.
+    # Cost trade-off: +$0.21 per run vs Sonnet winner.
     # Note: requires max_tokens=32000 to avoid JSON truncation on long outputs.
-    SYNTHESIZER_MODEL: str = "anthropic/claude-sonnet-4.6"
+    SYNTHESIZER_MODEL: str = "anthropic/claude-opus-4.7"
 
     # §5 Critic: Opus fixed per user decision (FP risk too high to downgrade)
     SYNTHESIS_CRITIC_MODEL: str = "anthropic/claude-opus-4.7"
