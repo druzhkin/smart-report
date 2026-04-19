@@ -240,6 +240,64 @@ class Source(_V4Base):
     reliability: SourceReliability = "medium"
 
 
+# --- v4 Track A structured output models (added by Track B for contract) ---
+
+
+class QAItem(_V4Base):
+    """Direct answer to one of the user's sub-questions."""
+
+    question: str  # one of the user's sub-questions (from prompt analysis)
+    answer: str  # direct 2-3 sentence answer
+    details_ref: str  # where to find full detail in the report
+
+
+class RankingItem(_V4Base):
+    """Structured ranking entry for comparison/prioritization questions."""
+
+    label: str
+    weight: int | None = None  # e.g. 45 if OpenAI-DR-style, else None
+    rationale: str
+    evidence_strength: Literal["high", "medium", "low"]
+
+
+class Table(_V4Base):
+    """Structured table for comparative data."""
+
+    title: str
+    columns: list[str]
+    rows: list[list[str]]
+    caption: str | None = None
+    source_ref: str | None = None
+
+
+class ChartSpec(_V4Base):
+    """Spec for generating a chart — not the rendered chart itself."""
+
+    chart_type: Literal["bar", "line", "pie", "scatter", "stacked_bar", "waterfall"]
+    title: str
+    data: dict  # structure depends on chart_type
+    x_label: str | None = None
+    y_label: str | None = None
+    caption: str | None = None
+
+
+class CalloutBlock(_V4Base):
+    """Highlighted insight, warning, key number, or note."""
+
+    kind: Literal["insight", "warning", "key_number", "note"]
+    title: str
+    body: str
+
+
+class KeyNumberHighlight(_V4Base):
+    """Headline-level number for visual highlight on executive summary page."""
+
+    value: str  # e.g. "883.8 тыс. руб./м²"
+    label: str  # e.g. "средняя цена Prime Park H1 2025"
+    source_ref: str  # e.g. "РБК Недвижимость"
+    importance: Literal["headline", "primary", "secondary"]
+
+
 class FinalReport(_V4Base):
     session_id: str
     question: str
@@ -251,6 +309,15 @@ class FinalReport(_V4Base):
     gaps_filled_section: str = ""
     all_sources: list[Source] = Field(default_factory=list)
     metadata: dict = Field(default_factory=dict)
+
+    # --- NEW optional fields (Track A structured output, backward-compat) ---
+    qa_section: list[QAItem] = Field(default_factory=list)
+    ranking: list[RankingItem] = Field(default_factory=list)
+    tables: list[Table] = Field(default_factory=list)
+    charts: list[ChartSpec] = Field(default_factory=list)
+    callouts: list[CalloutBlock] = Field(default_factory=list)
+    key_numbers_highlight: list[KeyNumberHighlight] = Field(default_factory=list)
+    cover_image_prompt: str | None = None
 
 
 class V4Session(_V4Base):
