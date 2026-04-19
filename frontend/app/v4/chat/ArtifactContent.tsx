@@ -281,9 +281,20 @@ export function ReportArtifact({ finalReport, openSource }: ReportArtifactProps)
           {/* Executive Summary */}
           <section id="r-exec" className="cover">
             <div className="eyebrow">Отчёт уровня акционера</div>
-            <h1>{executive_summary.main_answer}</h1>
+            <p
+              style={{
+                fontSize: 17,
+                lineHeight: 1.55,
+                fontWeight: 500,
+                color: "var(--ink)",
+                letterSpacing: "-0.005em",
+                margin: "8px 0 16px 0",
+              }}
+            >
+              {executive_summary.main_answer}
+            </p>
             {executive_summary.confidence_note && (
-              <p style={{ color: "var(--ink-3)", fontSize: 13 }}>
+              <p style={{ color: "var(--ink-3)", fontSize: 12, fontFamily: "var(--mono)", letterSpacing: "0.02em" }}>
                 {executive_summary.confidence_note}
               </p>
             )}
