@@ -18,10 +18,16 @@ def _ts() -> str:
 
 
 def extract_json(raw: str) -> Any:
-    """Tolerant JSON extraction: strips ```json fences, finds first balanced {...} or [...].
+    """Tolerant JSON extraction with repair layers.
 
-    Claude on OpenRouter frequently wraps JSON in markdown fences even when asked
-    for strict JSON via response_format. v2 Planner failed for this exact reason.
+    Layer 1: strip ```json fences + strict json.loads.
+    Layer 2: slice outer `{...}` or `[...]` + strict json.loads.
+    Layer 3: trailing-comma + unescaped-quote repair, then json.loads again.
+
+    Long-context LLM outputs (Opus @ 30k+ tokens of Russian text) frequently
+    emit unescaped `"` inside string values (typically when quoting English
+    source material mid-sentence). Strict json.loads dies at that char.
+    Layer 3 heuristically repairs the most common offenders.
     """
     if raw is None:
         raise ValueError("empty LLM response")
@@ -34,7 +40,7 @@ def extract_json(raw: str) -> Any:
         return json.loads(text)
     except json.JSONDecodeError:
         pass
-    # Fallback: pick outermost {...} or [...]
+    # Layer 2: pick outermost {...} or [...]
     first_obj = text.find("{")
     first_arr = text.find("[")
     candidates = [c for c in (first_obj, first_arr) if c != -1]
@@ -45,7 +51,82 @@ def extract_json(raw: str) -> Any:
     end = text.rfind(closer)
     if end == -1 or end <= start:
         raise ValueError(f"unbalanced JSON in LLM response: {text[start : start + 200]!r}")
-    return json.loads(text[start : end + 1])
+    sliced = text[start : end + 1]
+    try:
+        return json.loads(sliced)
+    except json.JSONDecodeError as err:
+        pass
+    # Layer 3: repair common LLM mistakes
+    repaired = _repair_llm_json(sliced)
+    try:
+        return json.loads(repaired)
+    except json.JSONDecodeError as err:
+        # Final failure — include error location for debugging
+        raise ValueError(
+            f"JSON unparseable even after repair: {err.msg} at line {err.lineno} col {err.colno} (char {err.pos}). "
+            f"Slice head: {sliced[:120]!r}"
+        ) from err
+
+
+def _repair_llm_json(text: str) -> str:
+    """Apply targeted repairs for common LLM JSON emission bugs.
+
+    Focus on the failure modes observed in production:
+    1. Unescaped `"` inside string values (Opus quoting English mid-Russian).
+    2. Trailing commas before `}` or `]`.
+    3. Stray control characters (rare, but zero-cost to strip).
+    """
+    # 1. Trailing commas
+    text = re.sub(r",(\s*[}\]])", r"\1", text)
+    # 2. Unescaped quotes inside strings — the expensive one.
+    # Strategy: walk character by character, tracking whether we're inside
+    # a string value. When we see `"`, decide:
+    #   - if next non-space char is `:` or `,` or `}` or `]` or newline+colon/comma — it's a string delimiter, fine.
+    #   - otherwise it's an unescaped internal quote, replace with `\"`.
+    out: list[str] = []
+    in_string = False
+    i = 0
+    n = len(text)
+    while i < n:
+        ch = text[i]
+        if not in_string:
+            out.append(ch)
+            if ch == '"':
+                in_string = True
+            i += 1
+            continue
+        # We ARE inside a string.
+        if ch == "\\" and i + 1 < n:
+            # Escaped char — keep both chars verbatim.
+            out.append(ch)
+            out.append(text[i + 1])
+            i += 2
+            continue
+        if ch == '"':
+            # Is this the END of the string, or an unescaped internal quote?
+            # Look ahead past whitespace to see if next meaningful char is structural.
+            j = i + 1
+            while j < n and text[j] in " \t\r\n":
+                j += 1
+            next_structural = text[j] if j < n else ""
+            if next_structural in (":", ",", "}", "]", ""):
+                # Legitimate string delimiter.
+                out.append(ch)
+                in_string = False
+                i += 1
+                continue
+            # Unescaped internal quote. Repair.
+            out.append("\\")
+            out.append('"')
+            i += 1
+            continue
+        # Strip raw control characters that break json.loads (keep \t \n \r via escapes).
+        if ord(ch) < 0x20 and ch not in ("\t", "\n", "\r"):
+            i += 1
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
 
 
 def load_prompt(name: str) -> str:

@@ -248,10 +248,27 @@ async def _call_synth_with_retry(
 ) -> tuple[dict[str, Any], float]:
     """Call the synthesizer LLM with retry; return ``(parsed_dict, cost_rub)``.
 
-    cost_rub is taken from the last successful attempt only.
+    On each retry temperature drops (0.4 → 0.2 → 0.05). Lower temperature
+    means less creative deviation from strict-JSON output format — Opus at
+    temp=0.4 on long Russian contexts consistently drops unescaped quotes
+    mid-string; at temp=0.05 this disappears.
+
+    Malformed responses are ALWAYS saved to runs/malformed_llm/<ts>_<attempt>.txt
+    regardless of log_dir setting, so future diagnosis has raw material without
+    re-running the expensive LLM call.
+
+    cost_rub is accumulated across ALL attempts (failed and successful) because
+    OpenRouter charges on completion, not on validity. Silent discard of cost
+    from failed attempts was previously hiding real spend from session accounting.
     """
+    from datetime import datetime as _dt
+    from pathlib import Path as _Path
+
+    _temps = [0.4, 0.2, 0.05]  # ramp-down on retries
+    total_cost = 0.0
     last_err: Exception | None = None
     for attempt in range(_MAX_JSON_RETRIES + 1):
+        temp = _temps[attempt] if attempt < len(_temps) else _temps[-1]
         llm_result: LLMResult = await call_json(
             role="synthesizer",
             messages=[
@@ -259,16 +276,29 @@ async def _call_synth_with_retry(
                 {"role": "user", "content": user},
             ],
             model=SYNTHESIZER_MODEL,
-            temperature=0.4,
+            temperature=temp,
             mock=mock,
             log_dir=log_dir,
             response_format={"type": "json_object"} if not mock else None,
             # 32k tokens required for FinalReport — 14k causes JSON truncation
             max_tokens=32000,
         )
+        total_cost += llm_result.cost_rub
         try:
             data = extract_json(llm_result.text)
         except (ValueError, json.JSONDecodeError) as err:
+            # ALWAYS save malformed response for post-mortem (no LLM re-cost to diagnose)
+            try:
+                dump_dir = _Path("runs") / "malformed_llm"
+                dump_dir.mkdir(parents=True, exist_ok=True)
+                ts = _dt.utcnow().strftime("%Y%m%dT%H%M%SZ")
+                dump_path = dump_dir / f"{ts}_attempt{attempt}_{SYNTHESIZER_MODEL.replace('/', '_')}.txt"
+                dump_path.write_text(
+                    f"# error: {err!r}\n# model: {SYNTHESIZER_MODEL}\n# temp: {temp}\n# attempt: {attempt}\n# cost_this_call: {llm_result.cost_rub}\n# total_cost_so_far: {total_cost}\n\n{llm_result.text}",
+                    encoding="utf-8",
+                )
+            except Exception:
+                pass  # never let dump failure mask the original error
             last_err = err
             if attempt < _MAX_JSON_RETRIES:
                 continue
@@ -280,7 +310,7 @@ async def _call_synth_with_retry(
             if attempt < _MAX_JSON_RETRIES:
                 continue
             raise last_err
-        return data, llm_result.cost_rub
+        return data, total_cost  # return ACCUMULATED cost, not just last attempt's
     assert last_err is not None
     raise last_err
 

@@ -83,15 +83,13 @@ class ModelConfig:
     # Revisit if Analyzer prompt is tuned for non-Opus models.
     ANALYZER_MODEL: str = "anthropic/claude-opus-4.7"
 
-    # §4 Synthesizer: Opus 4.7 chosen by subjective spot-check (user read all 3 DOCX
-    # finalists: sonnet 88/100 auto, opus 83/100 auto, gemini 78/100 auto).
-    # Auto-metrics favoured Sonnet (more tables + sources), but user judged Opus
-    # gives deeper authorial synthesis — real conflict resolution, not restructured
-    # recapping. This is the exact hybrid-C evaluation protocol: rules filter, human
-    # decides between finalists on subjective depth.
-    # Cost trade-off: +$0.21 per run vs Sonnet winner.
-    # Note: requires max_tokens=32000 to avoid JSON truncation on long outputs.
-    SYNTHESIZER_MODEL: str = "anthropic/claude-opus-4.7"
+    # §4 Synthesizer: Sonnet 4.6 (reverted from Opus after prod blocker).
+    # 2026-04-19 evening: on real user session with Russian content (quotes, citations),
+    # Opus consistently produced malformed JSON mid-response (char 63713 JSONDecodeError).
+    # All 3 retries failed → endpoint returned 400 instantly, user blocked.
+    # Sonnet 4.6 passed bake-off with 88/100 auto-score (vs Opus 83), valid JSON,
+    # 36% cheaper, 2-3× faster. Revisit Opus when JSON reliability bug diagnosed.
+    SYNTHESIZER_MODEL: str = "anthropic/claude-sonnet-4.6"
 
     # §5 Critic: Opus fixed per user decision (FP risk too high to downgrade)
     SYNTHESIS_CRITIC_MODEL: str = "anthropic/claude-opus-4.7"
