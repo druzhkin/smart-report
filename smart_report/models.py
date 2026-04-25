@@ -149,6 +149,9 @@ DecompositionMethod = Literal[
 ]
 
 
+EvidenceStatus = Literal["unanswered", "partial", "answered"]
+
+
 class SubQuestion(_V4Base):
     """A single sub-question produced by the v4.5 Step 2.2 LLM planner.
 
@@ -159,6 +162,11 @@ class SubQuestion(_V4Base):
     formulate or interpret another (e.g. "what is the regulatory
     baseline" must answer before "how does the proposed change shift
     competitive dynamics").
+
+    Steps 2.3 / 2.4 add three evidence-coverage fields used by the gap
+    detector and the follow-up prompter. They default to "no evidence
+    seen yet", so a SubQuestion built before any retrieval pass is
+    still valid; the gap detector populates them after analyze.
     """
 
     id: str  # "sq1", "sq2", ... — stable within a single decomposition
@@ -166,6 +174,10 @@ class SubQuestion(_V4Base):
     depends_on: list[str] = Field(default_factory=list)  # other SubQuestion ids
     rationale: str = ""  # why this sub-question matters for the parent query
     suggested_sources: list[str] = Field(default_factory=list)  # source-type hints
+    # Steps 2.3 / 2.4 — populated by gap_detector after analyze
+    evidence_status: EvidenceStatus = "unanswered"
+    authoritative_source_count: int = 0
+    bibliography_refs: list[str] = Field(default_factory=list)  # source URLs matched to this sub-question
 
 
 class ResearchPrompt(_V4Base):
