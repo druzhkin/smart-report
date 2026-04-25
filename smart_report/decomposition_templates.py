@@ -197,6 +197,96 @@ def is_russian_re_strategic(query: str) -> bool:
     return has_re and has_strategic
 
 
+# ---------------------------------------------------------------------------
+# v4.5 Phase 2 Step 2.2 — broad strategic detector (LLM-planner gate)
+# ---------------------------------------------------------------------------
+# Used by Prompt Master to decide between three paths:
+#   1. is_russian_re_strategic → fixed RU RE template (Step 2.1, free)
+#   2. is_strategic_query      → LLM planner (Step 2.2, ~$0.05-0.10)
+#   3. neither                 → no decomposition, single-pass
+# Note: is_russian_re_strategic ⊂ is_strategic_query for any RU RE
+# strategic query, so the order in the router matters. Domain template
+# wins on RU RE because it's cheaper (no LLM call) and pre-validated.
+
+_BROAD_STRATEGIC_MARKERS: tuple[str, ...] = (
+    # Russian markers — superset of _STRATEGIC_MARKERS with synonyms
+    "тренд",
+    "влияет",
+    "влияют",
+    "влияни",
+    "перспектив",
+    "прогноз",
+    "риск",
+    "рекоменд",
+    "лидир",
+    "стратег",
+    "успех",
+    "выбор",
+    "сравн",
+    "оптимальн",
+    "приоритет",
+    "что определяет",
+    "что движет",
+    "почему",
+    "анализ",
+    "оцени",
+    "оценка",
+    "сценари",
+    "как ",
+    "повлия",
+    # English markers — for future bilingual / non-RU queries
+    "trend",
+    "impact",
+    "forecast",
+    "risk",
+    "recommend",
+    "strategic",
+    "analyze",
+    "analysis",
+    "compare",
+    "comparison",
+    "evaluate",
+    "evaluation",
+    "scenario",
+    "outlook",
+    "drivers",
+    "rationale",
+)
+
+# Length gate: tuned against the Step 2.2 spec acceptance examples.
+# The spec text suggested >=12 but its own positive examples sit at
+# 7-9 words ("Compare LLM observability platforms ... for enterprise
+# scale" = 7 tokens; "Какие тренды повлияют на девелоперов в Москве в
+# 2026-2027?" = 9 tokens). 7 satisfies all positive cases while still
+# rejecting truly short strategic-sounding lookups ("Выбор ипотеки
+# или аренды?" = 4) where decomposition adds no value.
+_STRATEGIC_MIN_WORDS = 7
+
+
+def is_strategic_query(query: str) -> bool:
+    """Return True for queries that warrant decomposition (template or LLM).
+
+    Two conditions must both hold:
+      - At least one strategic marker present (analytical-intent signal)
+      - At least 7 words long (rules out short factual lookups like
+        "какая ставка ЦБ?" even if they contain "what")
+
+    Both gates necessary: long descriptive queries without strategic
+    markers (e.g. "Опиши историю развития ЖК Прайм Парк за 5 лет с
+    инфраструктурой и парковкой") are factual and don't need
+    decomposition; short strategic-sounding queries ("выбор ипотеки?")
+    are too vague for sub-questions to add value.
+    """
+    if not query or not query.strip():
+        return False
+    q_lower = query.lower()
+    has_marker = any(m in q_lower for m in _BROAD_STRATEGIC_MARKERS)
+    if not has_marker:
+        return False
+    word_count = len(query.split())
+    return word_count >= _STRATEGIC_MIN_WORDS
+
+
 def decompose(query: str) -> list[SubQuery]:
     """Return the decomposition for *query*, or an empty list when no template fits.
 
