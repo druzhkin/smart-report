@@ -13,12 +13,11 @@
 
 ## TL;DR (running update)
 
-Day 1 closed at $0.00 spent — both auto-recon and Run 2 baseline review
-delivered without paid LLM/Valyu calls. Both decisions logged in
-`BLOCKERS.md` for reviewer.
-
-Days 2-7 remain. Next session should resume with Day 2 (Valyu client v0)
-unless this session continues into it.
+Days 1–3 closed in a single session at **$0.002 cumulative spend**
+(one live Valyu arXiv smoke). Three autonomous decisions logged
+(A1/A2/A3 in `BLOCKERS.md`). Test suite at 547 passed (+13 from
+Day 3 routing tests, +12 from Day 2 client tests). Days 4–7 remain
+(A/B prep + Run + Phase 4 brief + closing).
 
 ## What's done
 
@@ -35,31 +34,39 @@ unless this session continues into it.
   end-of-day log.
 - Commit: `c8c2e1e` (`docs(week-7): Day 1 — Valyu recon + Run 2 baseline review`).
 
+### Day 2 (2026-04-26) ✅
+
+- `smart_report/sources/valyu.py` — async ValyuClient + retry shim
+  (3 attempts, 1s/2s/4s backoff, 5xx + ConnectionError + Timeout
+  retried, 4xx not).
+- `smart_report/sources/__init__.py` — package + exports.
+- `tests/test_valyu_client.py` — 12 mocks + 1 live arXiv smoke
+  (PASSED at $0.001).
+- `pyproject.toml` — registered `live` pytest marker, default
+  `addopts` skip.
+- `BLOCKERS.md` A3 logged: `fast_mode=True` + `search_type="proprietary"`
+  is API-incompatible; default fixed to `("all", fast_mode=True)`.
+- Commit: `93e6665` (`feat(sources): valyu backend client + retry shim`).
+
+### Day 3 (2026-04-26) ✅
+
+- `smart_report/domain_detector.py` extended with `Backend` enum,
+  `ValyuCallSpec`, `BackendPlan`, `BACKEND_PLAN_BY_DOMAIN`,
+  `backend_plan_for(query)`. Mapping faithfully encodes brief §3.6
+  onto our existing 6 QueryDomain values, with EU_REGULATORY using
+  `("proprietary", fast_mode=False)` to access Valyu's value-add
+  corpus and close the A3 risk.
+- `smart_report/sources/orchestrator.py` — `SearchOrchestrator` with
+  primary→fallback dispatch. Manual Perplexity surfaced via
+  `SearchOutcome.handoff_required=True` (no auto Perplexity client
+  exists yet — out of scope, surfaced as sentinel).
+- `tests/test_search_orchestrator.py` — 13 tests:
+  * 6 routing-decision tests (one per non-trivial domain + table-coverage)
+  * 7 dispatch tests (manual handoff, EU reg kwargs, empty→fallback,
+    error→fallback, RU no-fallback, no-Valyu-client paths × 2)
+- Cost: $0 (mock-only).
+
 ## What's not done yet
-
-### Day 2 — Valyu client v0 (PENDING)
-
-Per brief §3.4 + §3.5:
-- `smart_report/sources/valyu.py` (or equivalent) — minimal `.search()`
-  wrapper around the Python SDK, fast_mode default, retry shim
-- Registration in source registry (likely `SourceBackend` enum +
-  routing scaffolding — but the abstraction can live as a thin shim
-  until Day 3 needs it)
-- Tests: 3 mocks (success / rate-limit / 5xx retry) + 1 `@pytest.mark.live`
-  smoke
-- Commit: `feat(sources): valyu backend + registry integration`
-
-### Day 3 — Domain routing (PENDING)
-
-Per brief §3.6 + §3.7:
-- Extend domain detector with `detected_domain → preferred_backends`
-  mapping per brief routing table (financial_us / regulatory_eu /
-  regulatory_us / medical_clinical / scientific / russian_market /
-  realtime_news / general)
-- `SearchOrchestrator` with primary→fallback routing logic, no
-  parallel calls in both backends
-- Tests: 5 routing decisions + 1 fail→fallback
-- Commit: `feat(orchestrator): domain-aware backend routing`
 
 ### Day 4 — A/B prep + Q3 dry-run (PENDING)
 
@@ -114,13 +121,13 @@ Candidate Steps in brief — pick by real findings.
 | Day | OpenRouter | Valyu | Total | Hard cap remaining |
 |---|---|---|---|---|
 | Day 1 | $0.00 | $0.00 | $0.00 | $20.00 |
-| Day 2 | TBD | TBD | TBD | TBD |
-| Day 3 | TBD | TBD | TBD | TBD |
+| Day 2 | $0.00 | $0.002 | $0.002 | $19.998 |
+| Day 3 | $0.00 | $0.00 | $0.00 | $19.998 |
 | Day 4 | TBD | TBD | TBD | TBD |
 | Day 5 | TBD | TBD | TBD | TBD |
 | Day 6 | TBD | TBD | TBD | TBD |
 | Day 7 | TBD | TBD | TBD | TBD |
-| **Week** | TBD | TBD | **$0.00 so far** | $20.00 |
+| **Week** | $0.00 | $0.002 | **$0.002 so far** | $19.998 |
 
 ## Top decisions made without user
 
@@ -133,7 +140,17 @@ Candidate Steps in brief — pick by real findings.
    path, Haiku model — substantively similar baseline for review
    purposes. If Sonnet output materially differs we can re-run.
 
-(Days 2-7 will append here)
+(Day 2)
+
+3. **A3 — `ValyuClient` defaults set to `("all", fast_mode=True)`**
+   after the live API rejected `("proprietary", fast=True)` with
+   a clear error. Day 3 routing layer overrides per-domain to
+   `("proprietary", fast=False)` when targeting EU regulatory.
+   Easy revert: flip the default back if we'd rather pay slightly
+   more by default for always-on proprietary access.
+
+(Day 3 — no new autonomous decisions; routing rules followed brief §3.6
+mapped onto the existing 6-domain enum.)
 
 ## Top blockers for review
 
