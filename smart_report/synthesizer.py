@@ -157,7 +157,23 @@ def _build_user_message(
     if analysis is not None:
         parts.append("## Analyzer output (structured JSON)\n")
         parts.append("```json")
-        parts.append(json.dumps(analysis.model_dump(), ensure_ascii=False, indent=2))
+        # Exclude fact lists that _build_facts_section injects below in
+        # a curated, capped form. Otherwise the prompt double-carries
+        # all_numeric_facts (the superset) and high_relevance_facts (the
+        # cap-200 subset), inflating realistic 4-fixture runs to 400k+
+        # tokens and overflowing 200k-context models like Haiku 4.5.
+        # Live Acceptance Run 1 measured 523k chars in the dump alone;
+        # this exclude drops it to ~109k while losing zero information
+        # the synthesizer actually consumes downstream.
+        parts.append(
+            json.dumps(
+                analysis.model_dump(
+                    exclude={"all_numeric_facts", "high_relevance_facts"}
+                ),
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
         parts.append("```\n")
 
     if session.followup_reports:
