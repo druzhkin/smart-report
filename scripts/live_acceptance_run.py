@@ -616,10 +616,143 @@ async def test3():
     return result
 
 
+async def test1_run2_post_fixes():
+    """Re-run Test 1 after Fix 1 (synthesizer prompt double-injection) and
+    Fix 2 (lint retry threshold 20→100) to confirm cost dropped into the
+    expected range. Same hybrid model + same fixtures as Run 1; reuses
+    the saved Test 1 checkpoint so we only pay for the Synthesizer pass.
+
+    Acceptance vs Run 1 ($4.85, 3 synth calls):
+      - cost_usd <= $1.50
+      - synth_invocations == 1 (no Lint or Coverage retry)
+      - distinct_grades >= 2 (substance preserved)
+      - total_tags >= 6 (substance preserved)
+
+    Hard cap: $2.50.
+    """
+    print("=" * 60)
+    print("TEST 1 RUN 2 — Post-fix verification (Haiku/Sonnet hybrid)")
+    print("  Compares against Run 1 baseline ($4.85, 3 synth invocations)")
+    print("  Hard cap: $2.50")
+    print("=" * 60)
+    question = "Какие факторы повлияют на спрос на жильё бизнес-класса в Москве в 2026-2027?"
+    session, events = await _run_cycle(
+        question=question,
+        uploads=_load_amenities_uploads(subset=["amenities-main.md", "deep-research-report-2.md"]),
+        model=HAIKU,
+        synth_override=SONNET,
+        run_prompt_master=False,
+        checkpoint_name="test1_c7_variance",  # reuse cached intake+analyze
+    )
+    cost_usd = session.total_cost_rub / USD_RUB_RATE
+
+    # Count synth calls from emitter trace
+    synth_calls = sum(
+        1 for e in events
+        if e["phase"] == "synthesizer" and "Собираю финальный отчёт" in e["message"]
+    )
+
+    # Substance check (re-use Test 1 evaluator)
+    base_eval = _evaluate_test1(session)
+
+    if cost_usd > 2.50:
+        verdict = "FAIL"
+        reason = "hard_cap_exceeded"
+    elif cost_usd > 1.50:
+        verdict = "DEGRADED"
+        reason = "cost_above_target_but_within_cap"
+    elif synth_calls != 1:
+        verdict = "DEGRADED"
+        reason = f"synth_invocations={synth_calls} (expected 1)"
+    elif base_eval["distinct_grades"] < 2:
+        verdict = "FAIL"
+        reason = "variance_lost_post_fix"
+    elif base_eval["total_tags"] < 6:
+        verdict = "FAIL"
+        reason = "tags_lost_post_fix"
+    else:
+        verdict = "PASS"
+        reason = "all_criteria_met"
+
+    result = {
+        "verdict": verdict,
+        "reason": reason,
+        "cost_usd_run2": round(cost_usd, 4),
+        "cost_usd_run1_baseline": 4.85,
+        "cost_delta_usd": round(4.85 - cost_usd, 4),
+        "cost_reduction_pct": round((4.85 - cost_usd) * 100 / 4.85, 1),
+        "synth_invocations": synth_calls,
+        "synth_invocations_run1_baseline": 3,
+        "evidence_grade_distribution": base_eval["evidence_grade_distribution"],
+        "distinct_grades": base_eval["distinct_grades"],
+        "total_tags": base_eval["total_tags"],
+        "model_strategy": {"intake_analyzer": HAIKU, "synthesizer_critic": SONNET},
+        "fixture_subset": ["amenities-main.md", "deep-research-report-2.md"],
+        "fixes_applied": ["94b7da7 (Finding 1)", "da7f24f (Finding 2)"],
+    }
+
+    out_path = _save_run("test1_run2_post_fixes", session, events, result)
+    print()
+    print("=== TEST 1 RUN 2 RESULT ===")
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    print(f"Saved: {out_path}")
+    return result
+
+
+async def test2_haiku_pure():
+    """Re-run Test 2 on pure Haiku 4.5 (every stage) after Fix 1 to validate
+    cheap-tier viability. Run 1 had to use hybrid Sonnet-synthesis because
+    the prompt overflowed Haiku's 200k context. With Fix 1 the prompt
+    drops below 110k tokens, so Haiku should fit on every stage.
+
+    Acceptance:
+      - cost_usd <= $0.30 (target — Haiku-everywhere is the whole point)
+      - All Run 1 substance criteria still pass (LOW_EVIDENCE_QUALITY,
+        Cyrillic warning, no sentinel leak, no authoritative sources)
+    """
+    print("=" * 60)
+    print("TEST 2 (Haiku pure) — Cheap-tier viability post-Fix 1")
+    print("=" * 60)
+    question = "Сравни LLM observability платформы Langfuse vs LangSmith vs Helicone для enterprise."
+    # NOTE: do NOT reuse the test2 checkpoint — its analyzer was run on
+    # Haiku already, but the checkpoint key includes "anthropic_claude-haiku-4.5"
+    # which matches our intended _all_stages(HAIKU) here. So checkpoint
+    # IS reusable (same intake+analyze setup).
+    session, events = await _run_cycle(
+        question=question,
+        uploads=_llm_obs_uploads(),
+        model=HAIKU,
+        synth_override=None,  # KEY DIFFERENCE: pure Haiku on every stage
+        run_prompt_master=False,
+        checkpoint_name="test2_c3_low_evidence",
+    )
+    cost_usd = session.total_cost_rub / USD_RUB_RATE
+    base_eval = _evaluate_test2(session)
+    base_eval["model_strategy"] = "pure_haiku_4.5_every_stage"
+    base_eval["cost_usd_target"] = 0.30
+    base_eval["cost_run1_hybrid_baseline"] = 0.64
+    base_eval["fixes_applied"] = ["94b7da7 (Finding 1)", "da7f24f (Finding 2)"]
+    if cost_usd > 0.30 and base_eval["verdict"] == "PASS":
+        base_eval["verdict"] = "DEGRADED"
+        base_eval["degraded_reason"] = "cost_above_haiku_target_but_substance_ok"
+    out_path = _save_run("test2_haiku_pure_post_fixes", session, events, base_eval)
+    print()
+    print("=== TEST 2 (Haiku pure) RESULT ===")
+    print(json.dumps(base_eval, ensure_ascii=False, indent=2))
+    print(f"Saved: {out_path}")
+    return base_eval
+
+
 async def main(test_name: str):
-    runner = {"test1": test1, "test2": test2, "test3": test3}.get(test_name)
+    runner = {
+        "test1": test1,
+        "test2": test2,
+        "test3": test3,
+        "test1_run2": test1_run2_post_fixes,
+        "test2_haiku": test2_haiku_pure,
+    }.get(test_name)
     if runner is None:
-        print(f"Unknown test: {test_name}. Use test1 / test2 / test3.")
+        print(f"Unknown test: {test_name}. Use test1 / test2 / test3 / test1_run2 / test2_haiku.")
         sys.exit(2)
     await runner()
 
