@@ -85,6 +85,12 @@ Per brief §3.8 + §3.9:
 Synthesise Day 1 REVIEW + Day 5 A/B into `notion/PHASE_4_BRIEF.md`.
 Candidate Steps in brief — pick by real findings.
 
+**New input for this brief (added 2026-04-26):** Exa AI + Tavily API
+keys are available locally (see `BLOCKERS.md` A4). Phase 4 brief
+should weigh whether either fills a gap that Run 2 + A/B exposed in
+Valyu's coverage, before committing engineering time to a 4-backend
+orchestrator.
+
 ### Day 7 — Closing (PENDING)
 
 - e2e prod-config run on Q1 (≤ $3)

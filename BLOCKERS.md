@@ -107,12 +107,47 @@ always-on.
 
 ---
 
+### A4 — Exa AI + Tavily keys provided, decision deferred to Day 6
+
+**Date:** 2026-04-26 (Day 3, end of session)
+
+**What happened:** User dropped two additional search-backend API keys
+into chat (Exa AI + Tavily, Tavily also has an MCP endpoint). Neither
+is in `WEEK_BRIEF_VALYU.md`'s scope.
+
+**Decision:** Do NOT extend the Day 3 SearchOrchestrator with Exa /
+Tavily backends mid-week. Reason:
+1. Run 2 A/B (Day 5) is meant to validate Valyu vs baseline. Adding
+   two more backends before that signal exists turns a clean A/B into
+   a 4-way comparison with no statistical floor.
+2. Two more backends = two more clients + retry shims + tests + a
+   non-trivial expansion of the routing table. ~½ day each, spends
+   the Day 4 / Day 5 slot meant for the actual Valyu A/B.
+3. Day 6 Phase 4 brief is the right place to weigh Exa / Tavily
+   against the Run 2 + A/B findings — by then we have evidence on
+   where Valyu over-/under-delivered, which informs whether Exa
+   (semantic) or Tavily (cheap web) actually fills a gap.
+
+**Where the keys live:** `.env` (gitignored). User added them manually
+because the file lives in a permission-restricted directory the agent
+cannot write to. Keys are NEVER committed and never echoed to tracked
+docs.
+
+**Easy to revert:** revisit on Day 6 with full A/B results in hand,
+extend the routing table + add clients in a one-day sprint. The
+Day 3 `Backend` enum + `BackendPlan` shape was deliberately left
+open to extension — adding `Backend.EXA` / `Backend.TAVILY` is
+mechanical.
+
+---
+
 ## Open blockers
 
-(none currently — Day 1 + Day 2 work proceeding)
+(none currently — Day 1-3 closed)
 
 ---
 
 ## Items deferred for review
 
-(none currently)
+- **Exa AI + Tavily backend integration** — keys available locally,
+  evaluation deferred to Day 6 Phase 4 brief. See A4.
