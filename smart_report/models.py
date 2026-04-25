@@ -152,6 +152,29 @@ DecompositionMethod = Literal[
 EvidenceStatus = Literal["unanswered", "partial", "answered"]
 
 
+GapSeverity = Literal["critical", "moderate", "minor"]
+
+
+class EvidenceGap(_V4Base):
+    """A single evidence-coverage gap detected on a sub_question after analyze.
+
+    Produced by gap_detector.detect_gaps; consumed by follow_up_prompter
+    to generate targeted follow-up DR prompts and surfaced in
+    FinalReport.metadata so the analyst sees what didn't close.
+
+    Severity scale (anchored on the Step 1.2 authoritative-source threshold):
+      critical — zero sources matched the sub_question
+      moderate — sources matched but none from the authoritative registry
+      minor    — exactly one authoritative source (threshold is two)
+    """
+
+    sub_question_id: str
+    sub_question_text: str
+    severity: GapSeverity
+    reason: str
+    suggested_search_directions: list[str] = Field(default_factory=list)
+
+
 class SubQuestion(_V4Base):
     """A single sub-question produced by the v4.5 Step 2.2 LLM planner.
 
