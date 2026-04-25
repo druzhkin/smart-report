@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from .synthesis_critic import ConsistencyReport
 
+from .authoritative_sources import assess_evidence_quality
 from .events import EventEmitter, NullEmitter
 from .io import extract_json, load_prompt
 from .llm import LLMResult, call_json
@@ -372,6 +373,18 @@ def _coerce_final_report(data: dict[str, Any], *, session: V4Session) -> FinalRe
         meta.setdefault("conflicts_count", len(analysis.conflicts))
         meta.setdefault("gaps_count", len(analysis.gaps))
     meta.setdefault("cost_rub_accumulated", round(session.total_cost_rub, 4))
+
+    # v4.5 Phase 1 Step 1.2 — source-adequacy heuristic. When fewer than
+    # the threshold of authoritative RU RE domains are present, mark the
+    # report and prefix the warning into confidence_note so every
+    # downstream renderer surfaces it without needing per-renderer code.
+    quality, warning = assess_evidence_quality(all_sources)
+    meta["evidence_quality"] = quality
+    if warning:
+        meta["evidence_warning"] = warning
+        prior_note = exec_summary.confidence_note
+        merged_note = warning if not prior_note else f"{warning}\n\n{prior_note}"
+        exec_summary = exec_summary.model_copy(update={"confidence_note": merged_note})
 
     # --- NEW structured output fields ---
     qa_section = _coerce_qa_section(data.get("qa_section"))
