@@ -257,6 +257,35 @@ def test_parse_planner_output_assigns_default_id_when_missing():
     assert result[1].id == "sq2"
 
 
+def test_parse_planner_output_handles_markdown_code_fences():
+    """Regression: Haiku 4.5 (verified live in Step 2.2 acceptance Run 1)
+    wraps its JSON output in ```json ... ``` fences despite the
+    response_format hint and the explicit "no markdown fences" instruction
+    in the system prompt. The parser must strip the fences via
+    io.extract_json or every Step 2.2 production call would degrade to
+    decomposition_method='llm_planner_failed'.
+    """
+    payload = {
+        "sub_questions": [
+            {
+                "id": "sq1",
+                "text": "What's the regulatory baseline?",
+                "rationale": "policy frame",
+                "suggested_sources": ["regulatory"],
+            }
+        ]
+    }
+    fence_wrapped = (
+        "```json\n"
+        + json.dumps(payload, ensure_ascii=False, indent=2)
+        + "\n```"
+    )
+    result = _parse_planner_output(fence_wrapped, cap=5)
+    assert len(result) == 1
+    assert result[0].id == "sq1"
+    assert result[0].text == "What's the regulatory baseline?"
+
+
 # ---------------------------------------------------------------------------
 # format_planner_guidance
 # ---------------------------------------------------------------------------

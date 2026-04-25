@@ -369,6 +369,7 @@ def format_template_guidance(sub_queries: list[SubQuery]) -> str:
 import json as _json_planner
 import logging as _logging_planner
 
+from .io import extract_json as _extract_json
 from .llm import call_json
 from .models import SubQuestion as _SubQuestion
 
@@ -468,12 +469,13 @@ async def generate_sub_questions(
 def _parse_planner_output(raw: str, *, cap: int) -> list[_SubQuestion]:
     """Convert raw planner JSON into validated SubQuestion list.
 
-    Tolerant: swallows JSON errors and schema-invalid items, returns
-    only valid sub-questions. An empty list signals "planner output
-    unusable" to the caller.
+    Uses io.extract_json so markdown ```json fences (Haiku 4.5 wraps
+    its JSON output in fences despite response_format hint) and minor
+    LLM JSON glitches (trailing commas, unescaped quotes) are tolerated.
+    Failure → empty list, never crash.
     """
     try:
-        data = _json_planner.loads(raw)
+        data = _extract_json(raw)
     except (ValueError, _json_planner.JSONDecodeError) as e:
         _planner_log.warning("planner JSON parse failed: %r", e)
         return []
