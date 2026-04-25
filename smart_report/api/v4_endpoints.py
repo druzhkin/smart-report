@@ -45,10 +45,17 @@ from ..exporters import (
     write_pptx,
 )
 from ..io import RUNS_DIR
+from ..follow_up_prompter import (
+    DEFAULT_FOLLOW_UP_MODEL,
+    generate_follow_up_prompts,
+)
+from ..gap_detector import detect_gaps, gap_count_by_severity
 from ..models import (
     AnalysisOutput,
     DetectedTool,
+    EvidenceGap,
     FinalReport,
+    FollowUpPrompt,
     ResearchPrompt,
     UploadedMarkdown,
     V4Session,
@@ -211,6 +218,123 @@ async def synthesize(session_id: str, payload: ModelPreferenceIn | None = None) 
     except Exception as e:
         log.exception("v4 synthesize failed for %s", session_id)
         raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}") from e
+
+
+# ---- Phase 2 Step 2.4 — Iterative Retrieval (manual loop) ----
+# v4 has no auto-retrieval; "iterative" here means the analyst takes
+# the follow-up prompts back to a DR tool and re-uploads results.
+# Cap of 2 iterations to prevent infinite loops on hard-to-close gaps.
+
+GAP_CHECK_ITERATION_CAP = 2
+
+
+class CheckGapsResponse(BaseModel):
+    iteration_number: int  # 1 or 2; >cap returns latest with can_iterate_more=False
+    gaps: list[EvidenceGap]
+    follow_up_prompts: list[FollowUpPrompt]
+    gap_count_by_severity: dict[str, int]
+    can_iterate_more: bool
+    summary_for_analyst: str
+
+
+@router.post(
+    "/sessions/{session_id}/check-gaps",
+    response_model=CheckGapsResponse,
+)
+async def check_gaps(session_id: str) -> CheckGapsResponse:
+    """Surface evidence gaps + targeted follow-up DR prompts for this session.
+
+    Requires that ``analyze`` already ran (the gap detector reads
+    ``session.analysis``). If the Step 2.2 LLM planner produced
+    ``sub_questions`` on the research prompt, the detector classifies
+    each by authoritative-source coverage and the prompter writes one
+    DR prompt for each actionable (critical / moderate) gap. Minor
+    gaps are listed for transparency but no follow-up prompt is
+    generated for them.
+
+    The analyst takes ``follow_up_prompts`` to a DR tool, downloads
+    the resulting reports, then re-uploads via /upload-reports +
+    re-runs /analyze + /synthesize. Iteration is capped at 2.
+    """
+    if not _store.exists(session_id):
+        raise HTTPException(status_code=404, detail=f"session {session_id} not found")
+    session = _store.get(session_id)
+    if session.analysis is None:
+        raise HTTPException(
+            status_code=400,
+            detail="check-gaps requires a completed /analyze first",
+        )
+
+    # Increment first — the count of TIMES we returned a response is
+    # what matters for the cap, not whether the response was useful.
+    session.gap_check_iterations += 1
+    iteration = session.gap_check_iterations
+    can_iterate_more = iteration < GAP_CHECK_ITERATION_CAP
+
+    sub_questions = (
+        session.research_prompt.sub_questions if session.research_prompt else []
+    )
+
+    if not sub_questions:
+        _store.update(session)
+        return CheckGapsResponse(
+            iteration_number=iteration,
+            gaps=[],
+            follow_up_prompts=[],
+            gap_count_by_severity={"critical": 0, "moderate": 0, "minor": 0},
+            can_iterate_more=can_iterate_more,
+            summary_for_analyst=(
+                "Декомпозиция запроса не использовалась (доменный шаблон или "
+                "фактологический запрос). Проверка пробелов на уровне "
+                "под-вопросов в этом режиме не применяется."
+            ),
+        )
+
+    gaps = await detect_gaps(sub_questions, session.analysis)
+    follow_ups = await generate_follow_up_prompts(
+        gaps,
+        original_query=session.raw_question,
+        model=DEFAULT_FOLLOW_UP_MODEL,
+    )
+    counts = gap_count_by_severity(gaps)
+
+    if not gaps:
+        summary = (
+            f"Итерация {iteration}: пробелов в доказательной базе не "
+            f"обнаружено — все под-вопросы покрыты как минимум двумя "
+            f"авторитетными источниками."
+        )
+    elif not can_iterate_more:
+        summary = (
+            f"Итерация {iteration} (последняя из {GAP_CHECK_ITERATION_CAP}): "
+            f"найдено {len(gaps)} пробелов "
+            f"(критичных: {counts['critical']}, умеренных: {counts['moderate']}, "
+            f"незначительных: {counts['minor']}). Лимит итераций исчерпан — "
+            f"оставшиеся пробелы фиксируются как ограничения отчёта."
+        )
+    else:
+        summary = (
+            f"Итерация {iteration} из {GAP_CHECK_ITERATION_CAP}: "
+            f"найдено {len(gaps)} пробелов (критичных: {counts['critical']}, "
+            f"умеренных: {counts['moderate']}, незначительных: {counts['minor']}). "
+            f"Прогоните прилагаемые промпты в выбранных DR-инструментах "
+            f"и загрузите результаты через /upload-reports + повторный "
+            f"/analyze + /synthesize."
+        )
+
+    session.research_prompt = session.research_prompt.model_copy(
+        update={"sub_questions": sub_questions}  # mutated in place by detect_gaps
+    )
+    _store.update(session)
+
+    return CheckGapsResponse(
+        iteration_number=iteration,
+        gaps=gaps,
+        follow_up_prompts=follow_ups,
+        gap_count_by_severity=counts,
+        can_iterate_more=can_iterate_more,
+        summary_for_analyst=summary,
+    )
 
 
 @router.get("/sessions/{session_id}")

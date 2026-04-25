@@ -589,6 +589,11 @@ class V4Session(_V4Base):
 
     # v4.5: normalized intake results (optional, populated when Intake runs)
     normalized_reports: list[NormalizedReport] = Field(default_factory=list)
+    # v4.5 Phase 2 Step 2.4 — number of /check-gaps calls served on this
+    # session. Caps iterative retrieval at 2 per the Roadmap; the
+    # endpoint still returns the latest gaps when called beyond the cap
+    # but flips can_iterate_more to False so the analyst stops looping.
+    gap_check_iterations: int = 0
 
 
 V4Session.model_rebuild()
