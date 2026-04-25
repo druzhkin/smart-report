@@ -123,6 +123,108 @@ AUTHORITATIVE_EU_REGULATORY_DOMAINS: frozenset[str] = frozenset(
 
 
 # ---------------------------------------------------------------------------
+# Phase 3 Step 3.2 — domain-specific authoritative registries
+# ---------------------------------------------------------------------------
+
+
+AUTHORITATIVE_RU_AUTOMOTIVE_DOMAINS: frozenset[str] = frozenset(
+    {
+        # State / regulator
+        "minpromtorg.gov.ru",
+        # Industry data providers
+        "autostat.ru",
+        "avtostat-info.com",
+        "aebrus.ru",  # Association of European Businesses (Auto committee)
+        "asm-holding.ru",
+        # Trade press (primary auto journalism with first-party reporting)
+        "zr.ru",            # За рулём
+        "autoreview.ru",
+        "kolesa.ru",
+    }
+)
+
+
+AUTHORITATIVE_RU_TECH_SAAS_DOMAINS: frozenset[str] = frozenset(
+    {
+        "tadviser.ru",
+        "iks-media.ru",
+        "cnews.ru",
+        "rusbase.com",
+        "vc.ru",        # accept as authoritative for RU tech (vs vendor-blog tier)
+        "rspectr.com",
+    }
+)
+
+
+AUTHORITATIVE_GLOBAL_TECH_DOMAINS: frozenset[str] = frozenset(
+    {
+        "arxiv.org",
+        "acm.org",
+        "ieee.org",
+        "github.com",         # repos are first-party for OSS projects
+        "openreview.net",
+        "techcrunch.com",
+        "theverge.com",
+        "wired.com",
+    }
+)
+
+
+from .domain_detector import QueryDomain  # noqa: E402 — bottom import to avoid
+
+
+AUTHORITATIVE_DOMAINS_BY_QUERY_DOMAIN: dict[QueryDomain, frozenset[str]] = {
+    QueryDomain.RU_REAL_ESTATE: AUTHORITATIVE_RU_RE_DOMAINS,
+    QueryDomain.RU_AUTOMOTIVE: AUTHORITATIVE_RU_AUTOMOTIVE_DOMAINS,
+    QueryDomain.RU_TECH_SAAS: AUTHORITATIVE_RU_TECH_SAAS_DOMAINS,
+    QueryDomain.EU_REGULATORY: AUTHORITATIVE_EU_REGULATORY_DOMAINS,
+    QueryDomain.GLOBAL_TECH: AUTHORITATIVE_GLOBAL_TECH_DOMAINS,
+    QueryDomain.GENERIC: frozenset(),  # no specific authoritative — falls back
+                                       # to global is_authoritative_url union
+}
+
+
+def get_authoritative_domains(query_domain: QueryDomain) -> frozenset[str]:
+    """Return the authoritative domain set tied to *query_domain*.
+
+    GENERIC returns empty — the caller should fall back to the global
+    is_authoritative_url union to keep coverage on unrecognised
+    queries (defence in depth — better to overcount than to miss
+    real authoritative cites for genuinely cross-domain questions).
+    """
+    return AUTHORITATIVE_DOMAINS_BY_QUERY_DOMAIN.get(query_domain, frozenset())
+
+
+def is_authoritative_url_for_domain(url: str, query_domain: QueryDomain) -> bool:
+    """Domain-aware variant of is_authoritative_url.
+
+    Checks the per-domain registry first; falls back to the global
+    union for GENERIC queries or when the per-domain set is empty.
+    The fallback preserves backwards compatibility with callers that
+    don't yet route a QueryDomain through.
+    """
+    if not url:
+        return False
+    url_lower = url.lower()
+    if url_lower.startswith("opaque:"):
+        return False
+    domain_set = get_authoritative_domains(query_domain)
+    if domain_set:
+        for d in domain_set:
+            if d in url_lower:
+                return True
+        # If a per-domain registry exists but didn't match, do NOT fall
+        # through to the global union — that would defeat the point of
+        # domain awareness (an automotive query would falsely "match"
+        # a real-estate domain). Return False explicitly.
+        return False
+    # GENERIC or empty domain set → fall back to the global union for
+    # safety (better to over-count than miss authoritative material on
+    # cross-domain queries).
+    return is_authoritative_url(url)
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
