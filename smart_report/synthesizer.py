@@ -17,9 +17,11 @@ if TYPE_CHECKING:
     from .synthesis_critic import ConsistencyReport
 
 from .authoritative_sources import assess_evidence_quality
+from .domain_detector import QueryDomain, detect_query_domain
 from .events import EventEmitter, NullEmitter
 from .io import extract_json, load_prompt
 from .llm import LLMResult, call_json
+from .source_quality_classifier import classify_source_batch
 from .models import (
     AnalysisOutput,
     CalloutBlock,
@@ -195,6 +197,17 @@ def _build_user_message(
     if analysis is not None and analysis.all_numeric_facts:
         parts.append(_build_facts_section(analysis))
 
+    # v4.5 Phase 3 Step 3.3: inject self-assessed source quality scores
+    # so the synthesizer assigns evidence-grade tags from OUR per-domain
+    # classification rather than passively echoing the input markdown's
+    # tags. Only fires when analysis carries source URLs.
+    if analysis is not None:
+        quality_section = _build_source_quality_section(
+            analysis, raw_question=session.raw_question
+        )
+        if quality_section:
+            parts.append(quality_section)
+
     # Language-lint feedback injection (Track 3 retry pass)
     if language_feedback:
         feedback_lines = [
@@ -257,6 +270,86 @@ def _build_facts_section(analysis: "AnalysisOutput") -> str:
         "to an appendix section 'Дополнительные данные'. "
         "Skipped high-relevance facts > 15% → task failure. "
         "Record skipped facts in metadata.skipped_facts with reason."
+    )
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 Step 3.3 — self-assessed source quality injection
+# ---------------------------------------------------------------------------
+
+
+_MAX_QUALITY_LINES = 80  # cap to keep prompt size predictable
+
+
+def _build_source_quality_section(
+    analysis: "AnalysisOutput", *, raw_question: str
+) -> str:
+    """Inject Smart Report's deterministic per-URL source-quality grades.
+
+    Run 1 finding 2 was that synthesizer evidence-grade tags were
+    inherited from input-markdown wording. This section gives the
+    synthesizer OUR per-domain classification (primary_regulator /
+    trusted_media / consultancy / forum / unknown) for every source URL
+    on the analysis output, so it has authoritative override material
+    when prefixing claims with [STRONG] / [MODERATE] / [WEAK] /
+    [SPECULATIVE].
+
+    Returns empty string when no source URLs are present.
+    """
+    # Collect unique URLs across numeric + qualitative facts
+    urls: list[str] = []
+    seen: set[str] = set()
+    for fact in (*analysis.all_numeric_facts, *analysis.all_qualitative_facts):
+        for src in fact.sources:
+            u = (src.url or "").strip()
+            if u and u not in seen and not u.startswith("opaque:"):
+                seen.add(u)
+                urls.append(u)
+    if not urls:
+        return ""
+
+    query_domain = detect_query_domain(raw_question)
+    scores = classify_source_batch(urls, query_domain)
+
+    # Order: STRONG → MODERATE → WEAK → SPECULATIVE for readability
+    strength_order = {"STRONG": 0, "MODERATE": 1, "WEAK": 2, "SPECULATIVE": 3}
+    sorted_scores = sorted(
+        scores.values(),
+        key=lambda s: (strength_order[s.evidence_strength], s.url),
+    )
+
+    lines = [
+        "## v4.5 Source quality (self-assessed by Smart Report)",
+        "",
+        f"Detected query domain: **{query_domain.value}**",
+        "",
+        "Smart Report has independently classified every retrieved source "
+        "URL by domain authority (NOT inherited from input-markdown wording). "
+        "Use this mapping when prefixing claims with `[STRONG]` / `[MODERATE]` "
+        "/ `[WEAK]` / `[SPECULATIVE]` tags — the URL → grade entries below "
+        "OVERRIDE any conflicting grade hint from the source reports.",
+        "",
+        "Mapping (URL → evidence_strength · domain_authority · rationale):",
+    ]
+    for s in sorted_scores[:_MAX_QUALITY_LINES]:
+        lines.append(
+            f"- `{s.url}` → **{s.evidence_strength}** "
+            f"({s.domain_authority}) — {s.rationale}"
+        )
+    if len(sorted_scores) > _MAX_QUALITY_LINES:
+        lines.append(
+            f"…and {len(sorted_scores) - _MAX_QUALITY_LINES} more sources "
+            "(same classification rules apply; default to **WEAK** if URL "
+            "not listed above)."
+        )
+    lines.append("")
+    lines.append(
+        "Discipline reminder: a claim cited from a source listed as "
+        "**WEAK** here MUST get a `[WEAK]` tag in your output even if "
+        "the input markdown phrased it confidently. Conversely, a claim "
+        "cited from a **STRONG** source gets `[STRONG]` even if the "
+        "input markdown didn't pre-tag it."
     )
     return "\n".join(lines)
 
