@@ -349,3 +349,208 @@ def format_template_guidance(sub_queries: list[SubQuery]) -> str:
     lines.append("")
 
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# v4.5 Phase 2 Step 2.2 — LLM-driven planner (C2 full)
+# ---------------------------------------------------------------------------
+# When a query is strategic but does NOT match a known domain template,
+# we let an LLM decompose it into 3-5 sub-questions with dependency
+# tracking. Default model is Haiku 4.5 — at ~200 tokens of system
+# prompt and ~500 tokens of output, one call costs $0.005-0.02 (well
+# under the $0.05-0.10 spec target).
+#
+# The planner is intentionally model-agnostic and stateless: pass any
+# OpenRouter model id, get back a list of SubQuestion. Failures (HTTP
+# error, malformed JSON) return an empty list rather than raising —
+# the orchestrator falls back to no-decomposition with the
+# decomposition_method = "llm_planner_failed" tag for observability.
+
+import json as _json_planner
+import logging as _logging_planner
+
+from .llm import call_json
+from .models import SubQuestion as _SubQuestion
+
+_planner_log = _logging_planner.getLogger(__name__)
+
+
+# Haiku 4.5 default — verified Cheap-tier viable in Run 2.
+DEFAULT_PLANNER_MODEL = "anthropic/claude-haiku-4.5"
+
+
+PLANNER_SYSTEM_PROMPT = """You are a research analyst decomposing a strategic question into atomic, independently retrievable sub-questions.
+
+Rules:
+- Generate 3-5 sub-questions. Fewer than 3 means the parent query was not strategic enough; more than 5 fragments the analysis.
+- Each sub-question must be specific and answerable by a research tool (Perplexity / OpenAI DR / Claude Research).
+- Track dependencies. If sub-question N's framing or interpretation requires the answer to sub-question M, set depends_on=["sqM"] for N. Most decompositions have 0-2 dependencies; a fully linear chain of 5 dependencies is a smell.
+- Provide a one-sentence rationale for each sub-question — what slice of the analytical surface it covers.
+- Provide suggested_sources as 1-4 source-type hints ("regulatory", "market_data", "academic", "industry_report", "vendor_docs", "news", "case_study", "expert_interview"). Use generic types, not specific publishers.
+- Stay in the language of the input query (Russian → Russian sub-questions, English → English).
+
+Anti-patterns:
+- Restating the original query as one sub-question
+- Vague meta-questions ("what should we consider?", "what are the implications?")
+- Overlapping sub-questions that retrieve the same evidence
+- More than 2 sub-questions sharing the same suggested_sources
+
+Output STRICT JSON matching this schema. No prose outside JSON. No markdown fences.
+
+{
+  "sub_questions": [
+    {
+      "id": "sq1",
+      "text": "...",
+      "depends_on": [],
+      "rationale": "...",
+      "suggested_sources": ["regulatory", "industry_report"]
+    },
+    {
+      "id": "sq2",
+      "text": "...",
+      "depends_on": ["sq1"],
+      "rationale": "...",
+      "suggested_sources": ["market_data"]
+    }
+  ]
+}
+"""
+
+
+async def generate_sub_questions(
+    query: str,
+    *,
+    model: str = DEFAULT_PLANNER_MODEL,
+    max_sub_questions: int = 5,
+    mock: bool = False,
+) -> list[_SubQuestion]:
+    """Decompose *query* into 3-5 SubQuestion objects via an LLM call.
+
+    Returns an empty list on any failure (HTTP error, malformed JSON,
+    schema-invalid output). Callers should treat empty as "fall back to
+    no-decomposition" and log via decomposition_method tag — never crash
+    the pipeline because the planner had a bad day.
+
+    Pass ``mock=True`` for unit tests; returns an empty list without
+    touching the network or LLM module.
+    """
+    if not query or not query.strip():
+        return []
+    if mock:
+        return []
+
+    user_message = (
+        f"Strategic query to decompose:\n{query.strip()}\n\n"
+        f"Generate at most {max_sub_questions} sub-questions following the "
+        f"system prompt rules. Return only the JSON object."
+    )
+
+    try:
+        result = await call_json(
+            role="planner",
+            messages=[
+                {"role": "system", "content": PLANNER_SYSTEM_PROMPT},
+                {"role": "user", "content": user_message},
+            ],
+            model=model,
+            temperature=0.2,
+            response_format={"type": "json_object"},
+            max_tokens=2000,
+        )
+    except Exception as e:  # pragma: no cover — network/HTTP edge
+        _planner_log.warning("planner LLM call failed: %r — returning empty", e)
+        return []
+
+    return _parse_planner_output(result.text, cap=max_sub_questions)
+
+
+def _parse_planner_output(raw: str, *, cap: int) -> list[_SubQuestion]:
+    """Convert raw planner JSON into validated SubQuestion list.
+
+    Tolerant: swallows JSON errors and schema-invalid items, returns
+    only valid sub-questions. An empty list signals "planner output
+    unusable" to the caller.
+    """
+    try:
+        data = _json_planner.loads(raw)
+    except (ValueError, _json_planner.JSONDecodeError) as e:
+        _planner_log.warning("planner JSON parse failed: %r", e)
+        return []
+    if not isinstance(data, dict):
+        return []
+    raw_items = data.get("sub_questions")
+    if not isinstance(raw_items, list):
+        return []
+
+    sub_qs: list[_SubQuestion] = []
+    for item in raw_items[:cap]:
+        if not isinstance(item, dict):
+            continue
+        try:
+            sq = _SubQuestion(
+                id=str(item.get("id") or f"sq{len(sub_qs) + 1}"),
+                text=str(item.get("text") or "").strip(),
+                depends_on=[
+                    str(d) for d in (item.get("depends_on") or []) if isinstance(d, str)
+                ],
+                rationale=str(item.get("rationale") or "").strip(),
+                suggested_sources=[
+                    str(s) for s in (item.get("suggested_sources") or []) if isinstance(s, str)
+                ],
+            )
+        except Exception as e:  # pydantic validation
+            _planner_log.warning("planner sub-question rejected: %r — %r", item, e)
+            continue
+        if not sq.text:
+            continue  # skip empty-text items
+        sub_qs.append(sq)
+    return sub_qs
+
+
+def format_planner_guidance(sub_questions: list[_SubQuestion]) -> str:
+    """Render LLM-planner sub-questions as a Markdown addendum for the analyst.
+
+    Mirrors format_template_guidance in shape so downstream readers
+    (analyst UI, frontend) can treat both decomposition methods
+    uniformly. Returns empty string for empty input.
+
+    Pure-Cyrillic body intentionally — same anti-lint-retry discipline
+    as the v4.5 metadata warning. Sub-question text itself comes from
+    the LLM and may contain Latin tokens; that's expected and not
+    counted against the lint threshold (full_prompt is not lint-scanned).
+    """
+    if not sub_questions:
+        return ""
+
+    lines = [
+        "",
+        "---",
+        "",
+        f"## Декомпозиция запроса (planner LLM, {len(sub_questions)} sub-questions)",
+        "",
+        (
+            "Этот запрос распознан как стратегический, но не подходит ни под "
+            "один доменный шаблон. Планировщик разложил его на под-вопросы — "
+            "прогони каждый отдельно в DR-инструменте и загрузи отчёты обратно. "
+            "Зависимости между под-вопросами обозначены: вопросы с непустым "
+            "`depends_on` лучше прогонять после своих зависимостей."
+        ),
+        "",
+    ]
+    for sq in sub_questions:
+        lines.append(f"### `{sq.id}` — {sq.text}")
+        lines.append("")
+        if sq.rationale:
+            lines.append(f"_Зачем:_ {sq.rationale}")
+            lines.append("")
+        if sq.depends_on:
+            deps = ", ".join(f"`{d}`" for d in sq.depends_on)
+            lines.append(f"_Зависит от:_ {deps}")
+            lines.append("")
+        if sq.suggested_sources:
+            sources_csv = ", ".join(sq.suggested_sources)
+            lines.append(f"_Тип источников:_ {sources_csv}")
+            lines.append("")
+
+    return "\n".join(lines)

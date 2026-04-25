@@ -141,12 +141,43 @@ class _V4Base(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
 
+DecompositionMethod = Literal[
+    "none",
+    "domain_template_ru_re",
+    "llm_planner",
+    "llm_planner_failed",
+]
+
+
+class SubQuestion(_V4Base):
+    """A single sub-question produced by the v4.5 Step 2.2 LLM planner.
+
+    Each strategic query that doesn't match a domain template is
+    decomposed into 3-5 of these. The analyst (or future auto-retrieval
+    layer) can run each sub-question independently. ``depends_on``
+    captures cases where one sub-question's answer is required to
+    formulate or interpret another (e.g. "what is the regulatory
+    baseline" must answer before "how does the proposed change shift
+    competitive dynamics").
+    """
+
+    id: str  # "sq1", "sq2", ... — stable within a single decomposition
+    text: str  # the sub-question itself (1-2 sentences, answerable)
+    depends_on: list[str] = Field(default_factory=list)  # other SubQuestion ids
+    rationale: str = ""  # why this sub-question matters for the parent query
+    suggested_sources: list[str] = Field(default_factory=list)  # source-type hints
+
+
 class ResearchPrompt(_V4Base):
     full_prompt: str
     reasoning: str
     expected_structure: list[str] = Field(default_factory=list)
     key_entities: list[str] = Field(default_factory=list)
     tips_for_search: str = ""
+    # v4.5 Phase 2 Step 2.2 — decomposition trace (optional, defaults preserve
+    # backward compat with prompts generated before Step 2.2 wiring).
+    decomposition_method: DecompositionMethod = "none"
+    sub_questions: list[SubQuestion] = Field(default_factory=list)
 
 
 class UploadedMarkdown(_V4Base):
