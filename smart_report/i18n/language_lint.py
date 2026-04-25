@@ -48,6 +48,11 @@ _RE_INLINE_CODE = re.compile(r"`[^`]+`")
 _RE_REF_BRACKET = re.compile(r"\[(?:REF:|[0-9]+)\][^\]]*")
 _RE_MARKDOWN_LINK_TARGET = re.compile(r"\]\(https?://[^)]+\)")
 
+# Strip v4.5 Phase 1 Step 1.1 evidence-grade tags so the lint doesn't
+# flag them as anglicisms. Inline tags only ([STRONG] etc.), not the
+# claim text following them.
+_RE_EVIDENCE_GRADE = re.compile(r"\[(?:STRONG|MODERATE|WEAK|SPECULATIVE)\]")
+
 # Latin-script token extraction
 # Matches a token starting with A-Za-z, continuing with word chars or hyphens.
 # This intentionally does NOT use \b at the end so that "Outdoor-стек" splits
@@ -86,6 +91,7 @@ def _strip_noise(text: str) -> tuple[str, list[tuple[int, int]]]:
     result = _RE_URL.sub(_collect, result)
     result = _RE_MARKDOWN_LINK_TARGET.sub(_collect, result)
     result = _RE_REF_BRACKET.sub(_collect, result)
+    result = _RE_EVIDENCE_GRADE.sub(_collect, result)
     return result, spans_to_remove
 
 
