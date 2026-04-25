@@ -251,6 +251,40 @@ _BROAD_STRATEGIC_MARKERS: tuple[str, ...] = (
     "outlook",
     "drivers",
     "rationale",
+    # v4.5 Phase 3 Step 3.1 — regulatory/policy markers (Run 1 finding 1).
+    # Q3 EU DAC ("How is Direct Air Capture regulated in the EU and
+    # what subsidies are available in 2026?") missed every existing
+    # marker and routed to "none" instead of llm_planner — silently
+    # dropping the planner stage on every regulatory/policy query.
+    # RU regulatory/policy
+    "регулируется",
+    "регулирование",
+    "регуляторик",
+    "норматив",
+    "требовани",
+    "субсиди",
+    "льгот",
+    "программа",
+    "законодательств",
+    "политика",
+    "реформа",
+    "стандарт",
+    # EN regulatory/policy
+    "regulated",
+    "regulation",
+    "regulatory",
+    "policy",
+    "framework",
+    "landscape",
+    "subsidies",
+    "subsidy",
+    "available",
+    "requirements",
+    "comply",
+    "compliance",
+    "standards",
+    "certification",
+    "directive",
 )
 
 # Length gate: tuned against the Step 2.2 spec acceptance examples.

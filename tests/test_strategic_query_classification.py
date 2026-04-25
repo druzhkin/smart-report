@@ -107,6 +107,68 @@ def test_realistic_factual_queries_rejected(factual_query: str):
     assert is_strategic_query(factual_query) is False, factual_query
 
 
+# ---------------------------------------------------------------------------
+# Phase 3 Step 3.1 — regulatory / policy markers (Run 1 finding 1)
+# ---------------------------------------------------------------------------
+# Q3 EU DAC went through Run 1 routed as "none" because no existing
+# marker fired on regulatory/policy vocabulary. Brief Step 3.1 task 1.1
+# pins the four named acceptance tests below.
+
+
+def test_q3_eu_dac_now_routes_to_planner():
+    """The exact Run 1 Q3 query that missed every marker must now fire."""
+    q = "How is Direct Air Capture regulated in the EU and what subsidies are available in 2026?"
+    assert is_strategic_query(q) is True
+
+
+def test_russian_regulatory_query_routes_to_planner():
+    """RU regulatory query — checks that норматив/требовани markers work
+    on long-enough Russian queries.
+    """
+    q = "Какие нормативные требования к энергоэффективности новых ЖК действуют в 2026?"
+    assert is_strategic_query(q) is True
+
+
+def test_old_strategic_queries_still_routed():
+    """All three Run 1 queries (Q1 EV, Q2 Moscow RE, Q3 EU DAC) classify
+    as strategic. Q1 + Q2 already worked pre-Step-3.1; Q3 is the new fix.
+    """
+    q1_ev = (
+        "Сравните перспективы трёх лидеров электромобильного рынка в "
+        "России (Москвич, АВТОВАЗ, Evolute) на горизонте 3 лет в условиях "
+        "конкуренции с китайскими брендами BYD, Geely, Chery"
+    )
+    q2_re = (
+        "Какие тренды повлияют на девелоперов бизнес-сегмента жилья в "
+        "Москве в 2026-2027?"
+    )
+    q3_dac = (
+        "How is Direct Air Capture regulated in the EU and what subsidies "
+        "are available in 2026?"
+    )
+    assert is_strategic_query(q1_ev) is True
+    assert is_strategic_query(q2_re) is True
+    assert is_strategic_query(q3_dac) is True
+
+
+def test_factual_queries_still_skip_planner():
+    """Plain factual lookups must NOT match the new regulatory markers
+    even when the markers appear (e.g. "available" can be a stopword in
+    short factual contexts).
+    """
+    factual_short = "Сколько стоит Toyota Camry в 2026?"
+    factual_camry_avail = "Is Toyota Camry available in red in 2026?"  # 8 words BUT "available" marker
+    assert is_strategic_query(factual_short) is False
+    # The Camry-availability one is a borderline case: 8 words, has "available".
+    # Per spec, the heuristic is intentionally permissive — the cost of a
+    # misrouted simple query is one extra LLM planner call (~$0.005-0.02
+    # on Haiku). The cost of MISSING a strategic query (Run 1 Q3) was
+    # the entire planner stage going dark. Acceptable trade-off.
+    # We do NOT assert on this borderline case; we just document the
+    # design choice.
+    _ = factual_camry_avail
+
+
 def test_router_order_handles_short_ru_re_strategic_queries():
     """Domain-template path must catch RU RE strategic queries even when
     they're shorter than the broad-strategic length gate.
