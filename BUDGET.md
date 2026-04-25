@@ -19,7 +19,8 @@
 | 2026-04-26 | Valyu MCP introspection (free) | $0.00 | $0.00 | $58.50 | budget intact |
 | 2026-04-26 | Valyu SDK datasources/categories (free metadata) | $0.00 | $0.00 | $58.50 | budget intact |
 | 2026-04-26 | **SKIPPED:** standard recon → SDK gave same data free | ($0.25) | $0.00 | $58.50 | $0.25 saved |
-| 2026-04-26 | Run 2 baseline (alt path: render DOCX from Step 3.3 fixtures) | $0.00 | TBD | $58.50 | n/a |
+| 2026-04-26 | Run 2 baseline (alt path: render DOCX from Step 3.3 fixtures) | $0.00 | $0.00 | $58.50 | n/a |
+| 2026-04-26 | Day 2 — Valyu client v0 + live arXiv smoke ($0.001) | $0.001 | $0.001 | $58.50 | $6.00 |
 
 **End-of-Day-1 totals:**
 

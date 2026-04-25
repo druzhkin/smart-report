@@ -36,9 +36,10 @@ exclude = ["tests*", "runs*", "reference*", "eval*", "scripts*", "prompts*"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
-addopts = "-m 'not expensive'"
+addopts = "-m 'not expensive and not live'"
 markers = [
     "expensive: marks tests as expensive (real LLM calls, skip by default; run with -m expensive)",
+    "live: marks tests as hitting real third-party APIs (skip by default; run with -m live)",
 ]
 
 [tool.ruff]

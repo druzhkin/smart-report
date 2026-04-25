@@ -70,9 +70,46 @@ supports the Sonnet path; one command to fire 3 fresh Sonnet runs.
 
 ---
 
+### A3 — fast_mode incompatible with proprietary search_type (live finding)
+
+**Date:** 2026-04-26 (Day 2, during live smoke test)
+
+**Live API constraint discovered:** Valyu rejects calls with both
+`fast_mode=True` and `search_type="proprietary"` — error message
+"fast_mode does not support proprietary-only searches. Use
+search_type 'web', 'news', or 'all'."
+
+**Brief tension:** §1 says "fast for everything except 1× standard
+recon", but §3.6 routing table directs financial_us / regulatory_eu /
+medical / scientific queries to Valyu — implying access to its
+proprietary corpora (SEC, FRED, PubMed, etc.). The two are
+incompatible at the API level.
+
+**Decision:** Default `ValyuClient.search()` to
+`search_type="all", fast_mode=True` — compatible with API + matches
+brief's "fast everywhere" intent. Day 3 routing layer will
+explicitly pass `search_type="proprietary", fast_mode=False` when
+domain detection routes to Valyu for its value-add datasets. The
+slow proprietary path costs ~$0.005-0.020 per call (still cheap),
+but we make the cost decision visible at the routing-rule level.
+
+**Risk if wrong:** If Day 3 routing forgets the override, Valyu
+"primary" calls effectively get web search overlap with Perplexity —
+zero value-add. Mitigation: A/B run on Day 5 will detect this if it
+happens (Q3 EU DAC config B should show meaningfully different
+sources from config A; if it doesn't, routing isn't hitting
+proprietary).
+
+**Easy to revert:** flip the default back to
+`search_type="proprietary", fast_mode=False` if we'd rather pay
+slightly more per call by default and have the value-add corpora
+always-on.
+
+---
+
 ## Open blockers
 
-(none currently — Day 1 work proceeding)
+(none currently — Day 1 + Day 2 work proceeding)
 
 ---
 
