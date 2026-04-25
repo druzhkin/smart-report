@@ -352,12 +352,15 @@ class V4Orchestrator:
         # Fires only when the Step 2.2 LLM planner populated sub_questions;
         # the Step 2.1 RU RE template path uses inline SubQuery dicts
         # (out of scope for the C6 detector).
+        #
+        # Phase 3 Step 3.2: detect query domain UNCONDITIONALLY for
+        # metadata transparency (so analysts can see which registry the
+        # query was routed to even when the template path skipped gap
+        # detection). The actual gap detection still gates on
+        # sub_questions presence.
+        query_domain = detect_query_domain(session.raw_question)
+        final.metadata["query_domain"] = query_domain.value
         if session.research_prompt and session.research_prompt.sub_questions:
-            # Phase 3 Step 3.2: detect query domain once and route the
-            # gap_detector to the right authoritative registry. Stored
-            # in metadata for transparency on which registry was used.
-            query_domain = detect_query_domain(session.raw_question)
-            final.metadata["query_domain"] = query_domain.value
             await _attach_evidence_gaps(
                 final,
                 session.research_prompt.sub_questions,

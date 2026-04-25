@@ -1,0 +1,85 @@
+{
+  "ran_at_utc": "2026-04-25T21:42:28.334421+00:00",
+  "total_cost_usd": 2.1533,
+  "queries": [
+    {
+      "query_id": "q1_ev",
+      "question": "Сравните перспективы трёх лидеров электромобильного рынка в России (Москвич, АВТОВАЗ, Evolute) на горизонте 3 лет в условиях конкуренции с китайскими брендами BYD, Geely, Chery",
+      "cost_usd": 0.9162,
+      "decomposition_method": "llm_planner",
+      "sub_questions_count": 5,
+      "query_domain_detected": "ru_automotive",
+      "evidence_quality": "LOW_EVIDENCE_QUALITY",
+      "gap_count_by_severity": {
+        "critical": 3,
+        "moderate": 2,
+        "minor": 0
+      },
+      "source_count_in_final": 21,
+      "evidence_grade_distribution": {
+        "STRONG": 26,
+        "MODERATE": 14,
+        "WEAK": 11,
+        "SPECULATIVE": 4
+      }
+    },
+    {
+      "query_id": "q2_moscow_re",
+      "question": "Какие тренды повлияют на девелоперов бизнес-сегмента жилья в Москве в 2026-2027?",
+      "cost_usd": 0.715,
+      "decomposition_method": "domain_template_ru_re",
+      "sub_questions_count": 0,
+      "query_domain_detected": null,
+      "evidence_quality": "LOW_EVIDENCE_QUALITY",
+      "gap_count_by_severity": null,
+      "source_count_in_final": 41,
+      "evidence_grade_distribution": {
+        "STRONG": 50,
+        "MODERATE": 1,
+        "WEAK": 0,
+        "SPECULATIVE": 1
+      }
+    },
+    {
+      "query_id": "q3_eu_dac",
+      "question": "How is Direct Air Capture regulated in the EU and what subsidies are available in 2026?",
+      "cost_usd": 0.5221,
+      "decomposition_method": "llm_planner",
+      "sub_questions_count": 4,
+      "query_domain_detected": "eu_regulatory",
+      "evidence_quality": "OK",
+      "gap_count_by_severity": {
+        "critical": 0,
+        "moderate": 0,
+        "minor": 0
+      },
+      "source_count_in_final": 29,
+      "evidence_grade_distribution": {
+        "STRONG": 36,
+        "MODERATE": 11,
+        "WEAK": 1,
+        "SPECULATIVE": 0
+      }
+    }
+  ],
+  "expected_vs_actual_domain": [
+    {
+      "query_id": "q1_ev",
+      "expected": "ru_automotive",
+      "actual": "ru_automotive",
+      "matches": true
+    },
+    {
+      "query_id": "q2_moscow_re",
+      "expected": "ru_real_estate",
+      "actual": null,
+      "matches": false
+    },
+    {
+      "query_id": "q3_eu_dac",
+      "expected": "eu_regulatory",
+      "actual": "eu_regulatory",
+      "matches": true
+    }
+  ]
+}

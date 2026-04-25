@@ -1340,6 +1340,128 @@ async def step31_q3_rerun():
     return result
 
 
+async def step32_domain_aware_acceptance():
+    """Phase 3 Step 3.2 Task 2.3 — live acceptance for domain-aware
+    authoritative registry on the same 3 Run 1 queries, pure Haiku 4.5.
+
+    Per-query checkpoints save Haiku intake+analyze so a synth crash
+    doesn't burn the upstream stages again. Goes Q1 → Q2 → Q3; each
+    fixture stored under tests/fixtures/comparison_runs/2026-04-26/.
+
+    Acceptance per the brief:
+      Q1 EV    : domain detected as RU_AUTOMOTIVE; better source recognition
+      Q2 RE    : domain detected as RU_REAL_ESTATE; behaviour unchanged
+      Q3 EU DAC: domain detected as EU_REGULATORY; not LOW_EVIDENCE_QUALITY
+      Cost     : ≤ $2.00 soft target, $2.50 hard cap per Step
+    """
+    print("=" * 70)
+    print("STEP 3.2 LIVE ACCEPTANCE — domain-aware registry, 3 queries × Haiku")
+    print("  Soft target: $2.00 | Hard cap: $2.50")
+    print("=" * 70)
+
+    out_dir = REPO_ROOT / "tests/fixtures/comparison_runs" / TODAY
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    summary: list[dict] = []
+
+    for spec in COMPARISON_QUERIES:
+        qid = spec["id"]
+        question = spec["question"]
+        out_path = out_dir / f"{qid}_smart_report_step32.json"
+        if out_path.exists():
+            print(f"\n--- {qid}: SKIP (already saved {out_path.name})")
+            try:
+                prev = json.loads(out_path.read_text(encoding="utf-8"))
+                summary.append(prev["evaluation"])
+            except Exception:
+                pass
+            continue
+
+        uploads = _load_markdown_uploads(spec["uploads"])
+        print()
+        print(f"--- {qid}: {question[:80]}{'…' if len(question) > 80 else ''}")
+        print(f"  uploads: {len(uploads)} files")
+
+        session, events = await _run_cycle(
+            question=question,
+            uploads=uploads,
+            model=HAIKU,        # pure Haiku for cost
+            synth_override=None,
+            run_prompt_master=True,
+            checkpoint_name=f"step32_{qid}",
+        )
+        cost_usd = session.total_cost_rub / USD_RUB_RATE
+        final = session.final_report
+        pm = session.research_prompt
+
+        per_query = {
+            "query_id": qid,
+            "question": question,
+            "cost_usd": round(cost_usd, 4),
+            "decomposition_method": (
+                getattr(pm, "decomposition_method", "") if pm else ""
+            ),
+            "sub_questions_count": len(getattr(pm, "sub_questions", []) or []) if pm else 0,
+            "query_domain_detected": (
+                final.metadata.get("query_domain") if final else None
+            ),
+            "evidence_quality": final.metadata.get("evidence_quality") if final else None,
+            "gap_count_by_severity": final.metadata.get("gap_count_by_severity") if final else None,
+            "source_count_in_final": len(final.all_sources) if final else 0,
+            "evidence_grade_distribution": (
+                evidence_grade_distribution(final) if final else None
+            ),
+        }
+        summary.append(per_query)
+
+        payload = {
+            "query_id": qid,
+            "question": question,
+            "ran_at_utc": datetime.now(timezone.utc).isoformat(),
+            "research_prompt": pm.model_dump() if pm else None,
+            "analysis": session.analysis.model_dump() if session.analysis else None,
+            "final_report": final.model_dump() if final else None,
+            "events": events,
+            "evaluation": per_query,
+        }
+        out_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2, default=str),
+            encoding="utf-8",
+        )
+        print(f"  saved: {out_path.name}")
+        print(f"  cost: ${cost_usd:.4f} | domain: {per_query['query_domain_detected']!r}")
+
+    # Aggregate vs Step 3.2 expectations
+    expected_domains = {
+        "q1_ev": "ru_automotive",
+        "q2_moscow_re": "ru_real_estate",
+        "q3_eu_dac": "eu_regulatory",
+    }
+    aggregate = {
+        "ran_at_utc": datetime.now(timezone.utc).isoformat(),
+        "total_cost_usd": round(sum(q["cost_usd"] for q in summary), 4),
+        "queries": summary,
+        "expected_vs_actual_domain": [
+            {
+                "query_id": q["query_id"],
+                "expected": expected_domains.get(q["query_id"]),
+                "actual": q["query_domain_detected"],
+                "matches": q["query_domain_detected"] == expected_domains.get(q["query_id"]),
+            }
+            for q in summary
+        ],
+    }
+    agg_path = out_dir / "_step32_aggregate_summary.json"
+    agg_path.write_text(
+        json.dumps(aggregate, ensure_ascii=False, indent=2, default=str),
+        encoding="utf-8",
+    )
+    print()
+    print("=== STEP 3.2 LIVE ACCEPTANCE AGGREGATE ===")
+    print(json.dumps(aggregate, ensure_ascii=False, indent=2, default=str))
+    return aggregate
+
+
 async def main(test_name: str):
     runner = {
         "test1": test1,
@@ -1351,6 +1473,7 @@ async def main(test_name: str):
         "step23_24": step23_24_gaps_acceptance,
         "comparison1": comparison_run_1,
         "step31_q3": step31_q3_rerun,
+        "step32": step32_domain_aware_acceptance,
     }.get(test_name)
     if runner is None:
         print(
