@@ -27,7 +27,11 @@ import re
 from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
-from .authoritative_sources import is_authoritative_url
+from .authoritative_sources import (
+    is_authoritative_url,
+    is_authoritative_url_for_domain,
+)
+from .domain_detector import QueryDomain
 
 if TYPE_CHECKING:
     from .models import AnalysisOutput, EvidenceGap, SubQuestion
@@ -180,14 +184,50 @@ def _classify_evidence_status(
     return "unanswered"
 
 
+# Domain-specific reason text for the "moderate" branch — names the
+# right registry to the analyst rather than always citing RU RE.
+_MODERATE_REASON_BY_DOMAIN: dict[QueryDomain, str] = {
+    QueryDomain.RU_REAL_ESTATE: (
+        "Росстат, Минстрой, ДОМ.РФ, ЕГРЮЛ, ЕРЗ, крупные международные "
+        "консалтинги по недвижимости"
+    ),
+    QueryDomain.RU_AUTOMOTIVE: (
+        "Минпромторг, Автостат, АЕБ, ASM Holding и профильная "
+        "автомобильная пресса (За рулём, Auto Review)"
+    ),
+    QueryDomain.RU_TECH_SAAS: (
+        "TAdviser, IKS Media, CNews, RusBase и профильные RU технологические "
+        "аналитические агентства"
+    ),
+    QueryDomain.EU_REGULATORY: (
+        "EU institutions (europa.eu, ec.europa.eu, eur-lex), EU regulators "
+        "(EEA, EBA, ESMA), and trusted EU policy trackers"
+    ),
+    QueryDomain.GLOBAL_TECH: (
+        "arXiv, ACM, IEEE, GitHub, OpenReview и крупные международные "
+        "tech-издания"
+    ),
+    QueryDomain.GENERIC: (
+        "первичные регуляторы, отраслевая статистика и крупные "
+        "международные консалтинги"
+    ),
+}
+
+
 def _build_gap(
-    sq: "SubQuestion", *, threshold: int
+    sq: "SubQuestion",
+    *,
+    threshold: int,
+    query_domain: QueryDomain = QueryDomain.RU_REAL_ESTATE,
 ) -> "EvidenceGap | None":
     """Return an EvidenceGap for *sq* if below threshold, else None."""
     from .models import EvidenceGap  # local to avoid circular at import time
 
     if sq.authoritative_source_count >= threshold:
         return None
+    registry_label = _MODERATE_REASON_BY_DOMAIN.get(
+        query_domain, _MODERATE_REASON_BY_DOMAIN[QueryDomain.GENERIC]
+    )
     if not sq.bibliography_refs:
         severity = "critical"
         reason = (
@@ -198,10 +238,8 @@ def _build_gap(
         severity = "moderate"
         reason = (
             f"Найдено {len(sq.bibliography_refs)} источников, но ни один "
-            f"не из авторитетного реестра (Росстат, Минстрой, ДОМ.РФ, "
-            f"ЕГРЮЛ, ЕРЗ, крупные международные консалтинги по "
-            f"недвижимости). Выводы по этому под-вопросу опираются "
-            f"только на вторичные источники."
+            f"не из авторитетного реестра ({registry_label}). Выводы по "
+            f"этому под-вопросу опираются только на вторичные источники."
         )
     else:  # exactly 1 authoritative source
         severity = "minor"
@@ -227,6 +265,7 @@ async def detect_gaps(
     analysis: "AnalysisOutput",
     *,
     authoritative_threshold: int = _DEFAULT_AUTHORITATIVE_THRESHOLD,
+    query_domain: QueryDomain = QueryDomain.RU_REAL_ESTATE,
 ) -> list["EvidenceGap"]:
     """Walk *sub_questions* against *analysis* sources and emit gaps.
 
@@ -254,15 +293,21 @@ async def detect_gaps(
     for sq in sub_questions:
         matched_urls = _match_sources_to_sub_question(sq, sources)
         sq.bibliography_refs = matched_urls
+        # Step 3.2: count authoritative sources against the per-domain
+        # registry. RU_REAL_ESTATE default keeps backwards compat —
+        # callers that haven't been migrated still hit the old set.
         sq.authoritative_source_count = sum(
-            1 for url in matched_urls if is_authoritative_url(url)
+            1 for url in matched_urls
+            if is_authoritative_url_for_domain(url, query_domain)
         )
         sq.evidence_status = _classify_evidence_status(
             matched_count=len(matched_urls),
             authoritative_count=sq.authoritative_source_count,
             threshold=authoritative_threshold,
         )
-        gap = _build_gap(sq, threshold=authoritative_threshold)
+        gap = _build_gap(
+            sq, threshold=authoritative_threshold, query_domain=query_domain
+        )
         if gap is not None:
             gaps.append(gap)
 

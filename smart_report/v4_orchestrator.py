@@ -32,6 +32,7 @@ from .config import models_for_preference
 from .data_audit import CoverageReport, audit_fact_coverage, build_retry_feedback
 from .intake import normalize_all_reports
 from .prompt_master import generate_research_prompt
+from .domain_detector import QueryDomain, detect_query_domain
 from .gap_detector import detect_gaps, gap_count_by_severity
 from .synthesis_critic import ConsistencyReport, validate_consistency
 from .synthesizer import full_report_text, synthesize_final_report
@@ -352,11 +353,17 @@ class V4Orchestrator:
         # the Step 2.1 RU RE template path uses inline SubQuery dicts
         # (out of scope for the C6 detector).
         if session.research_prompt and session.research_prompt.sub_questions:
+            # Phase 3 Step 3.2: detect query domain once and route the
+            # gap_detector to the right authoritative registry. Stored
+            # in metadata for transparency on which registry was used.
+            query_domain = detect_query_domain(session.raw_question)
+            final.metadata["query_domain"] = query_domain.value
             await _attach_evidence_gaps(
                 final,
                 session.research_prompt.sub_questions,
                 session.analysis,
                 emitter=self.emitter,
+                query_domain=query_domain,
             )
 
         session.final_report = final
@@ -433,7 +440,12 @@ def _format_gap_warning_for_confidence_note(gaps: list) -> str:
 
 
 async def _attach_evidence_gaps(
-    final, sub_questions: list, analysis, *, emitter
+    final,
+    sub_questions: list,
+    analysis,
+    *,
+    emitter,
+    query_domain: QueryDomain = QueryDomain.RU_REAL_ESTATE,
 ) -> None:
     """Run gap detection and surface results on *final* in place.
 
@@ -443,7 +455,7 @@ async def _attach_evidence_gaps(
       (preserves any existing note from Step 1.2 LOW_EVIDENCE_QUALITY
       or LLM-generated text)
     """
-    gaps = await detect_gaps(sub_questions, analysis)
+    gaps = await detect_gaps(sub_questions, analysis, query_domain=query_domain)
     final.metadata["evidence_gaps"] = [g.model_dump() for g in gaps]
     final.metadata["gap_count_by_severity"] = gap_count_by_severity(gaps)
     emitter.emit(
