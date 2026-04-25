@@ -10,6 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from .decomposition_templates import decompose, format_template_guidance
 from .events import EventEmitter, NullEmitter
 from .io import extract_json, load_prompt
 from .llm import LLMResult, call_json
@@ -84,6 +85,18 @@ async def generate_research_prompt(
         tips_for_search=_optional_str(data, "tips_for_search"),
     )
 
+    # v4.5 Phase 2 Step 2.1 — domain-template decomposition.
+    # When the question matches a known strategic template (currently:
+    # Russian RE strategic), append a structured guidance addendum so
+    # the analyst runs N targeted DR queries instead of one wide one.
+    # No extra LLM call; no schema change. Auto-retrieval is Phase 3.
+    sub_queries = decompose(q)
+    if sub_queries:
+        guidance = format_template_guidance(sub_queries)
+        prompt = prompt.model_copy(
+            update={"full_prompt": prompt.full_prompt + guidance}
+        )
+
     em.emit(
         "prompt_master",
         "Research-промт готов",
@@ -91,6 +104,9 @@ async def generate_research_prompt(
             "full_prompt_chars": len(prompt.full_prompt),
             "n_entities": len(prompt.key_entities),
             "n_sections": len(prompt.expected_structure),
+            "template_applied": (
+                "russian_re_strategic" if sub_queries else None
+            ),
             "cost_rub": result.cost_rub,
         },
     )
