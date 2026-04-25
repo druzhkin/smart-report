@@ -175,6 +175,24 @@ class EvidenceGap(_V4Base):
     suggested_search_directions: list[str] = Field(default_factory=list)
 
 
+SuggestedDrTool = Literal["perplexity_dr", "chatgpt_dr", "claude_research"]
+
+
+class FollowUpPrompt(_V4Base):
+    """Targeted DR prompt for closing one EvidenceGap.
+
+    Returned by follow_up_prompter.generate_follow_up_prompts. The analyst
+    pastes ``prompt_text`` into the suggested DR tool, downloads the
+    resulting markdown, then re-uploads via /upload-reports for a second
+    analyze + synthesize round.
+    """
+
+    sub_question_id: str
+    prompt_text: str
+    suggested_dr_tool: SuggestedDrTool = "perplexity_dr"
+    rationale: str = ""
+
+
 class SubQuestion(_V4Base):
     """A single sub-question produced by the v4.5 Step 2.2 LLM planner.
 
