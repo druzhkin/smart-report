@@ -32,6 +32,7 @@ from .config import models_for_preference
 from .data_audit import CoverageReport, audit_fact_coverage, build_retry_feedback
 from .intake import normalize_all_reports
 from .prompt_master import generate_research_prompt
+from .gap_detector import detect_gaps, gap_count_by_severity
 from .synthesis_critic import ConsistencyReport, validate_consistency
 from .synthesizer import full_report_text, synthesize_final_report
 from .i18n import lint_output_language
@@ -207,6 +208,22 @@ class V4Orchestrator:
         # Step 3b: bibliography post-processing
         final, _ = generate_bibliography(final)
 
+        # Step 3b.1 (Phase 2 Step 2.3 — C6 degraded): per-sub-question
+        # evidence-adequacy detection. Mutates session.research_prompt
+        # SubQuestions in place with bibliography_refs / status, and
+        # surfaces gaps via final.metadata + confidence_note. Fires
+        # only when the planner produced sub_questions (RU RE template
+        # path also populates inline SubQuery dicts but those use a
+        # different schema and are out of scope for the C6 detector).
+        if session.research_prompt and session.research_prompt.sub_questions:
+            await _attach_evidence_gaps(
+                final,
+                session.research_prompt.sub_questions,
+                session.analysis,
+                emitter=self.emitter,
+            )
+            self.store.update(session)  # SubQuestions mutated in place
+
         # COMMIT the first-pass result IMMEDIATELY so downstream retry failures
         # (coverage/consistency/language) don't lose the report we already paid for.
         # Any subsequent retries mutate `final` in-place and re-commit.
@@ -347,6 +364,9 @@ class V4Orchestrator:
         self.store.update(session)
         return final
 
+    # --- gap detection helper exposed at module level for cleaner testing ---
+    # See _attach_evidence_gaps below.
+
     # --- cost accounting ---
     def _accumulate_cost(self, session: V4Session, llm_result_cost_rub: float) -> V4Session:
         """Add a single LLM-call cost to the session total.
@@ -360,3 +380,81 @@ class V4Orchestrator:
             session.total_cost_rub = round(session.total_cost_rub + llm_result_cost_rub, 4)
             self.store.update(session)
         return session
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 Step 2.3 — Gap detection helper
+# ---------------------------------------------------------------------------
+
+
+_SEVERITY_LABEL_RU = {
+    "critical": "Критично",
+    "moderate": "Умеренно",
+    "minor": "Незначительно",
+}
+
+
+def _format_gap_warning_for_confidence_note(gaps: list) -> str:
+    """Render gaps as a Cyrillic warning for executive_summary.confidence_note.
+
+    Same anti-lint-retry discipline as Step 1.2: zero Latin-script
+    sentinels in the visible string (paid lesson 7.2). The
+    machine-readable list — including sub_question ids and API endpoint
+    references — lives in metadata["evidence_gaps"]; this is the
+    human-facing summary, kept in pure Cyrillic so it never trips the
+    language linter and never costs a Track 3 retry.
+    """
+    if not gaps:
+        return ""
+    counts = gap_count_by_severity(gaps)
+    header = (
+        f"⚠ Пробелы в доказательной базе: найдено {len(gaps)} под-вопросов "
+        f"с недостаточным покрытием (критичных: {counts['critical']}, "
+        f"умеренных: {counts['moderate']}, незначительных: {counts['minor']})."
+    )
+    bullets = []
+    for i, g in enumerate(gaps[:8], start=1):  # cap to keep note readable
+        label = _SEVERITY_LABEL_RU.get(g.severity, g.severity)
+        sq_text = g.sub_question_text
+        if len(sq_text) > 120:
+            sq_text = sq_text[:117] + "…"
+        # Use Cyrillic ordinal "Под-вопрос N:" so the visible string
+        # carries no Latin tokens; raw sub_question_id stays in metadata.
+        bullets.append(f"• [{label}] Под-вопрос {i}: {sq_text}")
+    if len(gaps) > 8:
+        bullets.append(f"…и ещё {len(gaps) - 8} под-вопросов с пробелами.")
+    suffix = (
+        "Аналитику стоит прогнать целевые исследовательские запросы по "
+        "этим темам и повторно загрузить новые отчёты в систему. "
+        "Целевые промпты доступны через системный эндпоинт проверки "
+        "пробелов (см. метаданные отчёта)."
+    )
+    return header + "\n\n" + "\n".join(bullets) + "\n\n" + suffix
+
+
+async def _attach_evidence_gaps(
+    final, sub_questions: list, analysis, *, emitter
+) -> None:
+    """Run gap detection and surface results on *final* in place.
+
+    - final.metadata["evidence_gaps"]: list[dict] for downstream readers
+    - final.metadata["gap_count_by_severity"]: tally
+    - final.executive_summary.confidence_note: prefixed Cyrillic warning
+      (preserves any existing note from Step 1.2 LOW_EVIDENCE_QUALITY
+      or LLM-generated text)
+    """
+    gaps = await detect_gaps(sub_questions, analysis)
+    final.metadata["evidence_gaps"] = [g.model_dump() for g in gaps]
+    final.metadata["gap_count_by_severity"] = gap_count_by_severity(gaps)
+    emitter.emit(
+        "gap_detector",
+        f"Gap detection: {len(gaps)} gaps across {len(sub_questions)} sub-questions",
+        data=final.metadata["gap_count_by_severity"],
+    )
+    if gaps:
+        warning = _format_gap_warning_for_confidence_note(gaps)
+        prior_note = final.executive_summary.confidence_note
+        merged_note = warning if not prior_note else f"{warning}\n\n{prior_note}"
+        final.executive_summary = final.executive_summary.model_copy(
+            update={"confidence_note": merged_note}
+        )
