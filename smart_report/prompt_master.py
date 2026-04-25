@@ -10,11 +10,18 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .decomposition_templates import decompose, format_template_guidance
+from .decomposition_templates import (
+    DEFAULT_PLANNER_MODEL,
+    decompose,
+    format_planner_guidance,
+    format_template_guidance,
+    generate_sub_questions,
+    is_strategic_query,
+)
 from .events import EventEmitter, NullEmitter
 from .io import extract_json, load_prompt
 from .llm import LLMResult, call_json
-from .models import ResearchPrompt
+from .models import ResearchPrompt, SubQuestion
 
 
 # v4.5 bakeoff winner: GPT-4o scores 100/100 at $0.02/call (vs $0.18 Opus).
@@ -30,6 +37,7 @@ async def generate_research_prompt(
     log_dir: Path | None = None,
     mock: bool = False,
     model: str | None = None,
+    planner_model: str | None = None,
 ) -> tuple[ResearchPrompt, float]:
     """Call the Prompt Master LLM and return ``(ResearchPrompt, cost_rub)``.
 
@@ -85,17 +93,52 @@ async def generate_research_prompt(
         tips_for_search=_optional_str(data, "tips_for_search"),
     )
 
-    # v4.5 Phase 2 Step 2.1 — domain-template decomposition.
-    # When the question matches a known strategic template (currently:
-    # Russian RE strategic), append a structured guidance addendum so
-    # the analyst runs N targeted DR queries instead of one wide one.
-    # No extra LLM call; no schema change. Auto-retrieval is Phase 3.
-    sub_queries = decompose(q)
-    if sub_queries:
-        guidance = format_template_guidance(sub_queries)
+    # v4.5 Phase 2 — three-way decomposition routing:
+    #   Step 2.1 path: is_russian_re_strategic → fixed RU RE template,
+    #                  zero LLM call, deterministic guidance addendum.
+    #   Step 2.2 path: is_strategic_query → LLM planner generates 3-5
+    #                  sub-questions with dependencies, costs ~$0.005-0.02
+    #                  on Haiku 4.5. Falls back to "none" decomposition
+    #                  on planner failure.
+    #   else        : pass-through, single-pass query, no addendum.
+    # Domain template wins precedence — it's free and pre-validated.
+    decomposition_method: str = "none"
+    sub_questions_v22: list[SubQuestion] = []
+    template_sub_queries = decompose(q)
+
+    if template_sub_queries:
+        guidance = format_template_guidance(template_sub_queries)
         prompt = prompt.model_copy(
-            update={"full_prompt": prompt.full_prompt + guidance}
+            update={
+                "full_prompt": prompt.full_prompt + guidance,
+                "decomposition_method": "domain_template_ru_re",
+            }
         )
+        decomposition_method = "domain_template_ru_re"
+    elif is_strategic_query(q):
+        sub_questions_v22 = await generate_sub_questions(
+            q,
+            model=planner_model or DEFAULT_PLANNER_MODEL,
+            mock=mock,
+        )
+        if sub_questions_v22:
+            guidance = format_planner_guidance(sub_questions_v22)
+            prompt = prompt.model_copy(
+                update={
+                    "full_prompt": prompt.full_prompt + guidance,
+                    "decomposition_method": "llm_planner",
+                    "sub_questions": sub_questions_v22,
+                }
+            )
+            decomposition_method = "llm_planner"
+        else:
+            # Planner returned empty — record the failure but keep the
+            # original full_prompt so the analyst still has something to
+            # paste into a DR tool.
+            prompt = prompt.model_copy(
+                update={"decomposition_method": "llm_planner_failed"}
+            )
+            decomposition_method = "llm_planner_failed"
 
     em.emit(
         "prompt_master",
@@ -104,8 +147,10 @@ async def generate_research_prompt(
             "full_prompt_chars": len(prompt.full_prompt),
             "n_entities": len(prompt.key_entities),
             "n_sections": len(prompt.expected_structure),
-            "template_applied": (
-                "russian_re_strategic" if sub_queries else None
+            "decomposition_method": decomposition_method,
+            "sub_questions_count": (
+                len(template_sub_queries) if template_sub_queries
+                else len(sub_questions_v22)
             ),
             "cost_rub": result.cost_rub,
         },
