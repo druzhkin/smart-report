@@ -135,6 +135,61 @@ def test_assess_low_quality_when_one_authoritative_source():
     assert "найдено 1 авторитетных" in warning
 
 
+# ---------------------------------------------------------------------------
+# Phase 3 Step 3.1 Task 1.2 — EN-EU regulatory tier (Run 1 finding 3)
+# ---------------------------------------------------------------------------
+
+
+def test_eu_regulatory_urls_now_authoritative():
+    """europa.eu and friends must count as authoritative after Step 3.1."""
+    eu_urls = [
+        "https://climate.ec.europa.eu/news-other-reads/news/eu-sets-worlds-first-voluntary-standard-permanent-carbon-removals-2026-02-03_en",
+        "https://europarl.europa.eu/RegData/etudes/STUD/2025/772474/ECTI_STU(2025)772474_EN.pdf",
+        "https://cinea.ec.europa.eu/programmes/innovation-fund/calls-regular-grants_en",
+        "https://eur-lex.europa.eu/eli/reg/2024/3012/oj",
+        "https://eea.europa.eu/publications/eu-emissions-trading-system",
+        "https://carbongap.org/eu-carbon-removal-funding/",
+    ]
+    for url in eu_urls:
+        assert is_authoritative_url(url), f"{url} must be authoritative after Step 3.1"
+
+
+def test_q3_eu_dac_no_longer_low_evidence():
+    """Q3 fixture-shape: 4+ EU regulatory sources should clear the 2-source
+    threshold, so the global LOW_EVIDENCE_QUALITY check returns OK.
+    """
+    sources = [
+        _src("https://climate.ec.europa.eu/eu-action/eu-funding-climate-action/innovation-fund"),
+        _src("https://europarl.europa.eu/thinktank/en/document/EPRS_BRI(2026)785709"),
+        _src("https://cinea.ec.europa.eu/programmes/innovation-fund/calls-regular-grants_en"),
+        _src("https://medium.com/@blogger/eu-dac-overview"),  # non-authoritative
+    ]
+    quality, warning = assess_evidence_quality(sources)
+    assert quality == "OK"
+    assert warning == ""
+
+
+def test_ru_re_domains_still_authoritative():
+    """Backwards compat: existing RU RE adequacy checks unchanged."""
+    sources = [
+        _src("https://rosstat.gov.ru/storage/foo.pdf"),
+        _src("https://erzrf.ru/region-77"),
+        _src("https://random-blog.ru/post"),
+    ]
+    quality, _ = assess_evidence_quality(sources)
+    assert quality == "OK"  # 2 RU RE authoritative sources, threshold met
+
+
+def test_eu_and_ru_re_authoritative_dont_double_count():
+    """Sanity: a URL is either RU RE or EU; we don't accidentally count
+    europa.eu twice or rosstat.gov.ru as both.
+    """
+    eu_only = [_src("https://europa.eu/policy/x")]
+    ru_only = [_src("https://rosstat.gov.ru/foo")]
+    assert count_authoritative_sources(eu_only) == 1
+    assert count_authoritative_sources(ru_only) == 1
+
+
 def test_warning_contains_zero_latin_tokens_to_avoid_lint_retry():
     """Regression: warning text must contain zero Latin-script tokens.
 

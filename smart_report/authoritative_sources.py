@@ -91,6 +91,38 @@ AUTHORITATIVE_RU_RE_DOMAINS: frozenset[str] = frozenset(
 
 
 # ---------------------------------------------------------------------------
+# Phase 3 Step 3.1 — EN-EU regulatory tier (Run 1 finding 3)
+# ---------------------------------------------------------------------------
+# Run 1 Q3 (EU Direct Air Capture regulation) flagged LOW_EVIDENCE_QUALITY
+# because the registry was RU-RE-only — every EU regulator URL fell
+# through. This tier closes the bleed for non-RU-RE EN regulatory
+# queries without yet introducing the full per-domain registry
+# (Step 3.2 does that). is_authoritative_url unions the two sets, so
+# any caller that relied on the original behaviour keeps working.
+
+AUTHORITATIVE_EU_REGULATORY_DOMAINS: frozenset[str] = frozenset(
+    {
+        # EU institutions (★★★)
+        "europa.eu",
+        "climate.ec.europa.eu",
+        "europarl.europa.eu",
+        "cinea.ec.europa.eu",
+        "eur-lex.europa.eu",
+        "ec.europa.eu",
+        # Major EU regulators / agencies (★★★)
+        "eea.europa.eu",
+        "eba.europa.eu",
+        "esma.europa.eu",
+        "ecb.europa.eu",
+        # Trusted EU policy trackers (★★☆)
+        "carbongap.org",
+        "globalccsinstitute.com",
+        "catf.us",
+    }
+)
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -101,18 +133,25 @@ def is_authoritative_url(url: str) -> bool:
     Empty / opaque (``opaque:...``) / non-http URLs return False. Subdomains
     are matched: ``https://stat.minstroyrf.gov.ru/foo`` counts as a hit on
     ``minstroyrf.gov.ru``.
+
+    Step 3.1: union of the original RU RE registry with the new EU
+    regulatory tier. Step 3.2 will replace this single-set check with
+    a domain-aware lookup keyed on QueryDomain.
     """
     if not url:
         return False
     url_lower = url.lower()
     if url_lower.startswith("opaque:"):
         return False
+    # Substring match on lowered URL handles subdomains and path noise.
+    # We deliberately do NOT parse with urllib here — Cyrillic-IDN dom.рф
+    # round-trips inconsistently across stdlib versions, and a substring
+    # check is robust to that. False positives from query strings
+    # containing a domain name are tolerated (extreme edge case).
     for domain in AUTHORITATIVE_RU_RE_DOMAINS:
-        # Substring match on lowered URL handles subdomains and path noise.
-        # We deliberately do NOT parse with urllib here — Cyrillic-IDN dom.рф
-        # round-trips inconsistently across stdlib versions, and a substring
-        # check is robust to that. False positives from query strings
-        # containing a domain name are tolerated (extreme edge case).
+        if domain in url_lower:
+            return True
+    for domain in AUTHORITATIVE_EU_REGULATORY_DOMAINS:
         if domain in url_lower:
             return True
     return False
