@@ -40,6 +40,19 @@ if TYPE_CHECKING:  # pragma: no cover
     pass
 
 
+# Track 3 (Language Lint) retry threshold — number of non-whitelisted Latin
+# tokens above which the orchestrator retries the Synthesizer with a feedback
+# pass. Live Acceptance Run 1 measured 100-310 warnings on realistic Russian
+# RE reports because 5-20 mentions of international consultancies (JLL, CBRE,
+# Knight Frank, Cushman & Wakefield, etc.) each emit several lint hits even
+# when the brand itself is whitelisted (article fragments around the brand
+# trip the Latin-token regex). Threshold of 20 made every such run pay 3×
+# Synthesizer cost. 100 still catches the genuine "report half in English"
+# bad case (which produces 1000+ warnings) while letting realistic
+# Russian-language reports complete in one pass.
+LINT_WARNING_RETRY_THRESHOLD = 100
+
+
 class V4SessionStore:
     """In-memory store of V4Session objects, keyed by session_id.
 
@@ -298,9 +311,9 @@ class V4Orchestrator:
             final.metadata["consistency_check"] = {"error": str(e), "overall_verdict": "skipped"}
         self.store.update(session)
 
-        # Step 3f: Language lint (Track 3) — one retry if >20 warnings, best-effort
+        # Step 3f: Language lint (Track 3) — retry above LINT_WARNING_RETRY_THRESHOLD, best-effort
         lint_warnings = lint_output_language(full_report_text(final))
-        if len(lint_warnings) > 20 and not self.mock:
+        if len(lint_warnings) > LINT_WARNING_RETRY_THRESHOLD and not self.mock:
             self.emitter.emit(
                 "orchestrator",
                 f"Language lint: {len(lint_warnings)} warnings — retrying Synthesizer",
