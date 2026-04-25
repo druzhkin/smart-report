@@ -872,6 +872,151 @@ async def step22_planner_acceptance():
     return result
 
 
+async def step23_24_gaps_acceptance():
+    """Live acceptance for v4.5 Phase 2 Steps 2.3 + 2.4 — gap detection
+    end-to-end on pure Haiku 4.5.
+
+    Runs the full v4 cycle on the strategic non-RE query (re-uses
+    Step 2.2 fixture so the planner fires and sub_questions get
+    populated). After synthesize, gaps are already in
+    final.metadata via the Step 2.3 orchestrator integration. Then
+    invokes the check-gaps endpoint logic directly (in-process, no
+    FastAPI server) to also exercise Step 2.4 follow-up prompter.
+
+    Acceptance:
+      - sub_questions populated by Step 2.2 planner (≥3)
+      - At least one EvidenceGap detected (the LLM observability
+        synthetic markdown is intentionally without RU RE auth sources,
+        so most sub_questions should fall short of the threshold)
+      - For every actionable gap (critical/moderate), a FollowUpPrompt
+        is generated with non-empty prompt_text
+      - iteration_number == 1, can_iterate_more == True
+      - Cost ≤ $1.50 (hard cap), target ≤ $1.00
+
+    Fixture: tests/fixtures/live_runs/2026-04-25_step23_24_gaps_acceptance.json
+    """
+    print("=" * 60)
+    print("STEPS 2.3 + 2.4 LIVE ACCEPTANCE — Gap detection + Follow-up prompts")
+    print("  Hard cap: $1.50")
+    print("=" * 60)
+
+    question = "Compare LLM observability platforms (Langfuse, LangSmith, Helicone) for enterprise scale"
+
+    # Full v4 cycle on pure Haiku (PM + intake + analyzer + synthesizer)
+    session, events = await _run_cycle(
+        question=question,
+        uploads=_llm_obs_uploads(),
+        model=HAIKU,
+        synth_override=None,  # pure Haiku every stage
+        run_prompt_master=True,
+        checkpoint_name=None,
+    )
+
+    # Read what Step 2.3 already attached during synthesize
+    final = session.final_report
+    metadata_gaps = final.metadata.get("evidence_gaps", []) if final else []
+    metadata_counts = final.metadata.get("gap_count_by_severity", {}) if final else {}
+
+    # Now exercise the /check-gaps endpoint logic directly (in-process).
+    # This re-runs gap_detector (idempotent) + invokes follow_up_prompter
+    # for actionable gaps. Cost: gap_detector $0 + follow_up Haiku call ~$0.02.
+    from smart_report.api.v4_endpoints import (
+        GAP_CHECK_ITERATION_CAP,
+        check_gaps,
+        _store as _api_store,
+    )
+    # Inject the session into the API store so check_gaps can find it
+    _api_store._sessions[session.session_id] = session
+    cost_before_check = session.total_cost_rub
+    check_response = await check_gaps(session.session_id)
+    cost_check_gaps_rub = session.total_cost_rub - cost_before_check
+
+    cost_usd_total = session.total_cost_rub / USD_RUB_RATE
+
+    # Acceptance evaluation
+    n_sub = len(session.research_prompt.sub_questions) if session.research_prompt else 0
+    n_gaps = len(check_response.gaps)
+    actionable = sum(1 for g in check_response.gaps if g.severity in ("critical", "moderate"))
+    n_follow_ups = len(check_response.follow_up_prompts)
+
+    if cost_usd_total > 1.50:
+        verdict = "FAIL"
+        reason = "hard_cap_exceeded"
+    elif n_sub < 3:
+        verdict = "FAIL"
+        reason = f"sub_questions_count={n_sub} (planner did not fire correctly, expected ≥3)"
+    elif n_gaps == 0:
+        verdict = "DEGRADED"
+        reason = (
+            "no gaps detected on a synthetic non-RE markdown — either the "
+            "matcher is over-permissive or the test fixture happened to "
+            "match every sub_question; manual review needed"
+        )
+    elif actionable > 0 and n_follow_ups == 0:
+        verdict = "FAIL"
+        reason = "actionable gaps present but follow_up_prompter returned nothing"
+    elif check_response.iteration_number != 1:
+        verdict = "FAIL"
+        reason = f"iteration_number={check_response.iteration_number} (expected 1 on first call)"
+    elif not check_response.can_iterate_more:
+        verdict = "FAIL"
+        reason = "can_iterate_more=False on first iteration (cap logic broken)"
+    elif cost_usd_total > 1.00:
+        verdict = "DEGRADED"
+        reason = "cost_above_target_but_within_cap"
+    else:
+        verdict = "PASS"
+        reason = "all_criteria_met"
+
+    result = {
+        "verdict": verdict,
+        "reason": reason,
+        "cost_usd_total": round(cost_usd_total, 4),
+        "cost_rub_total": round(session.total_cost_rub, 2),
+        "cost_check_gaps_rub": round(cost_check_gaps_rub, 4),
+        "cost_target_total": 1.00,
+        "cost_hard_cap_total": 1.50,
+        "model_strategy": "pure_haiku_4.5_every_stage",
+        "sub_questions_count": n_sub,
+        "sub_questions_summary": [
+            {
+                "id": sq.id,
+                "text": sq.text,
+                "evidence_status": sq.evidence_status,
+                "authoritative_source_count": sq.authoritative_source_count,
+                "matched_sources_count": len(sq.bibliography_refs),
+            }
+            for sq in (session.research_prompt.sub_questions if session.research_prompt else [])
+        ],
+        "metadata_evidence_gaps_count": len(metadata_gaps),
+        "metadata_gap_count_by_severity": metadata_counts,
+        "check_gaps_response": {
+            "iteration_number": check_response.iteration_number,
+            "can_iterate_more": check_response.can_iterate_more,
+            "gap_count_by_severity": check_response.gap_count_by_severity,
+            "gaps": [g.model_dump() for g in check_response.gaps],
+            "follow_up_prompts": [p.model_dump() for p in check_response.follow_up_prompts],
+            "summary_for_analyst": check_response.summary_for_analyst,
+        },
+        "iteration_cap": GAP_CHECK_ITERATION_CAP,
+        "fixes_applied": [
+            "Phase 1+2 + Two-fix sprint",
+            "5ae0321 (SubQuestion evidence_status)",
+            "e4774fb (gap_detector)",
+            "5c13357 (orchestrator gap integration)",
+            "ba5e033 (follow_up_prompter)",
+            "35fab40 (/check-gaps endpoint)",
+        ],
+    }
+
+    out_path = _save_run("step23_24_gaps_acceptance", session, events, result)
+    print()
+    print("=== STEPS 2.3 + 2.4 LIVE ACCEPTANCE RESULT ===")
+    print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+    print(f"Saved: {out_path}")
+    return result
+
+
 async def main(test_name: str):
     runner = {
         "test1": test1,
@@ -880,11 +1025,12 @@ async def main(test_name: str):
         "test1_run2": test1_run2_post_fixes,
         "test2_haiku": test2_haiku_pure,
         "step22": step22_planner_acceptance,
+        "step23_24": step23_24_gaps_acceptance,
     }.get(test_name)
     if runner is None:
         print(
-            f"Unknown test: {test_name}. "
-            f"Use test1 / test2 / test3 / test1_run2 / test2_haiku / step22."
+            f"Unknown test: {test_name}. Available: "
+            f"test1, test2, test3, test1_run2, test2_haiku, step22, step23_24."
         )
         sys.exit(2)
     await runner()
