@@ -1017,6 +1017,329 @@ async def step23_24_gaps_acceptance():
     return result
 
 
+# ---------------------------------------------------------------------------
+# Qualitative Comparison Run 1 (apr 2026) — Smart Report vs competitors
+# ---------------------------------------------------------------------------
+# Three queries, each fed pre-collected DR markdown from the analyst's
+# competitor runs (Perplexity DR / ChatGPT DR / Claude Research). Smart
+# Report consumes those markdowns through the standard v4 cycle on
+# Sonnet 4.6 (deep tier) plus optional /check-gaps for strategic queries
+# routed through the LLM planner. Output stored alongside the
+# competitor artifacts so the analyst can compare 4 systems × 3 queries.
+
+COMPARISON_OUT_DIR = REPO_ROOT / "tests/fixtures/comparison_runs" / TODAY
+COMPARISON_OUT_DIR.mkdir(parents=True, exist_ok=True)
+
+DOWNLOADS = Path("C:/Users/rodina-adm/Downloads")
+
+COMPARISON_QUERIES = [
+    {
+        "id": "q1_ev",
+        "question": (
+            "Сравните перспективы трёх лидеров электромобильного рынка в "
+            "России (Москвич, АВТОВАЗ, Evolute) на горизонте 3 лет в условиях "
+            "конкуренции с китайскими брендами BYD, Geely, Chery"
+        ),
+        "expected_route": "llm_planner",
+        "run_check_gaps": True,
+        "uploads": [
+            (
+                "Перспективы-российских-производителей-электромобилей-в-условиях-китайской-конкуренции-прогноз-на-2026–2029-годы.md",
+                "openai_dr",
+            ),
+            (
+                "«Сравните перспективы трёх лидеров электромобильно.md",
+                "perplexity",
+            ),
+        ],
+    },
+    {
+        "id": "q2_moscow_re",
+        "question": (
+            "Какие тренды повлияют на девелоперов бизнес-сегмента жилья в "
+            "Москве в 2026-2027?"
+        ),
+        "expected_route": "domain_template_ru_re",
+        "run_check_gaps": False,  # template path → sub_questions empty
+        "uploads": [
+            (
+                "Тренды,-влияющие-на-московских-девелоперов-жилого-сегмента-в-2026-2027-годах.md",
+                "openai_dr",
+            ),
+            (
+                "«Какие тренды повлияют на девелоперов бизнес-сегме.md",
+                "perplexity",
+            ),
+        ],
+    },
+    {
+        "id": "q3_eu_dac",
+        "question": (
+            "How is Direct Air Capture regulated in the EU and what subsidies "
+            "are available in 2026?"
+        ),
+        "expected_route": "llm_planner",
+        "run_check_gaps": True,
+        "uploads": [
+            (
+                "EU-Direct-Air-Capture-Regulation-and-2026-Subsidies-Comprehensive-Framework-and-Funding-Landscape.md",
+                "openai_dr",
+            ),
+        ],
+    },
+]
+
+
+def _load_markdown_uploads(specs: list[tuple[str, str]]) -> list[UploadedMarkdown]:
+    uploads: list[UploadedMarkdown] = []
+    for filename, tool in specs:
+        p = DOWNLOADS / filename
+        text = p.read_text(encoding="utf-8")
+        uploads.append(
+            UploadedMarkdown(
+                filename=filename,
+                content=text,
+                detected_tool=tool,
+                word_count=len(text.split()),
+            )
+        )
+    return uploads
+
+
+async def comparison_run_1():
+    """Drive Smart Report through 3 queries with the analyst-supplied
+    competitor DR markdown as input. Saves one fixture per query plus
+    an aggregate summary. Per-query checkpoints preserve partial
+    progress: if Q2 crashes, Q1 stays saved on disk so a retry only
+    pays for Q2+Q3.
+    """
+    print("=" * 70)
+    print("QUALITATIVE COMPARISON RUN 1 — Smart Report vs competitors")
+    print(f"  Output: {COMPARISON_OUT_DIR}")
+    print("=" * 70)
+
+    summary: list[dict] = []
+
+    for spec in COMPARISON_QUERIES:
+        qid = spec["id"]
+        question = spec["question"]
+        expected_route = spec["expected_route"]
+        run_check_gaps = spec["run_check_gaps"]
+
+        # Skip queries already completed on a prior partial run
+        out_path = COMPARISON_OUT_DIR / f"{qid}_smart_report.json"
+        if out_path.exists():
+            print()
+            print(f"--- {qid}: SKIPPING (already saved at {out_path.name})")
+            try:
+                prev = json.loads(out_path.read_text(encoding="utf-8"))
+                summary.append(prev["evaluation"])
+            except Exception:
+                pass
+            continue
+
+        uploads = _load_markdown_uploads(spec["uploads"])
+        print()
+        print(f"--- {qid}: {question[:80]}{'…' if len(question) > 80 else ''}")
+        print(f"  expected route: {expected_route} | check_gaps: {run_check_gaps}")
+        print(f"  uploads: {len(uploads)} files, {sum(u.word_count for u in uploads):,} words total")
+
+        session, events = await _run_cycle(
+            question=question,
+            uploads=uploads,
+            model=SONNET,            # Sonnet 4.6 deep tier on every stage
+            synth_override=None,
+            run_prompt_master=True,
+            checkpoint_name=f"comparison_{qid}",
+        )
+        cost_usd_synth = session.total_cost_rub / USD_RUB_RATE
+
+        # Optional /check-gaps for strategic queries that went through planner
+        check_gaps_payload = None
+        if run_check_gaps and session.research_prompt and session.research_prompt.sub_questions:
+            from smart_report.api.v4_endpoints import check_gaps, _store as _api_store
+            _api_store._sessions[session.session_id] = session
+            cg = await check_gaps(session.session_id)
+            check_gaps_payload = {
+                "iteration_number": cg.iteration_number,
+                "can_iterate_more": cg.can_iterate_more,
+                "gap_count_by_severity": cg.gap_count_by_severity,
+                "gaps": [g.model_dump() for g in cg.gaps],
+                "follow_up_prompts": [p.model_dump() for p in cg.follow_up_prompts],
+                "summary_for_analyst": cg.summary_for_analyst,
+            }
+
+        cost_usd_total = session.total_cost_rub / USD_RUB_RATE
+        final = session.final_report
+        pm = session.research_prompt
+
+        per_query = {
+            "query_id": qid,
+            "question": question,
+            "uploads": [{"filename": fn, "tool": tool} for fn, tool in spec["uploads"]],
+            "cost_usd_total": round(cost_usd_total, 4),
+            "cost_rub_total": round(session.total_cost_rub, 2),
+            "decomposition_method": (
+                getattr(pm, "decomposition_method", "") if pm else ""
+            ),
+            "expected_route": expected_route,
+            "route_matches_expectation": (
+                getattr(pm, "decomposition_method", "") == expected_route if pm else False
+            ),
+            "sub_questions_count": len(getattr(pm, "sub_questions", []) or []) if pm else 0,
+            "evidence_quality": final.metadata.get("evidence_quality") if final else None,
+            "gap_count_by_severity": final.metadata.get("gap_count_by_severity") if final else None,
+            "source_count_in_final": len(final.all_sources) if final else 0,
+            "main_synthesis_chars": len(final.main_synthesis) if final else 0,
+            "evidence_grade_distribution": (
+                evidence_grade_distribution(final) if final else None
+            ),
+            "check_gaps": check_gaps_payload,
+        }
+        summary.append(per_query)
+
+        # Save full session JSON (includes final_report, analysis, events)
+        out_path = COMPARISON_OUT_DIR / f"{qid}_smart_report.json"
+        payload = {
+            "query_id": qid,
+            "question": question,
+            "ran_at_utc": datetime.now(timezone.utc).isoformat(),
+            "uploads_meta": [{"filename": fn, "tool": tool} for fn, tool in spec["uploads"]],
+            "research_prompt": pm.model_dump() if pm else None,
+            "analysis": session.analysis.model_dump() if session.analysis else None,
+            "final_report": final.model_dump() if final else None,
+            "total_cost_rub": session.total_cost_rub,
+            "total_cost_usd_at_75_4": round(cost_usd_total, 4),
+            "events": events,
+            "check_gaps": check_gaps_payload,
+            "evaluation": per_query,
+        }
+        out_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2, default=str),
+            encoding="utf-8",
+        )
+        print(f"  saved: {out_path}")
+        print(f"  cost: ${cost_usd_total:.4f} | route: {per_query['decomposition_method']!r}")
+
+    # Aggregate summary
+    aggregate_path = COMPARISON_OUT_DIR / "_aggregate_summary.json"
+    aggregate = {
+        "ran_at_utc": datetime.now(timezone.utc).isoformat(),
+        "total_cost_usd": round(sum(q["cost_usd_total"] for q in summary), 4),
+        "queries": summary,
+    }
+    aggregate_path.write_text(
+        json.dumps(aggregate, ensure_ascii=False, indent=2, default=str),
+        encoding="utf-8",
+    )
+    print()
+    print("=" * 70)
+    print("AGGREGATE SUMMARY")
+    print("=" * 70)
+    print(json.dumps(aggregate, ensure_ascii=False, indent=2, default=str))
+    print()
+    print(f"Aggregate saved: {aggregate_path}")
+    return aggregate
+
+
+async def step31_q3_rerun():
+    """Phase 3 Step 3.1 Task 1.3 — live verification of regulatory-marker
+    + EU-registry hot-fixes against the Run 1 Q3 EU DAC fixture.
+
+    Pure Haiku 4.5 every stage. Uses the same EU DAC markdown the
+    analyst supplied for Run 1. Acceptance:
+      - decomposition_method == "llm_planner" (not "none" — the bug)
+      - sub_questions ≥ 3
+      - evidence_quality != "LOW_EVIDENCE_QUALITY" (or smaller severity)
+      - Cost ≤ $0.50
+    """
+    print("=" * 60)
+    print("STEP 3.1 LIVE VERIFICATION — Q3 EU DAC re-run on Haiku 4.5")
+    print("  Hard cap: $0.50")
+    print("=" * 60)
+    question = (
+        "How is Direct Air Capture regulated in the EU and what subsidies "
+        "are available in 2026?"
+    )
+
+    # Pre-flight: confirm the new markers fire
+    from smart_report.decomposition_templates import is_strategic_query
+    assert is_strategic_query(question), (
+        "Step 3.1 Task 1.1 regression — query should now classify as strategic"
+    )
+    print(f"  Pre-flight: is_strategic_query=True ✓")
+
+    uploads = _load_markdown_uploads([
+        (
+            "EU-Direct-Air-Capture-Regulation-and-2026-Subsidies-Comprehensive-Framework-and-Funding-Landscape.md",
+            "openai_dr",
+        ),
+    ])
+
+    session, events = await _run_cycle(
+        question=question,
+        uploads=uploads,
+        model=HAIKU,
+        synth_override=None,
+        run_prompt_master=True,
+        checkpoint_name=None,
+    )
+    cost_usd = session.total_cost_rub / USD_RUB_RATE
+    pm = session.research_prompt
+    final = session.final_report
+
+    decomposition_method = getattr(pm, "decomposition_method", "") if pm else ""
+    n_sub = len(getattr(pm, "sub_questions", []) or []) if pm else 0
+    evidence_quality = final.metadata.get("evidence_quality") if final else None
+
+    if cost_usd > 0.50:
+        verdict = "FAIL"
+        reason = "hard_cap_exceeded"
+    elif decomposition_method != "llm_planner":
+        verdict = "FAIL"
+        reason = f"decomposition_method={decomposition_method!r} (expected 'llm_planner')"
+    elif n_sub < 3:
+        verdict = "FAIL"
+        reason = f"sub_questions_count={n_sub} (expected ≥3)"
+    elif evidence_quality == "LOW_EVIDENCE_QUALITY":
+        verdict = "DEGRADED"
+        reason = "evidence_quality still LOW — uploaded EU DAC source pool needs richer registry coverage"
+    else:
+        verdict = "PASS"
+        reason = "all_criteria_met"
+
+    result = {
+        "verdict": verdict,
+        "reason": reason,
+        "cost_usd": round(cost_usd, 4),
+        "cost_rub": round(session.total_cost_rub, 2),
+        "decomposition_method": decomposition_method,
+        "sub_questions_count": n_sub,
+        "evidence_quality": evidence_quality,
+        "source_count": len(final.all_sources) if final else 0,
+        "step_3_1_commits": [
+            "dff8e5e (regulatory markers)",
+            "88ee08f (EU registry tier)",
+            "2b60f11 (httpx retry shim)",
+        ],
+        "run_1_baseline_comparison": {
+            "run1_route": "none (BUG)",
+            "run1_sub_questions": 0,
+            "run1_cost": 2.25,
+            "step_3_1_route": decomposition_method,
+            "step_3_1_sub_questions": n_sub,
+            "step_3_1_cost": round(cost_usd, 4),
+        },
+    }
+
+    out_path = _save_run("step31_q3_eu_dac_rerun", session, events, result)
+    print()
+    print("=== STEP 3.1 LIVE VERIFICATION RESULT ===")
+    print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+    print(f"Saved: {out_path}")
+    return result
+
+
 async def main(test_name: str):
     runner = {
         "test1": test1,
@@ -1026,11 +1349,14 @@ async def main(test_name: str):
         "test2_haiku": test2_haiku_pure,
         "step22": step22_planner_acceptance,
         "step23_24": step23_24_gaps_acceptance,
+        "comparison1": comparison_run_1,
+        "step31_q3": step31_q3_rerun,
     }.get(test_name)
     if runner is None:
         print(
             f"Unknown test: {test_name}. Available: "
-            f"test1, test2, test3, test1_run2, test2_haiku, step22, step23_24."
+            f"test1, test2, test3, test1_run2, test2_haiku, step22, step23_24, "
+            f"comparison1."
         )
         sys.exit(2)
     await runner()
