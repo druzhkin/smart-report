@@ -743,6 +743,135 @@ async def test2_haiku_pure():
     return base_eval
 
 
+async def step22_planner_acceptance():
+    """Live acceptance for v4.5 Phase 2 Step 2.2 — LLM planner end-to-end.
+
+    Uses the Run 1 Test 2 query (LLM observability comparison) which is
+    strategic (>=7 words, has "compare" marker) but does NOT match the
+    Russian RE domain template. Routing must therefore go through the
+    planner LLM path.
+
+    Configuration: pure Haiku 4.5 on every stage including the planner.
+    Same uploaded markdown as Run 1 Test 2 (Langfuse/LangSmith/Helicone
+    synthetic DR report).
+
+    Acceptance:
+      - decomposition_method == "llm_planner" in research_prompt metadata
+      - 3-5 sub-questions in research_prompt.sub_questions
+      - At least one sub-question has non-empty depends_on
+      - Evidence-grade variance >= 2 distinct values (substance unchanged)
+      - Total cost <= $0.50 (planner overhead <= $0.10 of that)
+      - Hard cap: $1.50
+    """
+    print("=" * 60)
+    print("STEP 2.2 LIVE ACCEPTANCE — Planner path on pure Haiku 4.5")
+    print("  Hard cap: $1.50")
+    print("=" * 60)
+    question = "Compare LLM observability platforms (Langfuse, LangSmith, Helicone) for enterprise scale"
+
+    # Pre-flight: confirm router will pick the planner, not template, not none
+    from smart_report.decomposition_templates import (
+        is_russian_re_strategic,
+        is_strategic_query,
+    )
+    assert not is_russian_re_strategic(question), (
+        "test invariant broken — query should NOT be RU RE strategic"
+    )
+    assert is_strategic_query(question), (
+        "test invariant broken — query should be broad strategic, "
+        "otherwise planner won't fire"
+    )
+    print(f"  Routing: planner path will fire (RU RE template skipped)")
+
+    # NOTE: pure-Haiku run; same as Run 2's test2_haiku pattern but
+    # WITH prompt_master enabled this time so the planner actually runs.
+    session, events = await _run_cycle(
+        question=question,
+        uploads=_llm_obs_uploads(),
+        model=HAIKU,
+        synth_override=None,  # pure Haiku, every stage
+        run_prompt_master=True,
+        checkpoint_name=None,  # don't reuse — different question topic
+    )
+    cost_usd = session.total_cost_rub / USD_RUB_RATE
+
+    pm = session.research_prompt
+    final = session.final_report
+
+    # Planner-side acceptance
+    decomposition_method = (
+        getattr(pm, "decomposition_method", "") if pm else ""
+    )
+    sub_questions = list(getattr(pm, "sub_questions", []) or []) if pm else []
+    n_sub = len(sub_questions)
+    has_dependency = any(sq.depends_on for sq in sub_questions)
+
+    # Substance side (Phase 1 still works)
+    distribution = evidence_grade_distribution(final)
+    distinct_grades = sum(1 for v in distribution.values() if v > 0)
+
+    if cost_usd > 1.50:
+        verdict = "FAIL"
+        reason = "hard_cap_exceeded"
+    elif decomposition_method != "llm_planner":
+        verdict = "FAIL"
+        reason = f"decomposition_method={decomposition_method!r} (expected 'llm_planner')"
+    elif not (3 <= n_sub <= 5):
+        verdict = "DEGRADED"
+        reason = f"sub_questions_count={n_sub} (expected 3-5)"
+    elif not has_dependency:
+        verdict = "DEGRADED"
+        reason = "no sub-question has non-empty depends_on (planner produced flat list)"
+    elif distinct_grades < 2:
+        verdict = "DEGRADED"
+        reason = "evidence-grade variance lost"
+    elif cost_usd > 0.50:
+        verdict = "DEGRADED"
+        reason = "cost_above_target_but_within_cap"
+    else:
+        verdict = "PASS"
+        reason = "all_criteria_met"
+
+    result = {
+        "verdict": verdict,
+        "reason": reason,
+        "cost_usd": round(cost_usd, 4),
+        "cost_rub": round(session.total_cost_rub, 2),
+        "cost_target": 0.50,
+        "cost_hard_cap": 1.50,
+        "decomposition_method": decomposition_method,
+        "sub_questions_count": n_sub,
+        "sub_questions": [
+            {
+                "id": sq.id,
+                "text": sq.text,
+                "depends_on": sq.depends_on,
+                "rationale": sq.rationale,
+                "suggested_sources": sq.suggested_sources,
+            }
+            for sq in sub_questions
+        ],
+        "has_dependency_tracked": has_dependency,
+        "evidence_grade_distribution": distribution,
+        "distinct_grades": distinct_grades,
+        "model_strategy": "pure_haiku_4.5_every_stage_including_planner",
+        "fixes_applied": [
+            "94b7da7 (Finding 1)",
+            "da7f24f (Finding 2)",
+            "a4cf42c (is_strategic_query)",
+            "0e2b7fd (LLM planner)",
+            "9296144 (prompt_master 3-way routing)",
+        ],
+    }
+
+    out_path = _save_run("step22_planner_acceptance", session, events, result)
+    print()
+    print("=== STEP 2.2 LIVE ACCEPTANCE RESULT ===")
+    print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+    print(f"Saved: {out_path}")
+    return result
+
+
 async def main(test_name: str):
     runner = {
         "test1": test1,
@@ -750,9 +879,13 @@ async def main(test_name: str):
         "test3": test3,
         "test1_run2": test1_run2_post_fixes,
         "test2_haiku": test2_haiku_pure,
+        "step22": step22_planner_acceptance,
     }.get(test_name)
     if runner is None:
-        print(f"Unknown test: {test_name}. Use test1 / test2 / test3 / test1_run2 / test2_haiku.")
+        print(
+            f"Unknown test: {test_name}. "
+            f"Use test1 / test2 / test3 / test1_run2 / test2_haiku / step22."
+        )
         sys.exit(2)
     await runner()
 
