@@ -208,22 +208,6 @@ class V4Orchestrator:
         # Step 3b: bibliography post-processing
         final, _ = generate_bibliography(final)
 
-        # Step 3b.1 (Phase 2 Step 2.3 — C6 degraded): per-sub-question
-        # evidence-adequacy detection. Mutates session.research_prompt
-        # SubQuestions in place with bibliography_refs / status, and
-        # surfaces gaps via final.metadata + confidence_note. Fires
-        # only when the planner produced sub_questions (RU RE template
-        # path also populates inline SubQuery dicts but those use a
-        # different schema and are out of scope for the C6 detector).
-        if session.research_prompt and session.research_prompt.sub_questions:
-            await _attach_evidence_gaps(
-                final,
-                session.research_prompt.sub_questions,
-                session.analysis,
-                emitter=self.emitter,
-            )
-            self.store.update(session)  # SubQuestions mutated in place
-
         # COMMIT the first-pass result IMMEDIATELY so downstream retry failures
         # (coverage/consistency/language) don't lose the report we already paid for.
         # Any subsequent retries mutate `final` in-place and re-commit.
@@ -358,6 +342,22 @@ class V4Orchestrator:
             "warnings_count": len(lint_warnings),
             "warnings": [w.model_dump() for w in lint_warnings[:20]],
         }
+
+        # Step 3g (Phase 2 Step 2.3 — C6 degraded): per-sub-question
+        # evidence-adequacy detection. Runs AFTER all retry paths (Coverage,
+        # Critic, Lint) so the gap metadata + confidence_note prefix land
+        # on whatever final the orchestrator is about to return — earlier
+        # placement was clobbered by retry chains that replace `final`.
+        # Fires only when the Step 2.2 LLM planner populated sub_questions;
+        # the Step 2.1 RU RE template path uses inline SubQuery dicts
+        # (out of scope for the C6 detector).
+        if session.research_prompt and session.research_prompt.sub_questions:
+            await _attach_evidence_gaps(
+                final,
+                session.research_prompt.sub_questions,
+                session.analysis,
+                emitter=self.emitter,
+            )
 
         session.final_report = final
         session.status = "synthesized"
