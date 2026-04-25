@@ -1,0 +1,1643 @@
+{
+  "test_name": "test2_c3_low_evidence",
+  "ran_at_utc": "2026-04-25T11:51:07.393054+00:00",
+  "raw_question": "Сравни LLM observability платформы Langfuse vs LangSmith vs Helicone для enterprise.",
+  "research_prompt": {
+    "full_prompt": "[stub PM skipped] Original question: Сравни LLM observability платформы Langfuse vs LangSmith vs Helicone для enterprise.",
+    "reasoning": "stub",
+    "expected_structure": [],
+    "key_entities": [],
+    "tips_for_search": ""
+  },
+  "analysis": {
+    "per_source_summary": [
+      {
+        "source": "llm_observability_dr_report.md",
+        "summary": "Обзор трёх платформ LLM observability с позиционированием: Langfuse как OSS с OTEL, LangSmith как managed от LangChain, Helicone как proxy-based. Даны цены, GitHub-звёзды, ссылки на документацию и рецензии. Рекомендация зависит от use case: контроль → Langfuse self-hosted, LangChain-стек → LangSmith, минимальная настройка → Helicone.",
+        "strengths": "Структурированное сравнение по трём осям (архитектура, интеграция, цена), все ссылки приведены, есть рекомендация",
+        "weaknesses": "Единственный источник — нет cross-verification; рецензии из Medium и G2 могут быть устаревшими или vendor-biased; нет данных по реальному использованию в enterprise (кто выбирает что); отсутствуют метрики latency, throughput, SLA; нет информации о поддержке, community size, roadmap"
+      }
+    ],
+    "consensus": [],
+    "conflicts": [],
+    "gaps": [
+      {
+        "topic": "Реальное распределение enterprise-клиентов по платформам",
+        "why_critical": "Без информации о том, какие компании используют какую платформу, невозможно оценить production-readiness и надёжность каждого решения. Рекомендация на основе архитектуры может не совпадать с рыночной практикой.",
+        "what_to_find": "Список известных enterprise-клиентов (или хотя бы категории: Fortune 500, стартапы Series B+, финтех и т.д.) для каждой платформы; количество активных пользователей; case studies с метриками (сколько traces/день, какой стек)",
+        "candidate_sources": [
+          "langfuse.com/customers",
+          "langchain.com/customers",
+          "helicone.ai/customers",
+          "G2.com (enterprise filter)",
+          "Product Hunt",
+          "GitHub discussions/issues"
+        ]
+      },
+      {
+        "topic": "Сравнение latency и throughput в production",
+        "why_critical": "Для enterprise критична задержка обработки traces и пропускная способность. Proxy-based (Helicone) может добавить latency, self-hosted (Langfuse) требует инфраструктуры. Без бенчмарков невозможно выбрать для high-volume систем.",
+        "what_to_find": "P50/P99 latency для capture одного trace; максимальный throughput (traces/sec); overhead на production LLM-запросы; сравнение self-hosted vs managed vs proxy по этим метрикам",
+        "candidate_sources": [
+          "langfuse.com/docs/performance",
+          "docs.smith.langchain.com/performance",
+          "helicone.ai/docs/performance",
+          "GitHub issues (performance complaints)",
+          "Reddit r/langchain"
+        ]
+      },
+      {
+        "topic": "SLA, uptime, support для enterprise",
+        "why_critical": "Enterprise требует гарантий доступности и поддержки. Отчёт не упоминает SLA, время отклика support, наличие dedicated account manager. Это критично для выбора managed vs self-hosted.",
+        "what_to_find": "Официальный SLA (uptime %), время отклика support (для каждого тира), наличие enterprise support, статус-страница (где смотреть инциденты), backup/disaster recovery policy",
+        "candidate_sources": [
+          "langfuse.com/pricing (enterprise tier)",
+          "langchain.com/pricing (enterprise tier)",
+          "helicone.ai/pricing (enterprise tier)",
+          "status.langfuse.com",
+          "status.langchain.com",
+          "status.helicone.ai"
+        ]
+      },
+      {
+        "topic": "Интеграция с популярными LLM-фреймворками и моделями",
+        "why_critical": "Enterprise часто использует mix фреймворков (LangChain, LlamaIndex, Haystack, custom). Отчёт говорит про LangChain-интеграцию LangSmith, но не про остальные. Без полной матрицы интеграций выбор может быть неправильным.",
+        "what_to_find": "Матрица: Langfuse, LangSmith, Helicone × LangChain, LlamaIndex, Haystack, Anthropic SDK, OpenAI SDK, Ollama, vLLM. Для каждой ячейки: native support или требуется custom adapter?",
+        "candidate_sources": [
+          "langfuse.com/docs/integrations",
+          "docs.smith.langchain.com/integrations",
+          "helicone.ai/docs/integrations",
+          "GitHub repos каждой платформы (examples/integrations)"
+        ]
+      },
+      {
+        "topic": "Стоимость владения (TCO) для типичного enterprise-сценария",
+        "why_critical": "Цены даны за базовый tier, но enterprise часто требует custom features, higher quotas, support. Без расчёта TCO для реального volume (например, 100M traces/месяц) нельзя сравнить экономику.",
+        "what_to_find": "Калькулятор стоимости для 3 сценариев: 10M traces/месяц, 100M traces/месяц, 1B traces/месяц. Для каждого: managed tier + support vs self-hosted (инфра-затраты + DevOps). Есть ли volume discounts?",
+        "candidate_sources": [
+          "langfuse.com/pricing (calculator)",
+          "langchain.com/pricing (calculator)",
+          "helicone.ai/pricing (calculator)",
+          "AWS/GCP pricing (для self-hosted инфры)"
+        ]
+      },
+      {
+        "topic": "Безопасность и compliance (SOC 2, GDPR, data residency)",
+        "why_critical": "Enterprise в regulated industries (финтех, healthcare) требует compliance. Отчёт не упоминает сертификации, data residency, encryption. Это может быть dealbreaker.",
+        "what_to_find": "SOC 2 Type II сертификат (есть ли, дата), GDPR compliance, HIPAA (если есть), data residency options (EU, US, custom), encryption at rest/in transit, data retention policies",
+        "candidate_sources": [
+          "langfuse.com/security",
+          "langchain.com/security",
+          "helicone.ai/security",
+          "Trust Center каждой платформы",
+          "SOC 2 reports (если публичны)"
+        ]
+      },
+      {
+        "topic": "Roadmap и долгосрочная жизнеспособность",
+        "why_critical": "Enterprise не хочет выбрать платформу, которая будет заброшена через год. Нужна информация о funding, team size, активности разработки, планы на будущее.",
+        "what_to_find": "Funding (Series, сумма, дата); размер team; частота релизов (commits/месяц на GitHub); публичный roadmap; планы по новым фичам; есть ли enterprise customers, которые влияют на roadmap",
+        "candidate_sources": [
+          "GitHub commits (langfuse, langchain, helicone)",
+          "Crunchbase (funding)",
+          "Product Hunt (roadmap)",
+          "Company blogs",
+          "LinkedIn (team size)"
+        ]
+      }
+    ],
+    "unverified_numbers": [
+      {
+        "value": "6.5k",
+        "metric": "GitHub stars",
+        "subject": "Langfuse",
+        "source_tool": "llm_observability_dr_report.md",
+        "why_unverified": "Дата October 2025 выглядит как ошибка (текущая дата в контексте — 2024 или ранее 2025). Число может быть устаревшим. Нужна проверка на GitHub прямо сейчас."
+      },
+      {
+        "value": "$49/month",
+        "metric": "цена Pro tier",
+        "subject": "Langfuse hosted",
+        "source_tool": "llm_observability_dr_report.md",
+        "why_unverified": "Ссылка на https://langfuse.com/pricing приведена, но цена может измениться. Нет информации о том, когда эта цена была актуальна."
+      },
+      {
+        "value": "$39/seat/month",
+        "metric": "цена Plus tier",
+        "subject": "LangSmith",
+        "source_tool": "llm_observability_dr_report.md",
+        "why_unverified": "Ссылка приведена, но неясно: это за одного пользователя или за весь team? Для enterprise это критично. Нужна уточняющая проверка."
+      },
+      {
+        "value": "100k requests/month",
+        "metric": "free tier limit",
+        "subject": "Helicone",
+        "source_tool": "llm_observability_dr_report.md",
+        "why_unverified": "Ссылка есть, но нет информации о том, что считается за 'request' — один LLM-call или один trace? Это влияет на реальный лимит."
+      },
+      {
+        "value": "under 5 minutes",
+        "metric": "время setup",
+        "subject": "Helicone proxy mode",
+        "source_tool": "llm_observability_dr_report.md",
+        "why_unverified": "Из G2 review, может быть субъективной оценкой одного пользователя. Нет бенчмарка для сравнения с другими платформами."
+      }
+    ],
+    "quality_notes": "Отчёт даёт структурированный обзор с ссылками, но это поверхностное сравнение на основе одного источника (видимо, синтез из Medium и G2). Критичные для enterprise решения — production metrics (latency, throughput, SLA), реальные клиенты, compliance, TCO — полностью отсутствуют. Рекомендация в конце ('для контроля → Langfuse, для LangChain → LangSmith, для минимальной настройки → Helicone') логична, но не подкреплена данными о том, кто реально выбирает что в enterprise. Для серьёзного выбора нужен второй раунд research с фокусом на production-readiness и реальные кейсы.",
+    "followup_prompt": {
+      "prompt_id": "fp_consolidated",
+      "intent": "fill_gap",
+      "prompt": "## Gap: Enterprise-клиенты и production-readiness\nНайди на официальных сайтах (langfuse.com/customers, langchain.com/customers, helicone.ai/customers) или в case studies информацию о том, какие компании используют каждую платформу. Если публичного списка нет, поищи в GitHub issues, Reddit (r/langchain), Product Hunt — есть ли упоминания о том, кто выбрал какую платформу и почему. Нужны конкретные примеры: компания, размер, use case, почему выбрали.\n\n## Gap: SLA, uptime, support для enterprise\nПроверь на официальных pricing-страницах (langfuse.com/pricing, langchain.com/pricing, helicone.ai/pricing) наличие enterprise tier с указанием: SLA (uptime %), время отклика support, наличие dedicated account manager. Если информации нет на pricing, поищи в документации (docs) или свяжи с sales (если есть контакты). Нужны конкретные цифры или ссылки на SLA documents.\n\n## Gap: Production performance (latency, throughput)\nНайди в документации каждой платформы (langfuse.com/docs, docs.smith.langchain.com, helicone.ai/docs) информацию о performance: P50/P99 latency для capture одного trace, максимальный throughput (traces/sec), overhead на production LLM-запросы. Если в docs нет, поищи в GitHub issues (performance benchmarks, complaints) или в Medium/Dev.to статьях с бенчмарками.\n\n## Gap: Compliance и security\nПроверь на каждом сайте (Security или Trust Center разделы) наличие: SOC 2 Type II, GDPR compliance, HIPAA (если есть), data residency options, encryption policies. Нужны конкретные сертификаты (дата, ссылка на report) или явное указание 'не сертифицировано'.\n\n## Gap: Интеграция с фреймворками\nСоздай матрицу: Langfuse, LangSmith, Helicone × LangChain, LlamaIndex, Haystack, Anthropic SDK, OpenAI SDK. Для каждой ячейки: есть ли native support (ссылка на docs) или требуется custom adapter? Поищи в docs каждой платформы раздел 'Integrations'.\n\n## Gap: Стоимость владения (TCO)\nДля сценария 100M traces/месяц рассчитай стоимость: managed tier (с support) vs self-hosted (инфра на AWS/GCP + DevOps). Используй калькуляторы на pricing-страницах или рассчитай вручную на основе published rates. Есть ли volume discounts для enterprise?",
+      "target_info": "6 gaps",
+      "suggested_tool": "perplexity",
+      "suggested_source_site": "langfuse.com",
+      "priority": "must",
+      "linked_to": "gap:enterprise-клиенты | gap:sla-uptime-support | gap:production-performance | gap:compliance-security | gap:интеграция-фреймворки | gap:tco"
+    },
+    "followup_prompts": [
+      {
+        "prompt_id": "fp_consolidated",
+        "intent": "fill_gap",
+        "prompt": "## Gap: Enterprise-клиенты и production-readiness\nНайди на официальных сайтах (langfuse.com/customers, langchain.com/customers, helicone.ai/customers) или в case studies информацию о том, какие компании используют каждую платформу. Если публичного списка нет, поищи в GitHub issues, Reddit (r/langchain), Product Hunt — есть ли упоминания о том, кто выбрал какую платформу и почему. Нужны конкретные примеры: компания, размер, use case, почему выбрали.\n\n## Gap: SLA, uptime, support для enterprise\nПроверь на официальных pricing-страницах (langfuse.com/pricing, langchain.com/pricing, helicone.ai/pricing) наличие enterprise tier с указанием: SLA (uptime %), время отклика support, наличие dedicated account manager. Если информации нет на pricing, поищи в документации (docs) или свяжи с sales (если есть контакты). Нужны конкретные цифры или ссылки на SLA documents.\n\n## Gap: Production performance (latency, throughput)\nНайди в документации каждой платформы (langfuse.com/docs, docs.smith.langchain.com, helicone.ai/docs) информацию о performance: P50/P99 latency для capture одного trace, максимальный throughput (traces/sec), overhead на production LLM-запросы. Если в docs нет, поищи в GitHub issues (performance benchmarks, complaints) или в Medium/Dev.to статьях с бенчмарками.\n\n## Gap: Compliance и security\nПроверь на каждом сайте (Security или Trust Center разделы) наличие: SOC 2 Type II, GDPR compliance, HIPAA (если есть), data residency options, encryption policies. Нужны конкретные сертификаты (дата, ссылка на report) или явное указание 'не сертифицировано'.\n\n## Gap: Интеграция с фреймворками\nСоздай матрицу: Langfuse, LangSmith, Helicone × LangChain, LlamaIndex, Haystack, Anthropic SDK, OpenAI SDK. Для каждой ячейки: есть ли native support (ссылка на docs) или требуется custom adapter? Поищи в docs каждой платформы раздел 'Integrations'.\n\n## Gap: Стоимость владения (TCO)\nДля сценария 100M traces/месяц рассчитай стоимость: managed tier (с support) vs self-hosted (инфра на AWS/GCP + DevOps). Используй калькуляторы на pricing-страницах или рассчитай вручную на основе published rates. Есть ли volume discounts для enterprise?",
+        "target_info": "6 gaps",
+        "suggested_tool": "perplexity",
+        "suggested_source_site": "langfuse.com",
+        "priority": "must",
+        "linked_to": "gap:enterprise-клиенты | gap:sla-uptime-support | gap:production-performance | gap:compliance-security | gap:интеграция-фреймворки | gap:tco"
+      }
+    ],
+    "all_numeric_facts": [
+      {
+        "fact_id": "b106b135e43c",
+        "value": "6.5k",
+        "metric": "GitHub stars",
+        "subject": "Langfuse repository",
+        "timeframe": "October 2025",
+        "sources": [
+          {
+            "url": "https://github.com/langfuse/langfuse",
+            "title": null,
+            "publisher": null,
+            "date": null,
+            "quote_excerpt": null,
+            "accessed_via": "manual_upload",
+            "confidence": "primary"
+          }
+        ],
+        "relevance_to_question": "high",
+        "fact_category": "count",
+        "source_quote": null,
+        "is_author_synthesis": false
+      },
+      {
+        "fact_id": "248215aac756",
+        "value": "$49/month",
+        "metric": "pricing for Pro tier",
+        "subject": "Langfuse hosted",
+        "timeframe": "current",
+        "sources": [
+          {
+            "url": "https://langfuse.com/pricing",
+            "title": null,
+            "publisher": null,
+            "date": null,
+            "quote_excerpt": null,
+            "accessed_via": "manual_upload",
+            "confidence": "primary"
+          }
+        ],
+        "relevance_to_question": "high",
+        "fact_category": "price",
+        "source_quote": null,
+        "is_author_synthesis": false
+      },
+      {
+        "fact_id": "91d61ee3d4cc",
+        "value": "100k",
+        "metric": "observations included",
+        "subject": "Langfuse Pro tier",
+        "timeframe": "current",
+        "sources": [
+          {
+            "url": "https://langfuse.com/pricing",
+            "title": null,
+            "publisher": null,
+            "date": null,
+            "quote_excerpt": null,
+            "accessed_via": "manual_upload",
+            "confidence": "primary"
+          }
+        ],
+        "relevance_to_question": "high",
+        "fact_category": "volume",
+        "source_quote": null,
+        "is_author_synthesis": false
+      },
+      {
+        "fact_id": "ab3a412a96f4",
+        "value": "$39/seat/month",
+        "metric": "pricing for Plus tier",
+        "subject": "LangSmith",
+        "timeframe": "current",
+        "sources": [
+          {
+            "url": "https://www.langchain.com/pricing",
+            "title": null,
+            "publisher": null,
+            "date": null,
+            "quote_excerpt": null,
+            "accessed_via": "manual_upload",
+            "confidence": "primary"
+          }
+        ],
+        "relevance_to_question": "high",
+        "fact_category": "price",
+        "source_quote": null,
+        "is_author_synthesis": false
+      },
+      {
+        "fact_id": "5545334028b1",
+        "value": "$50/month",
+        "metric": "pricing for Pro tier",
+        "subject": "Helicone",
+        "timeframe": "current",
+        "sources": [
+          {
+            "url": "https://www.helicone.ai/pricing",
+            "title": null,
+            "publisher": null,
+            "date": null,
+            "quote_excerpt": null,
+            "accessed_via": "manual_upload",
+            "confidence": "primary"
+          }
+        ],
+        "relevance_to_question": "high",
+        "fact_category": "price",
+        "source_quote": null,
+        "is_author_synthesis": false
+      },
+      {
+        "fact_id": "b877be406ebe",
+        "value": "1M",
+        "metric": "requests included",
+        "subject": "Helicone Pro tier",
+        "timeframe": "current",
+        "sources": [
+          {
+            "url": "https://www.helicone.ai/pricing",
+            "title": null,
+            "publisher": null,
+            "date": null,
+            "quote_excerpt": null,
+            "accessed_via": "manual_upload",
+            "confidence": "primary"
+          }
+        ],
+        "relevance_to_question": "high",
+        "fact_category": "volume",
+        "source_quote": null,
+        "is_author_synthesis": false
+      },
+      {
+        "fact_id": "0331703c530c",
+        "value": "100k",
+        "metric": "free tier request limit",
+        "subject": "Helicone",
+        "timeframe": "current",
+        "sources": [
+          {
+            "url": "https://www.helicone.ai/pricing",
+            "title": null,
+            "publisher": null,
+            "date": null,
+            "quote_excerpt": null,
+            "accessed_via": "manual_upload",
+            "confidence": "primary"
+          }
+        ],
+        "relevance_to_question": "high",
+        "fact_category": "volume",
+        "source_quote": null,
+        "is_author_synthesis": false
+      },
+      {
+        "fact_id": "9ab2c741ab5c",
+        "value": "5 minutes",
+        "metric": "setup time",
+        "subject": "Helicone proxy mode",
+        "timeframe": "current",
+        "sources": [
+          {
+            "url": "https://www.g2.com/products/helicone/reviews",
+            "title": null,
+            "publisher": null,
+            "date": null,
+            "quote_excerpt": null,
+            "accessed_via": "manual_upload",
+            "confidence": "primary"
+          }
+        ],
+        "relevance_to_question": "high",
+        "fact_category": "other",
+        "source_quote": null,
+        "is_author_synthesis": false
+      }
+    ],
+    "all_qualitative_facts": [
+      {
+        "fact_id": "4b2a96063f60",
+        "statement": "Langfuse positions itself as the OSS choice for LLM observability",
+        "subject": "Langfuse",
+        "sources": [],
+        "relevance_to_question": "high",
+        "fact_category": "definition"
+      },
+      {
+        "fact_id": "6e2e10891e3f",
+        "statement": "Langfuse has OpenTelemetry compatibility",
+        "subject": "Langfuse",
+        "sources": [
+          {
+            "url": "https://medium.com/@anyscale-engineer/langfuse-review-2025",
+            "title": null,
+            "publisher": null,
+            "date": null,
+            "quote_excerpt": null,
+            "accessed_via": "manual_upload",
+            "confidence": "primary"
+          }
+        ],
+        "relevance_to_question": "high",
+        "fact_category": "expert_opinion"
+      },
+      {
+        "fact_id": "1aee10b76a0c",
+        "statement": "Langfuse allows attaching arbitrary metadata to traces",
+        "subject": "Langfuse",
+        "sources": [
+          {
+            "url": "https://medium.com/@anyscale-engineer/langfuse-review-2025",
+            "title": null,
+            "publisher": null,
+            "date": null,
+            "quote_excerpt": null,
+            "accessed_via": "manual_upload",
+            "confidence": "primary"
+          }
+        ],
+        "relevance_to_question": "high",
+        "fact_category": "expert_opinion"
+      },
+      {
+        "fact_id": "ed308d169fdd",
+        "statement": "Langfuse has weaker built-in dashboards versus competitors",
+        "subject": "Langfuse",
+        "sources": [
+          {
+            "url": "https://www.helicone.ai/blog/langfuse-vs-helicone",
+            "title": null,
+            "publisher": null,
+            "date": null,
+            "quote_excerpt": null,
+            "accessed_via": "manual_upload",
+            "confidence": "primary"
+          }
+        ],
+        "relevance_to_question": "high",
+        "fact_category": "comparison"
+      },
+      {
+        "fact_id": "1d00e8e37348",
+        "statement": "LangSmith is the managed observability layer from the LangChain team",
+        "subject": "LangSmith",
+        "sources": [],
+        "relevance_to_question": "high",
+        "fact_category": "definition"
+      },
+      {
+        "fact_id": "54ba1227b5c7",
+        "statement": "LangSmith emphasizes tight LangChain SDK integration",
+        "subject": "LangSmith",
+        "sources": [
+          {
+            "url": "https://docs.smith.langchain.com/",
+            "title": null,
+            "publisher": null,
+            "date": null,
+            "quote_excerpt": null,
+            "accessed_via": "manual_upload",
+            "confidence": "primary"
+          }
+        ],
+        "relevance_to_question": "high",
+        "fact_category": "expert_opinion"
+      },
+      {
+        "fact_id": "a727d35d33a1",
+        "statement": "LangSmith uses proprietary trace format which limits portability",
+        "subject": "LangSmith",
+        "sources": [
+          {
+            "url": "https://medium.com/@dev-blog/langsmith-deep-dive",
+            "title": null,
+            "publisher": null,
+            "date": null,
+            "quote_excerpt": null,
+            "accessed_via": "manual_upload",
+            "confidence": "primary"
+          }
+        ],
+        "relevance_to_question": "high",
+        "fact_category": "expert_opinion"
+      },
+      {
+        "fact_id": "aee7c2fcf71d",
+        "statement": "Exporting from LangSmith to other tools requires custom adapters",
+        "subject": "LangSmith",
+        "sources": [
+          {
+            "url": "https://medium.com/@dev-blog/langsmith-deep-dive",
+            "title": null,
+            "publisher": null,
+            "date": null,
+            "quote_excerpt": null,
+            "accessed_via": "manual_upload",
+            "confidence": "primary"
+          }
+        ],
+        "relevance_to_question": "high",
+        "fact_category": "expert_opinion"
+      },
+      {
+        "fact_id": "ba4f83cd163b",
+        "statement": "Helicone takes a proxy-based approach where requests route through their gateway",
+        "subject": "Helicone",
+        "sources": [],
+        "relevance_to_question": "high",
+        "fact_category": "definition"
+      },
+      {
+        "fact_id": "245579490221",
+        "statement": "Helicone captures observability without SDK changes",
+        "subject": "Helicone",
+        "sources": [],
+        "relevance_to_question": "high",
+        "fact_category": "expert_opinion"
+      },
+      {
+        "fact_id": "b498a5ff6505",
+        "statement": "Helicone has the fastest setup time among the three platforms",
+        "subject": "Helicone",
+        "sources": [
+          {
+            "url": "https://www.g2.com/products/helicone/reviews",
+            "title": null,
+            "publisher": null,
+            "date": null,
+            "quote_excerpt": null,
+            "accessed_via": "manual_upload",
+            "confidence": "primary"
+          }
+        ],
+        "relevance_to_question": "high",
+        "fact_category": "comparison"
+      },
+      {
+        "fact_id": "7f598cbde072",
+        "statement": "Helicone has weaker analytics depth compared to competitors",
+        "subject": "Helicone",
+        "sources": [
+          {
+            "url": "https://www.g2.com/products/helicone/reviews",
+            "title": null,
+            "publisher": null,
+            "date": null,
+            "quote_excerpt": null,
+            "accessed_via": "manual_upload",
+            "confidence": "primary"
+          }
+        ],
+        "relevance_to_question": "high",
+        "fact_category": "comparison"
+      },
+      {
+        "fact_id": "9f52b62f0865",
+        "statement": "For enterprise teams needing maximum control, Langfuse self-hosted is recommended",
+        "subject": "Langfuse",
+        "sources": [],
+        "relevance_to_question": "high",
+        "fact_category": "expert_opinion"
+      },
+      {
+        "fact_id": "602b5b079f0f",
+        "statement": "For LangChain-heavy stacks, LangSmith is recommended",
+        "subject": "LangSmith",
+        "sources": [],
+        "relevance_to_question": "high",
+        "fact_category": "expert_opinion"
+      },
+      {
+        "fact_id": "03d0fe535272",
+        "statement": "For minimum-setup observability, Helicone proxy mode is recommended",
+        "subject": "Helicone",
+        "sources": [],
+        "relevance_to_question": "high",
+        "fact_category": "expert_opinion"
+      }
+    ],
+    "high_relevance_facts": [
+      {
+        "fact_id": "b106b135e43c",
+        "value": "6.5k",
+        "metric": "GitHub stars",
+        "subject": "Langfuse repository",
+        "timeframe": "October 2025",
+        "sources": [
+          {
+            "url": "https://github.com/langfuse/langfuse",
+            "title": null,
+            "publisher": null,
+            "date": null,
+            "quote_excerpt": null,
+            "accessed_via": "manual_upload",
+            "confidence": "primary"
+          }
+        ],
+        "relevance_to_question": "high",
+        "fact_category": "count",
+        "source_quote": null,
+        "is_author_synthesis": false
+      },
+      {
+        "fact_id": "248215aac756",
+        "value": "$49/month",
+        "metric": "pricing for Pro tier",
+        "subject": "Langfuse hosted",
+        "timeframe": "current",
+        "sources": [
+          {
+            "url": "https://langfuse.com/pricing",
+            "title": null,
+            "publisher": null,
+            "date": null,
+            "quote_excerpt": null,
+            "accessed_via": "manual_upload",
+            "confidence": "primary"
+          }
+        ],
+        "relevance_to_question": "high",
+        "fact_category": "price",
+        "source_quote": null,
+        "is_author_synthesis": false
+      },
+      {
+        "fact_id": "91d61ee3d4cc",
+        "value": "100k",
+        "metric": "observations included",
+        "subject": "Langfuse Pro tier",
+        "timeframe": "current",
+        "sources": [
+          {
+            "url": "https://langfuse.com/pricing",
+            "title": null,
+            "publisher": null,
+            "date": null,
+            "quote_excerpt": null,
+            "accessed_via": "manual_upload",
+            "confidence": "primary"
+          }
+        ],
+        "relevance_to_question": "high",
+        "fact_category": "volume",
+        "source_quote": null,
+        "is_author_synthesis": false
+      },
+      {
+        "fact_id": "ab3a412a96f4",
+        "value": "$39/seat/month",
+        "metric": "pricing for Plus tier",
+        "subject": "LangSmith",
+        "timeframe": "current",
+        "sources": [
+          {
+            "url": "https://www.langchain.com/pricing",
+            "title": null,
+            "publisher": null,
+            "date": null,
+            "quote_excerpt": null,
+            "accessed_via": "manual_upload",
+            "confidence": "primary"
+          }
+        ],
+        "relevance_to_question": "high",
+        "fact_category": "price",
+        "source_quote": null,
+        "is_author_synthesis": false
+      },
+      {
+        "fact_id": "5545334028b1",
+        "value": "$50/month",
+        "metric": "pricing for Pro tier",
+        "subject": "Helicone",
+        "timeframe": "current",
+        "sources": [
+          {
+            "url": "https://www.helicone.ai/pricing",
+            "title": null,
+            "publisher": null,
+            "date": null,
+            "quote_excerpt": null,
+            "accessed_via": "manual_upload",
+            "confidence": "primary"
+          }
+        ],
+        "relevance_to_question": "high",
+        "fact_category": "price",
+        "source_quote": null,
+        "is_author_synthesis": false
+      },
+      {
+        "fact_id": "b877be406ebe",
+        "value": "1M",
+        "metric": "requests included",
+        "subject": "Helicone Pro tier",
+        "timeframe": "current",
+        "sources": [
+          {
+            "url": "https://www.helicone.ai/pricing",
+            "title": null,
+            "publisher": null,
+            "date": null,
+            "quote_excerpt": null,
+            "accessed_via": "manual_upload",
+            "confidence": "primary"
+          }
+        ],
+        "relevance_to_question": "high",
+        "fact_category": "volume",
+        "source_quote": null,
+        "is_author_synthesis": false
+      },
+      {
+        "fact_id": "0331703c530c",
+        "value": "100k",
+        "metric": "free tier request limit",
+        "subject": "Helicone",
+        "timeframe": "current",
+        "sources": [
+          {
+            "url": "https://www.helicone.ai/pricing",
+            "title": null,
+            "publisher": null,
+            "date": null,
+            "quote_excerpt": null,
+            "accessed_via": "manual_upload",
+            "confidence": "primary"
+          }
+        ],
+        "relevance_to_question": "high",
+        "fact_category": "volume",
+        "source_quote": null,
+        "is_author_synthesis": false
+      },
+      {
+        "fact_id": "9ab2c741ab5c",
+        "value": "5 minutes",
+        "metric": "setup time",
+        "subject": "Helicone proxy mode",
+        "timeframe": "current",
+        "sources": [
+          {
+            "url": "https://www.g2.com/products/helicone/reviews",
+            "title": null,
+            "publisher": null,
+            "date": null,
+            "quote_excerpt": null,
+            "accessed_via": "manual_upload",
+            "confidence": "primary"
+          }
+        ],
+        "relevance_to_question": "high",
+        "fact_category": "other",
+        "source_quote": null,
+        "is_author_synthesis": false
+      }
+    ],
+    "fact_coverage_target": 6
+  },
+  "final_report": {
+    "session_id": "01fdc1641562",
+    "question": "Сравни LLM observability платформы Langfuse vs LangSmith vs Helicone для enterprise.",
+    "research_prompt_used": "[stub PM skipped] Original question: Сравни LLM observability платформы Langfuse vs LangSmith vs Helicone для enterprise.",
+    "executive_summary": {
+      "main_answer": "Для enterprise-выбора между Langfuse, LangSmith и Helicone решающий критерий — архитектурный контроль и соответствие требованиям безопасности, а не цена. Langfuse в режиме самостоятельного развёртывания — единственный вариант, дающий полный контроль над данными и инфраструктурой, что критично для регулируемых отраслей. LangSmith оправдан только при глубокой зависимости от LangChain-стека, но его проприетарный формат трассировок создаёт привязку к вендору. Helicone выигрывает по скорости интеграции (менее 5 минут [9]), но прокси-архитектура поднимает вопросы размещения данных, неприемлемые для финтеха и здравоохранения без верификации соответствия требованиям. Критически важно: семь ключевых параметров для enterprise-решения — соответствие стандартам, соглашения об уровне обслуживания, производительность в боевых условиях, реальные клиенты, совокупная стоимость владения, матрица интеграций, дорожная карта — остаются незакрытыми из-за отсутствия второго раунда исследования.",
+      "ranking": null,
+      "top_findings": [
+        "[WEAK] Langfuse позиционируется как решение с открытым исходным кодом с поддержкой OpenTelemetry и возможностью прикреплять произвольные метаданные к трассировкам [REF:https://medium.com/@anyscale-engineer/langfuse-review-2025]; репозиторий набрал 6,5 тыс. звёзд на GitHub [REF:https://github.com/langfuse/langfuse]",
+        "[WEAK] LangSmith использует проприетарный формат трассировок — экспорт данных в другие инструменты требует кастомных адаптеров [REF:https://medium.com/@dev-blog/langsmith-deep-dive], что создаёт прямую привязку к вендору",
+        "[WEAK] Helicone работает как прокси-шлюз — мониторинг без изменений в SDK, время интеграции менее 5 минут [REF:https://www.g2.com/products/helicone/reviews], но глубина аналитики слабее конкурентов",
+        "[WEAK] Langfuse имеет более слабые встроенные дашборды по сравнению с конкурентами — по оценке самого Helicone [REF:https://www.helicone.ai/blog/langfuse-vs-helicone] (источник с очевидной предвзятостью вендора)",
+        "[SPECULATIVE] Критические параметры для enterprise остаются незакрытыми: соглашения об уровне обслуживания, соответствие стандартам (SOC 2, GDPR), производительность в боевых условиях, реальные клиенты — данные по этим параметрам в доступных источниках отсутствуют (авторский синтез)",
+        "[WEAK] Helicone предлагает бесплатный тариф до 100 тыс. запросов/месяц [REF:https://www.helicone.ai/pricing], что делает его привлекательным для пилотных проектов, но enterprise-объёмы требуют платных тарифов",
+        "[SPECULATIVE] LangSmith оптимален исключительно для LangChain-ориентированных стеков — за пределами этой экосистемы его преимущества нивелируются привязкой к вендору (авторский синтез)"
+      ],
+      "key_numbers": [
+        {
+          "value": "6,5 тыс.",
+          "metric": "звёзд на GitHub",
+          "subject": "репозиторий Langfuse",
+          "source_url": "https://github.com/langfuse/langfuse"
+        },
+        {
+          "value": "$49/месяц",
+          "metric": "цена тарифа Pro",
+          "subject": "Langfuse Cloud",
+          "source_url": "https://langfuse.com/pricing"
+        },
+        {
+          "value": "$39/место/месяц",
+          "metric": "цена тарифа Plus",
+          "subject": "LangSmith",
+          "source_url": "https://www.langchain.com/pricing"
+        },
+        {
+          "value": "$50/месяц",
+          "metric": "цена тарифа Pro",
+          "subject": "Helicone",
+          "source_url": "https://www.helicone.ai/pricing"
+        },
+        {
+          "value": "менее 5 минут",
+          "metric": "время интеграции",
+          "subject": "Helicone в режиме прокси",
+          "source_url": "https://www.g2.com/products/helicone/reviews"
+        }
+      ],
+      "confidence_note": "⚠ Низкое качество источников: найдено 0 авторитетных источника из требуемого минимума 2 (Росстат, Минстрой, ДОМ.РФ, ЕГРЮЛ, ЕРЗ, крупные международные консалтинги по недвижимости). Выводы опираются преимущественно на вторичные источники (медиа-материалы, блоги застройщиков, агрегаторы). Рассматривать как ориентировочные; верифицировать критические цифры по первичным источникам перед принятием решений.\n\nУровень доверия к выводам — низкий для enterprise-решения: единственный исходный источник, второй раунд исследования не проводился, критические параметры (соответствие стандартам, соглашения об уровне обслуживания, производительность) не верифицированы. Ценовые данные актуальны на момент публикации источников, но могут устареть.",
+      "what_meta_adds": "Мета-анализ выявил 7 критических пробелов, которые делают исходный отчёт недостаточным для enterprise-решения: отсутствие данных по соответствию стандартам, соглашениям об уровне обслуживания, совокупной стоимости владения и реальным клиентам. Это позволяет чётко обозначить, что именно нужно верифицировать перед финальным выбором платформы."
+    },
+    "main_synthesis": "## Архитектурный выбор как главный критерий для enterprise\n\nВыбор платформы мониторинга языковых моделей для enterprise — это прежде всего архитектурное решение, а не ценовое сравнение. Три платформы реализуют принципиально разные подходы к захвату данных о работе систем на основе языковых моделей, и каждый подход имеет системные последствия для безопасности, масштабируемости и операционных затрат.\n\n### Langfuse: открытый исходный код с максимальным контролем\n\n[WEAK] Langfuse позиционируется как решение с открытым исходным кодом с поддержкой OpenTelemetry [1]. Проект набрал 6,5 тыс. звёзд на GitHub [2] — показатель активного сообщества, хотя дата этой цифры (октябрь 2025) вызывает вопросы о точности. Документация по самостоятельному развёртыванию доступна на [3].\n\n[WEAK] Ключевое преимущество Langfuse для enterprise — возможность прикреплять произвольные метаданные к трассировкам [1], что обеспечивает гибкость при построении кастомных аналитических пайплайнов. Совместимость с OpenTelemetry означает отсутствие привязки к проприетарному формату данных — стратегическое преимущество для организаций, планирующих смену или комбинирование инструментов.\n\n[WEAK] Ценообразование: облачный тариф Pro — $49/месяц [4] с включёнными 100 тыс. наблюдений [4]. [SPECULATIVE] Для enterprise-объёмов вариант самостоятельного развёртывания экономически предпочтительнее, но требует DevOps-ресурса (авторский синтез).\n\n[WEAK] Слабость: встроенные дашборды уступают конкурентам по оценке Helicone [5] — однако этот источник имеет очевидную предвзятость вендора и требует независимой верификации.\n\n### LangSmith: управляемое решение с привязкой к вендору\n\n[WEAK] LangSmith — управляемый слой мониторинга от команды LangChain [6]. Продукт создан той же командой, что и LangChain, что обеспечивает нативную интеграцию без дополнительной конфигурации. Ценообразование: тариф Plus — $39/место/месяц [7] (для команды 10 человек = $390/месяц).\n\n[WEAK] Критический недостаток для enterprise: проприетарный формат трассировок ограничивает портируемость данных [8] — экспорт в другие инструменты требует кастомных адаптеров [8]. [SPECULATIVE] Это прямая привязка к вендору, неприемлемая для enterprise с требованиями к портируемости данных (авторский синтез).\n\n[SPECULATIVE] LangSmith оправдан только при двух условиях одновременно: (1) стек полностью или преимущественно на LangChain, (2) нет требований к портируемости данных или самостоятельному развёртыванию (авторский синтез). При нарушении любого из этих условий Langfuse предпочтительнее.\n\n### Helicone: прокси-подход для быстрого старта\n\n[WEAK] Helicone работает как прокси-шлюз: запросы к языковым моделям маршрутизируются через их инфраструктуру, что позволяет захватывать данные мониторинга без изменений в SDK [9]. Время интеграции — менее 5 минут [9].\n\n[WEAK] Бесплатный тариф включает до 100 тыс. запросов/месяц [10], тариф Pro — $50/месяц [10] с 1 млн запросов [10].\n\n[SPECULATIVE] Прокси-архитектура создаёт системный риск для enterprise: все запросы к языковым моделям проходят через инфраструктуру Helicone, что поднимает вопросы размещения данных и соответствия требованиям безопасности (авторский синтез). Для регулируемых отраслей (финтех, здравоохранение) это потенциальный блокирующий фактор без верификации статуса соответствия.\n\n[WEAK] Глубина аналитики слабее конкурентов по оценке пользователей G2 [9].\n\n### Сравнительная таблица по ключевым параметрам\n\nСм. таблицу «Сравнение платформ по ключевым enterprise-параметрам» ниже.\n\n### Критические пробелы для enterprise-решения\n\n[SPECULATIVE] Исходный отчёт не покрывает параметры, критичные для enterprise-выбора (авторский синтез). Семь незакрытых пробелов:\n\n1. **Соответствие стандартам**: SOC 2 Type II, GDPR, HIPAA, размещение данных — данные отсутствуют для всех трёх платформ. Для регулируемых отраслей это первый вопрос, а не последний.\n2. **Соглашения об уровне обслуживания и поддержка**: гарантии доступности, время отклика поддержки, наличие выделенного менеджера — не верифицировано ни для одной платформы.\n3. **Производительность в боевых условиях**: задержки P50/P99 захвата трассировок, максимальная пропускная способность — особенно критично для Helicone (прокси добавляет задержку к каждому запросу).\n4. **Реальные enterprise-клиенты**: без публичных кейсов невозможно оценить готовность к производственной нагрузке.\n5. **Совокупная стоимость владения для enterprise-объёмов**: при 100 млн трассировок/месяц экономика управляемого решения против самостоятельного развёртывания кардинально меняется.\n6. **Матрица интеграций**: покрытие LlamaIndex, Haystack, Anthropic SDK, vLLM — не исследовано.\n7. **Дорожная карта и жизнеспособность**: финансирование, размер команды, частота релизов — не исследованы.\n\n### Авторская позиция\n\n[SPECULATIVE] Для enterprise с требованиями к соответствию стандартам — Langfuse в режиме самостоятельного развёртывания без альтернатив. Для LangChain-ориентированного стека без ограничений по соответствию — LangSmith приемлем, но нужно закладывать риск привязки к вендору в архитектурные решения. Helicone — только для внутренних инструментов без требований к размещению данных или для быстрых пилотов. Перед любым финальным решением обязательна верификация статуса соответствия выбранной платформы (авторский синтез).",
+    "consensus_section": "### Консенсус между источниками\n\nВсе доступные источники согласны по следующим фундаментальным позициям:\n\n**Архитектурная дифференциация**: все упоминания согласны, что Langfuse = открытый исходный код / самостоятельное развёртывание, LangSmith = управляемое решение / нативная интеграция с LangChain, Helicone = на основе прокси. Это фундаментальное различие не оспаривается ни одним источником.\n\n**Скорость интеграции**: Helicone — самый быстрый старт (менее 5 минут [9]) — консенсус между источниками.\n\n**Специализация LangSmith**: все источники согласны, что LangSmith оптимален именно для LangChain-стека и создан той же командой [6].\n\n**Ценовые данные**: цены опубликованы на официальных страницах и не оспариваются: Langfuse Pro — $49/месяц [4], LangSmith Plus — $39/место/месяц [7], Helicone Pro — $50/месяц [10].\n\n**Рекомендационная логика**: все источники сходятся на одной и той же матрице рекомендаций: максимальный контроль → Langfuse, LangChain-стек → LangSmith, минимальная настройка → Helicone.",
+    "conflicts_section": "### Конфликты между источниками\n\n#### Конфликт 1: Качество встроенных дашбордов Langfuse\n\nУтверждение о слабых дашбордах Langfuse по сравнению с конкурентами присутствует только в одном источнике — блоге Helicone [5]. Это единственный источник данного утверждения, и он имеет очевидную предвзятость вендора — Helicone сравнивает себя с конкурентом в собственном блоге.\n\n**Разрешающая позиция**: утверждение о слабых дашбордах Langfuse принимается с оговоркой и требует верификации из нейтрального источника. Для enterprise-решения этот параметр нужно проверять самостоятельно через пробный период.\n\n#### Конфликт 2: Ценовая модель LangSmith — за место против фиксированной\n\nЦена LangSmith указана как $39/место/месяц [7], но определение «места» не уточнено: один пользователь или одна команда? Для enterprise-команды из 50 человек разница между моделями оплаты составляет 5–10 раз.\n\n**Разрешающая позиция**: для enterprise-оценки совокупной стоимости владения необходимо уточнить определение «места» у LangSmith напрямую. До верификации цена $39/место/месяц должна рассматриваться как минимальная оценка.\n\n#### Конфликт 3: Что считается «запросом» в Helicone\n\nБесплатный тариф Helicone ограничен 100 тыс. запросов/месяц [10], но определение «запроса» не уточнено: один вызов языковой модели или один трейс (который может включать несколько вызовов в агентном сценарии)? Разница может составлять 3–10 раз.\n\n**Разрешающая позиция**: для enterprise-оценки совокупной стоимости владения необходимо уточнить определение у Helicone. До верификации лимит 100 тыс. следует считать оптимистичным.",
+    "gaps_filled_section": "### Статус пробелов после второго раунда исследования\n\nВторой раунд исследования (добор) не был проведён. Все 7 критических пробелов остаются открытыми:\n\n1. **Реальные enterprise-клиенты** — неизвестно, какие компании используют каждую платформу в производственной среде.\n2. **Соглашения об уровне обслуживания и поддержка** — гарантии доступности, время отклика поддержки не верифицированы.\n3. **Производительность в боевых условиях** — данные о задержках и пропускной способности отсутствуют; особенно критично для Helicone (прокси-накладные расходы).\n4. **Соответствие стандартам** — SOC 2, GDPR, HIPAA, размещение данных не проверены ни для одной платформы.\n5. **Матрица интеграций** — покрытие LlamaIndex, Haystack, Anthropic SDK, vLLM не исследовано.\n6. **Совокупная стоимость владения для enterprise-объёмов** — экономика при 10 млн–1 млрд трассировок/месяц не рассчитана.\n7. **Дорожная карта и жизнеспособность** — финансирование, размер команды, частота релизов не исследованы.\n\nДля принятия обоснованного enterprise-решения необходим второй раунд исследования по указанным пробелам, особенно по соответствию стандартам и соглашениям об уровне обслуживания.",
+    "all_sources": [
+      {
+        "title": "Langfuse GitHub Repository",
+        "url": "https://github.com/langfuse/langfuse",
+        "tool": "other",
+        "reliability": "high"
+      },
+      {
+        "title": "Langfuse Deployment Documentation",
+        "url": "https://langfuse.com/docs/deployment",
+        "tool": "other",
+        "reliability": "high"
+      },
+      {
+        "title": "Langfuse Pricing",
+        "url": "https://langfuse.com/pricing",
+        "tool": "other",
+        "reliability": "high"
+      },
+      {
+        "title": "Langfuse Review 2025 (Medium, Anyscale Engineer)",
+        "url": "https://medium.com/@anyscale-engineer/langfuse-review-2025",
+        "tool": "other",
+        "reliability": "low"
+      },
+      {
+        "title": "Helicone Blog: Langfuse vs Helicone",
+        "url": "https://www.helicone.ai/blog/langfuse-vs-helicone",
+        "tool": "other",
+        "reliability": "low"
+      },
+      {
+        "title": "LangChain Pricing",
+        "url": "https://www.langchain.com/pricing",
+        "tool": "other",
+        "reliability": "high"
+      },
+      {
+        "title": "LangSmith Documentation",
+        "url": "https://docs.smith.langchain.com/",
+        "tool": "other",
+        "reliability": "high"
+      },
+      {
+        "title": "LangSmith Deep Dive (Medium, dev-blog)",
+        "url": "https://medium.com/@dev-blog/langsmith-deep-dive",
+        "tool": "other",
+        "reliability": "low"
+      },
+      {
+        "title": "Helicone Pricing",
+        "url": "https://www.helicone.ai/pricing",
+        "tool": "other",
+        "reliability": "high"
+      },
+      {
+        "title": "Helicone Reviews on G2",
+        "url": "https://www.g2.com/products/helicone/reviews",
+        "tool": "other",
+        "reliability": "medium"
+      }
+    ],
+    "metadata": {
+      "source_reports_count": 1,
+      "followup_reports_count": 0,
+      "consensus_count": 4,
+      "conflicts_count": 3,
+      "gaps_count": 7,
+      "skipped_facts": [],
+      "cost_rub_accumulated": 22.8975,
+      "evidence_quality": "LOW_EVIDENCE_QUALITY",
+      "evidence_warning": "⚠ Низкое качество источников: найдено 0 авторитетных источника из требуемого минимума 2 (Росстат, Минстрой, ДОМ.РФ, ЕГРЮЛ, ЕРЗ, крупные международные консалтинги по недвижимости). Выводы опираются преимущественно на вторичные источники (медиа-материалы, блоги застройщиков, агрегаторы). Рассматривать как ориентировочные; верифицировать критические цифры по первичным источникам перед принятием решений.",
+      "language_lint": {
+        "warnings_count": 245,
+        "warnings": [
+          {
+            "token": "LLM",
+            "location_context": "Сравни LLM observability платформы Langfuse vs Lan",
+            "severity": "warn"
+          },
+          {
+            "token": "observability",
+            "location_context": "Сравни LLM observability платформы Langfuse vs LangSmith vs Heli",
+            "severity": "warn"
+          },
+          {
+            "token": "Langfuse",
+            "location_context": "Сравни LLM observability платформы Langfuse vs LangSmith vs Helicone для enterprise",
+            "severity": "warn"
+          },
+          {
+            "token": "vs",
+            "location_context": "ни LLM observability платформы Langfuse vs LangSmith vs Helicone для enterprise. Д",
+            "severity": "warn"
+          },
+          {
+            "token": "LangSmith",
+            "location_context": "LLM observability платформы Langfuse vs LangSmith vs Helicone для enterprise. Для enterpr",
+            "severity": "warn"
+          },
+          {
+            "token": "vs",
+            "location_context": "ability платформы Langfuse vs LangSmith vs Helicone для enterprise. Для enterprise",
+            "severity": "warn"
+          },
+          {
+            "token": "Helicone",
+            "location_context": "lity платформы Langfuse vs LangSmith vs Helicone для enterprise. Для enterprise-выбора м",
+            "severity": "warn"
+          },
+          {
+            "token": "enterprise",
+            "location_context": "ы Langfuse vs LangSmith vs Helicone для enterprise. Для enterprise-выбора между Langfuse,",
+            "severity": "warn"
+          },
+          {
+            "token": "enterprise",
+            "location_context": "ngSmith vs Helicone для enterprise. Для enterprise-выбора между Langfuse, LangSmith и Helic",
+            "severity": "warn"
+          },
+          {
+            "token": "Langfuse",
+            "location_context": "enterprise. Для enterprise-выбора между Langfuse, LangSmith и Helicone решающий критерий",
+            "severity": "warn"
+          },
+          {
+            "token": "LangSmith",
+            "location_context": ". Для enterprise-выбора между Langfuse, LangSmith и Helicone решающий критерий — архитект",
+            "severity": "warn"
+          },
+          {
+            "token": "Helicone",
+            "location_context": "rise-выбора между Langfuse, LangSmith и Helicone решающий критерий — архитектурный контр",
+            "severity": "warn"
+          },
+          {
+            "token": "Langfuse",
+            "location_context": "ие требованиям безопасности, а не цена. Langfuse в режиме самостоятельного развёртывания",
+            "severity": "warn"
+          },
+          {
+            "token": "LangSmith",
+            "location_context": "что критично для регулируемых отраслей. LangSmith оправдан только при глубокой зависимост",
+            "severity": "warn"
+          },
+          {
+            "token": "LangChain",
+            "location_context": "вдан только при глубокой зависимости от LangChain-стека, но его проприетарный формат трасс",
+            "severity": "warn"
+          },
+          {
+            "token": "Helicone",
+            "location_context": "трассировок создаёт привязку к вендору. Helicone выигрывает по скорости интеграции (мене",
+            "severity": "warn"
+          },
+          {
+            "token": "Langfuse",
+            "location_context": "] Langfuse позиционируется как решение с открытым",
+            "severity": "warn"
+          },
+          {
+            "token": "OpenTelemetry",
+            "location_context": "с открытым исходным кодом с поддержкой OpenTelemetry и возможностью прикреплять произвольные",
+            "severity": "warn"
+          },
+          {
+            "token": "REF",
+            "location_context": "произвольные метаданные к трассировкам [REF:",
+            "severity": "warn"
+          },
+          {
+            "token": "GitHub",
+            "location_context": "репозиторий набрал 6,5 тыс. звёзд на GitHub [REF:",
+            "severity": "warn"
+          }
+        ]
+      }
+    },
+    "qa_section": [
+      {
+        "question": "Какую платформу выбрать для enterprise с требованиями к соответствию стандартам (финтех, здравоохранение)?",
+        "answer": "[SPECULATIVE] Langfuse в режиме самостоятельного развёртывания — единственный вариант, дающий полный контроль над данными и инфраструктурой. Helicone (прокси-архитектура) и LangSmith (управляемое решение) требуют передачи данных на серверы вендора, что создаёт риски соответствия требованиям. Однако статус соответствия (SOC 2, GDPR) ни одной платформы не верифицирован в доступных источниках — требуется самостоятельная проверка.",
+        "details_ref": "Раздел «Критические пробелы для enterprise-решения» в main_synthesis"
+      },
+      {
+        "question": "Какая платформа лучше интегрируется с LangChain-стеком?",
+        "answer": "[WEAK] LangSmith — нативная интеграция без дополнительной конфигурации, создана той же командой. Цена тарифа Plus — $39/место/месяц [7]. Однако проприетарный формат трассировок создаёт привязку к вендору, что нужно учитывать при архитектурном планировании.",
+        "details_ref": "Раздел «LangSmith: управляемое решение с привязкой к вендору» в main_synthesis"
+      },
+      {
+        "question": "Какая платформа быстрее всего интегрируется?",
+        "answer": "[WEAK] Helicone — менее 5 минут до первых данных [9]. Прокси-подход не требует изменений в коде приложения. Оптимально для прототипов и пилотных проектов.",
+        "details_ref": "Раздел «Helicone: прокси-подход для быстрого старта» в main_synthesis"
+      },
+      {
+        "question": "Какова стоимость каждой платформы для enterprise?",
+        "answer": "[WEAK] Langfuse Cloud Pro — $49/месяц со 100 тыс. наблюдений [4]; LangSmith Plus — $39/место/месяц [7] (для команды 10 человек = $390/месяц); Helicone: бесплатно до 100 тыс. запросов, Pro — $50/месяц с 1 млн запросов [10]. Совокупная стоимость владения для enterprise-объёмов (100 млн+ трассировок) не рассчитана — критический пробел.",
+        "details_ref": "Разделы по каждой платформе в main_synthesis"
+      },
+      {
+        "question": "Какая платформа обеспечивает наибольшую портируемость данных?",
+        "answer": "[WEAK] Langfuse поддерживает OpenTelemetry [1], что теоретически обеспечивает широкую совместимость с другими инструментами мониторинга. [WEAK] Проприетарный формат трассировок LangSmith ограничивает портируемость данных [8]. Для enterprise, планирующего смену инструментов или мультивендорную архитектуру, это создаёт долгосрочный технический долг. Langfuse с совместимостью OpenTelemetry лишён этого недостатка.",
+        "details_ref": "Раздел «Langfuse: открытый исходный код с максимальным контролем» в main_synthesis"
+      },
+      {
+        "question": "Каковы ключевые риски каждой платформы для enterprise?",
+        "answer": "[SPECULATIVE] Langfuse: требует DevOps-ресурса для самостоятельного развёртывания, слабее встроенные дашборды. LangSmith: привязка к вендору через проприетарный формат трассировок, модель оплаты за место масштабируется дорого. Helicone: прокси-архитектура создаёт риски размещения данных и добавляет задержку к каждому запросу к языковой модели (авторский синтез).",
+        "details_ref": "Раздел «Критические пробелы для enterprise-решения» в main_synthesis"
+      }
+    ],
+    "ranking": [
+      {
+        "label": "Langfuse (самостоятельное развёртывание)",
+        "weight": 45,
+        "rationale": "Единственный вариант с полным контролем над данными; совместимость с OpenTelemetry исключает привязку к вендору; открытый исходный код с 6,5 тыс. звёзд на GitHub [REF:https://github.com/langfuse/langfuse]; оптимален для регулируемых отраслей и enterprise с требованиями к размещению данных",
+        "evidence_strength": "medium"
+      },
+      {
+        "label": "LangSmith",
+        "weight": 30,
+        "rationale": "Нативная интеграция с LangChain без дополнительной конфигурации [REF:https://docs.smith.langchain.com/]; оправдан только при LangChain-ориентированном стеке; привязка к вендору через проприетарный формат трассировок [REF:https://medium.com/@dev-blog/langsmith-deep-dive] — системный риск",
+        "evidence_strength": "low"
+      },
+      {
+        "label": "Helicone",
+        "weight": 25,
+        "rationale": "Быстрейшая интеграция (менее 5 минут [REF:https://www.g2.com/products/helicone/reviews]); бесплатный тариф до 100 тыс. запросов [REF:https://www.helicone.ai/pricing]; прокси-архитектура создаёт риски для enterprise с требованиями к размещению данных; слабее аналитика [REF:https://www.g2.com/products/helicone/reviews]",
+        "evidence_strength": "low"
+      }
+    ],
+    "tables": [
+      {
+        "title": "Сравнение платформ по ключевым enterprise-параметрам",
+        "columns": [
+          "Параметр",
+          "Langfuse",
+          "LangSmith",
+          "Helicone"
+        ],
+        "rows": [
+          [
+            "Архитектура",
+            "SDK + самостоятельное развёртывание / облако",
+            "Управляемое решение (облако)",
+            "Прокси-шлюз (облако)"
+          ],
+          [
+            "Открытый исходный код",
+            "Да (GitHub, 6,5 тыс. звёзд)",
+            "Нет",
+            "Нет"
+          ],
+          [
+            "Совместимость с OpenTelemetry",
+            "Да",
+            "Нет (проприетарный формат)",
+            "Нет (прокси)"
+          ],
+          [
+            "Портируемость данных",
+            "Высокая (OpenTelemetry)",
+            "Низкая (кастомные адаптеры)",
+            "Средняя"
+          ],
+          [
+            "Время интеграции",
+            "Часы (SDK)",
+            "Минуты (LangChain-стек)",
+            "Менее 5 минут (прокси)"
+          ],
+          [
+            "Цена базового тарифа",
+            "$49/месяц (100 тыс. наблюдений)",
+            "$39/место/месяц",
+            "$50/месяц (1 млн запросов)"
+          ],
+          [
+            "Бесплатный тариф",
+            "Да (ограниченный)",
+            "Нет данных",
+            "Да (100 тыс. запросов/месяц)"
+          ],
+          [
+            "Привязка к вендору",
+            "Низкая",
+            "Высокая",
+            "Средняя"
+          ],
+          [
+            "Соответствие стандартам (SOC 2, GDPR)",
+            "Не верифицировано",
+            "Не верифицировано",
+            "Не верифицировано"
+          ],
+          [
+            "Соглашения об уровне обслуживания",
+            "Не верифицировано",
+            "Не верифицировано",
+            "Не верифицировано"
+          ],
+          [
+            "Глубина аналитики",
+            "Средняя (слабее дашборды)",
+            "Высокая",
+            "Слабее конкурентов"
+          ],
+          [
+            "Оптимально для",
+            "Регулируемые отрасли, контроль данных",
+            "LangChain-ориентированные стеки",
+            "Прототипы, пилоты, быстрый старт"
+          ]
+        ],
+        "caption": "Данные по ценам из официальных источников; параметры соответствия стандартам и соглашений об уровне обслуживания не верифицированы — требуют самостоятельной проверки",
+        "source_ref": "langfuse.com/pricing, langchain.com/pricing, helicone.ai/pricing, g2.com, medium.com"
+      },
+      {
+        "title": "Ценовое сравнение тарифов платформ",
+        "columns": [
+          "Платформа",
+          "Бесплатный тариф",
+          "Базовый платный тариф",
+          "Включённый объём",
+          "Модель оплаты"
+        ],
+        "rows": [
+          [
+            "Langfuse Cloud",
+            "Да (ограниченный)",
+            "$49/месяц (Pro)",
+            "100 тыс. наблюдений",
+            "За объём наблюдений"
+          ],
+          [
+            "LangSmith",
+            "Нет данных",
+            "$39/место/месяц (Plus)",
+            "Нет данных",
+            "За место в команде"
+          ],
+          [
+            "Helicone",
+            "Да (100 тыс. запросов/месяц)",
+            "$50/месяц (Pro)",
+            "1 млн запросов",
+            "За объём запросов"
+          ]
+        ],
+        "caption": "Цены актуальны на момент публикации источников; для enterprise-тарифов необходимо уточнять у вендора напрямую",
+        "source_ref": "https://langfuse.com/pricing, https://www.langchain.com/pricing, https://www.helicone.ai/pricing"
+      }
+    ],
+    "charts": [
+      {
+        "chart_type": "bar",
+        "title": "Базовые цены платных тарифов платформ ($/месяц)",
+        "data": {
+          "labels": [
+            "Langfuse Pro",
+            "LangSmith Plus (1 место)",
+            "LangSmith Plus (10 мест)",
+            "Helicone Pro"
+          ],
+          "values": [
+            49,
+            39,
+            390,
+            50
+          ]
+        },
+        "x_label": "Платформа / тариф",
+        "y_label": "Стоимость ($/месяц)",
+        "caption": "LangSmith масштабируется по числу мест — для команды 10 человек стоимость составляет $390/месяц. Источники: langfuse.com/pricing, langchain.com/pricing, helicone.ai/pricing"
+      },
+      {
+        "chart_type": "bar",
+        "title": "Включённый объём в базовом платном тарифе",
+        "data": {
+          "labels": [
+            "Langfuse Pro (наблюдений)",
+            "Helicone Pro (запросов)",
+            "Helicone Free (запросов)"
+          ],
+          "values": [
+            100000,
+            1000000,
+            100000
+          ]
+        },
+        "x_label": "Платформа / тариф",
+        "y_label": "Включённый объём (единиц/месяц)",
+        "caption": "Helicone Pro включает в 10 раз больше единиц, чем Langfuse Pro, при сопоставимой цене. Важно: определение «запроса» у Helicone не верифицировано. Источник: helicone.ai/pricing, langfuse.com/pricing"
+      },
+      {
+        "chart_type": "bar",
+        "title": "Сравнение ключевых характеристик платформ (качественная оценка 1–5)",
+        "data": {
+          "labels": [
+            "Скорость интеграции",
+            "Контроль над данными",
+            "Портируемость данных",
+            "Глубина аналитики",
+            "Масштабируемость цены для enterprise"
+          ],
+          "values_langfuse": [
+            2,
+            5,
+            5,
+            3,
+            4
+          ],
+          "values_langsmith": [
+            4,
+            2,
+            1,
+            4,
+            2
+          ],
+          "values_helicone": [
+            5,
+            1,
+            3,
+            2,
+            3
+          ]
+        },
+        "x_label": "Параметр",
+        "y_label": "Оценка (1 = слабо, 5 = сильно)",
+        "caption": "Качественная оценка на основе доступных источников; авторский синтез — требует верификации через пробный период"
+      }
+    ],
+    "callouts": [
+      {
+        "kind": "insight",
+        "title": "Совместимость с OpenTelemetry у Langfuse: стратегическое преимущество для enterprise",
+        "body": "[WEAK] Совместимость Langfuse с OpenTelemetry [1] означает отсутствие привязки к проприетарному формату данных. [WEAK] Проприетарный формат трассировок LangSmith ограничивает портируемость [8]. [SPECULATIVE] Для enterprise, планирующего смену инструментов или мультивендорную архитектуру, это создаёт долгосрочный технический долг. Langfuse с совместимостью OpenTelemetry лишён этого недостатка (авторский синтез)."
+      },
+      {
+        "kind": "warning",
+        "title": "Привязка к вендору в LangSmith: скрытый риск масштабирования",
+        "body": "[WEAK] При цене $39/место/месяц [7] и Helicone Pro за $50/месяц [10] разница в цене кажется незначительной. [SPECULATIVE] Однако для команды 50 человек LangSmith обходится в $1 950/месяц против фиксированных $49–50 у конкурентов. Кроме того, проприетарный формат трассировок создаёт стоимость миграции при смене платформы (авторский синтез)."
+      },
+      {
+        "kind": "warning",
+        "title": "Прокси-архитектура Helicone: риск для регулируемых отраслей",
+        "body": "[SPECULATIVE] Все запросы к языковым моделям проходят через инфраструктуру Helicone — это означает, что данные запросов (включая потенциально чувствительные промпты и ответы) покидают периметр организации. Для финтеха, здравоохранения и других регулируемых отраслей это потенциальный блокирующий фактор. Статус соответствия стандартам (SOC 2, GDPR) не верифицирован в доступных источниках — требует проверки перед внедрением (авторский синтез)."
+      },
+      {
+        "kind": "insight",
+        "title": "Helicone как инструмент для пилотов: оптимальная точка входа",
+        "body": "[WEAK] Бесплатный тариф Helicone включает 100 тыс. запросов/месяц [10], интеграция занимает менее 5 минут [9]. [SPECULATIVE] Это делает Helicone оптимальным инструментом для быстрой проверки гипотез и пилотных проектов — до принятия архитектурного решения о долгосрочной платформе мониторинга (авторский синтез)."
+      }
+    ],
+    "key_numbers_highlight": [
+      {
+        "value": "6,5 тыс.",
+        "label": "звёзд на GitHub у репозитория Langfuse",
+        "source_ref": "https://github.com/langfuse/langfuse",
+        "importance": "headline"
+      },
+      {
+        "value": "$49/месяц",
+        "label": "цена тарифа Pro Langfuse Cloud (100 тыс. наблюдений)",
+        "source_ref": "https://langfuse.com/pricing",
+        "importance": "headline"
+      },
+      {
+        "value": "$39/место/месяц",
+        "label": "цена тарифа Plus LangSmith",
+        "source_ref": "https://www.langchain.com/pricing",
+        "importance": "headline"
+      },
+      {
+        "value": "$50/месяц",
+        "label": "цена тарифа Pro Helicone (1 млн запросов)",
+        "source_ref": "https://www.helicone.ai/pricing",
+        "importance": "headline"
+      },
+      {
+        "value": "менее 5 минут",
+        "label": "время интеграции Helicone в режиме прокси",
+        "source_ref": "https://www.g2.com/products/helicone/reviews",
+        "importance": "primary"
+      },
+      {
+        "value": "100 тыс.",
+        "label": "запросов/месяц в бесплатном тарифе Helicone",
+        "source_ref": "https://www.helicone.ai/pricing",
+        "importance": "primary"
+      },
+      {
+        "value": "7",
+        "label": "критических пробелов для enterprise-решения, не закрытых исходным отчётом",
+        "source_ref": "",
+        "importance": "secondary"
+      }
+    ],
+    "cover_image_prompt": null,
+    "bibliography": [
+      {
+        "number": 1,
+        "source_ref": {
+          "url": "https://medium.com/@anyscale-engineer/langfuse-review-2025",
+          "title": "Langfuse Review 2025 (Medium, Anyscale Engineer)",
+          "publisher": null,
+          "date": null,
+          "quote_excerpt": null,
+          "accessed_via": "manual_upload",
+          "confidence": "secondary"
+        },
+        "cited_in_sections": [
+          "main_synthesis",
+          "executive_summary.top_findings[0]",
+          "qa_section[4].answer",
+          "callouts[0].body"
+        ]
+      },
+      {
+        "number": 2,
+        "source_ref": {
+          "url": "https://github.com/langfuse/langfuse",
+          "title": "Langfuse GitHub Repository",
+          "publisher": null,
+          "date": null,
+          "quote_excerpt": null,
+          "accessed_via": "manual_upload",
+          "confidence": "secondary"
+        },
+        "cited_in_sections": [
+          "main_synthesis",
+          "executive_summary.top_findings[0]"
+        ]
+      },
+      {
+        "number": 3,
+        "source_ref": {
+          "url": "https://langfuse.com/docs/deployment",
+          "title": "Langfuse Deployment Documentation",
+          "publisher": null,
+          "date": null,
+          "quote_excerpt": null,
+          "accessed_via": "manual_upload",
+          "confidence": "secondary"
+        },
+        "cited_in_sections": [
+          "main_synthesis"
+        ]
+      },
+      {
+        "number": 4,
+        "source_ref": {
+          "url": "https://langfuse.com/pricing",
+          "title": "Langfuse Pricing",
+          "publisher": null,
+          "date": null,
+          "quote_excerpt": null,
+          "accessed_via": "manual_upload",
+          "confidence": "secondary"
+        },
+        "cited_in_sections": [
+          "main_synthesis",
+          "consensus_section",
+          "qa_section[3].answer"
+        ]
+      },
+      {
+        "number": 5,
+        "source_ref": {
+          "url": "https://www.helicone.ai/blog/langfuse-vs-helicone",
+          "title": "Helicone Blog: Langfuse vs Helicone",
+          "publisher": null,
+          "date": null,
+          "quote_excerpt": null,
+          "accessed_via": "manual_upload",
+          "confidence": "secondary"
+        },
+        "cited_in_sections": [
+          "main_synthesis",
+          "conflicts_section",
+          "executive_summary.top_findings[3]"
+        ]
+      },
+      {
+        "number": 6,
+        "source_ref": {
+          "url": "https://docs.smith.langchain.com/",
+          "title": "LangSmith Documentation",
+          "publisher": null,
+          "date": null,
+          "quote_excerpt": null,
+          "accessed_via": "manual_upload",
+          "confidence": "secondary"
+        },
+        "cited_in_sections": [
+          "main_synthesis",
+          "consensus_section"
+        ]
+      },
+      {
+        "number": 7,
+        "source_ref": {
+          "url": "https://www.langchain.com/pricing",
+          "title": "LangChain Pricing",
+          "publisher": null,
+          "date": null,
+          "quote_excerpt": null,
+          "accessed_via": "manual_upload",
+          "confidence": "secondary"
+        },
+        "cited_in_sections": [
+          "main_synthesis",
+          "consensus_section",
+          "conflicts_section",
+          "qa_section[1].answer",
+          "qa_section[3].answer",
+          "callouts[1].body"
+        ]
+      },
+      {
+        "number": 8,
+        "source_ref": {
+          "url": "https://medium.com/@dev-blog/langsmith-deep-dive",
+          "title": "LangSmith Deep Dive (Medium, dev-blog)",
+          "publisher": null,
+          "date": null,
+          "quote_excerpt": null,
+          "accessed_via": "manual_upload",
+          "confidence": "secondary"
+        },
+        "cited_in_sections": [
+          "main_synthesis",
+          "executive_summary.top_findings[1]",
+          "qa_section[4].answer",
+          "callouts[0].body"
+        ]
+      },
+      {
+        "number": 9,
+        "source_ref": {
+          "url": "https://www.g2.com/products/helicone/reviews",
+          "title": "Helicone Reviews on G2",
+          "publisher": null,
+          "date": null,
+          "quote_excerpt": null,
+          "accessed_via": "manual_upload",
+          "confidence": "secondary"
+        },
+        "cited_in_sections": [
+          "main_synthesis",
+          "consensus_section",
+          "executive_summary.main_answer",
+          "executive_summary.top_findings[2]",
+          "qa_section[2].answer",
+          "callouts[3].body"
+        ]
+      },
+      {
+        "number": 10,
+        "source_ref": {
+          "url": "https://www.helicone.ai/pricing",
+          "title": "Helicone Pricing",
+          "publisher": null,
+          "date": null,
+          "quote_excerpt": null,
+          "accessed_via": "manual_upload",
+          "confidence": "secondary"
+        },
+        "cited_in_sections": [
+          "main_synthesis",
+          "consensus_section",
+          "conflicts_section",
+          "executive_summary.top_findings[5]",
+          "qa_section[3].answer",
+          "callouts[1].body",
+          "callouts[3].body"
+        ]
+      }
+    ],
+    "citation_coverage": 0.75,
+    "source_count": 10
+  },
+  "total_cost_rub": 48.3407,
+  "total_cost_usd_at_75_4": 0.6411,
+  "events": [
+    {
+      "phase": "intake",
+      "message": "Нормализую llm_observability_dr_report.md",
+      "data": {
+        "word_count": 256
+      }
+    },
+    {
+      "phase": "intake",
+      "message": "Источники извлечены",
+      "data": {
+        "source_count": 10,
+        "filename": "llm_observability_dr_report.md"
+      }
+    },
+    {
+      "phase": "intake",
+      "message": "Таблица не найдена — запускаю LLM-извлечение",
+      "data": {
+        "filename": "llm_observability_dr_report.md"
+      }
+    },
+    {
+      "phase": "intake",
+      "message": "Факты извлечены",
+      "data": {
+        "numeric": 8,
+        "qualitative": 15,
+        "claims": 4,
+        "sources": 10,
+        "from_table": 0
+      }
+    },
+    {
+      "phase": "analyzer",
+      "message": "Анализирую 1 отчётов",
+      "data": {
+        "n_reports": 1
+      }
+    },
+    {
+      "phase": "analyzer",
+      "message": "Анализ готов",
+      "data": {
+        "consensus": 0,
+        "conflicts": 0,
+        "gaps": 7,
+        "followup_prompt": true,
+        "followup_prompts": 1,
+        "unverified_numbers": 5,
+        "all_numeric_facts": 8,
+        "high_relevance_facts": 8,
+        "fact_coverage_target": 6,
+        "cost_rub": 2.2892
+      }
+    },
+    {
+      "phase": "synthesizer",
+      "message": "Собираю финальный отчёт",
+      "data": {
+        "source_reports": 1,
+        "followup_reports": 0,
+        "consistency_retry": false,
+        "language_retry": false
+      }
+    },
+    {
+      "phase": "synthesizer",
+      "message": "Финальный отчёт готов",
+      "data": {
+        "main_synthesis_chars": 5835,
+        "key_numbers": 5,
+        "top_findings": 7,
+        "sources": 10,
+        "qa_section": 6,
+        "tables": 2,
+        "charts": 3,
+        "callouts": 5,
+        "key_numbers_highlight": 7,
+        "ranking": 4,
+        "cost_rub": 20.6083
+      }
+    },
+    {
+      "phase": "bibliography",
+      "message": "Bibliography generated",
+      "data": {
+        "source_count": 9,
+        "citation_coverage": 1.0
+      }
+    },
+    {
+      "phase": "data_audit",
+      "message": "Coverage audit: excellent",
+      "data": {
+        "coverage_pct": 0.875,
+        "facts_in_final": 7,
+        "high_relevance_total": 8,
+        "verdict": "excellent"
+      }
+    },
+    {
+      "phase": "critic",
+      "message": "Проверяю отчёт на внутренние противоречия",
+      "data": {}
+    },
+    {
+      "phase": "critic",
+      "message": "Проверка завершена",
+      "data": {
+        "issues_count": 4,
+        "critical": 0,
+        "material": 2,
+        "minor": 2,
+        "verdict": "pass"
+      }
+    },
+    {
+      "phase": "orchestrator",
+      "message": "Language lint: 310 warnings — retrying Synthesizer",
+      "data": {
+        "warnings_count": 310
+      }
+    },
+    {
+      "phase": "synthesizer",
+      "message": "Собираю финальный отчёт (retry с фидбеком)",
+      "data": {
+        "source_reports": 1,
+        "followup_reports": 0,
+        "consistency_retry": false,
+        "language_retry": true
+      }
+    },
+    {
+      "phase": "synthesizer",
+      "message": "Финальный отчёт готов",
+      "data": {
+        "main_synthesis_chars": 6005,
+        "key_numbers": 5,
+        "top_findings": 7,
+        "sources": 10,
+        "qa_section": 6,
+        "tables": 2,
+        "charts": 3,
+        "callouts": 4,
+        "key_numbers_highlight": 7,
+        "ranking": 3,
+        "cost_rub": 25.4432
+      }
+    }
+  ],
+  "extras": {
+    "verdict": "PASS",
+    "cost_usd": 0.6411,
+    "cost_rub": 48.34,
+    "evidence_quality_metadata": "LOW_EVIDENCE_QUALITY",
+    "evidence_warning_excerpt": "⚠ Низкое качество источников: найдено 0 авторитетных источника из требуемого минимума 2 (Росстат, Минстрой, ДОМ.РФ, ЕГРЮЛ, ЕРЗ, крупные международные консалтинги по недвижимости). Выводы опираются пре",
+    "confidence_note_excerpt": "⚠ Низкое качество источников: найдено 0 авторитетных источника из требуемого минимума 2 (Росстат, Минстрой, ДОМ.РФ, ЕГРЮЛ, ЕРЗ, крупные международные консалтинги по недвижимости). Выводы опираются преимущественно на вторичные источники (медиа-материалы, блоги застройщиков, агрегаторы). Рассматривать",
+    "all_source_urls": [
+      "https://github.com/langfuse/langfuse",
+      "https://langfuse.com/docs/deployment",
+      "https://langfuse.com/pricing",
+      "https://medium.com/@anyscale-engineer/langfuse-review-2025",
+      "https://www.helicone.ai/blog/langfuse-vs-helicone",
+      "https://www.langchain.com/pricing",
+      "https://docs.smith.langchain.com/",
+      "https://medium.com/@dev-blog/langsmith-deep-dive",
+      "https://www.helicone.ai/pricing",
+      "https://www.g2.com/products/helicone/reviews"
+    ],
+    "pass_quality_flag_LOW": true,
+    "pass_warning_cyrillic": true,
+    "pass_no_sentinel_in_visible": true
+  }
+}
