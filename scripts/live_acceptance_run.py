@@ -1462,6 +1462,135 @@ async def step32_domain_aware_acceptance():
     return aggregate
 
 
+async def step33_self_assessed_acceptance():
+    """Phase 3 Step 3.3 Task 3.3 — live acceptance for self-assessed source
+    quality on the same 3 Run 1 queries, pure Haiku 4.5.
+
+    Purpose: confirm grade distribution shifts toward Smart Report's
+    deterministic per-domain classification rather than input-side
+    stochastic. Per-query checkpoints under
+    runs/live_acceptance_checkpoints/<date>_step33_*.
+
+    Acceptance per the brief:
+      Q1 EV    : ≥2-3 STRONG (autostat/aebrus reclassified to STRONG by
+                 RU_AUTOMOTIVE registry if matched)
+      Q2 RE    : ≥1-2 STRONG IF RBC promoted to MODERATE; honest 0
+                 STRONG also acceptable if classifier deems input
+                 weak — task is honest self-assessment, not STRONG
+                 inflation
+      Q3 EU DAC: preserve STRONG (already working in Step 3.2)
+      Cost     : ≤ \$2.00 soft target, \$2.50 hard cap per Step
+    """
+    print("=" * 70)
+    print("STEP 3.3 LIVE ACCEPTANCE — self-assessed grades, 3 queries × Haiku")
+    print("  Soft target: \$2.00 | Hard cap: \$2.50")
+    print("=" * 70)
+
+    out_dir = REPO_ROOT / "tests/fixtures/comparison_runs" / TODAY
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    summary: list[dict] = []
+
+    for spec in COMPARISON_QUERIES:
+        qid = spec["id"]
+        question = spec["question"]
+        out_path = out_dir / f"{qid}_smart_report_step33.json"
+        if out_path.exists():
+            print(f"\n--- {qid}: SKIP (already saved {out_path.name})")
+            try:
+                prev = json.loads(out_path.read_text(encoding="utf-8"))
+                summary.append(prev["evaluation"])
+            except Exception:
+                pass
+            continue
+
+        uploads = _load_markdown_uploads(spec["uploads"])
+        print()
+        print(f"--- {qid}: {question[:80]}{'…' if len(question) > 80 else ''}")
+        print(f"  uploads: {len(uploads)} files")
+
+        session, events = await _run_cycle(
+            question=question,
+            uploads=uploads,
+            model=HAIKU,
+            synth_override=None,
+            run_prompt_master=True,
+            checkpoint_name=f"step33_{qid}",
+        )
+        cost_usd = session.total_cost_rub / USD_RUB_RATE
+        final = session.final_report
+        pm = session.research_prompt
+
+        per_query = {
+            "query_id": qid,
+            "question": question,
+            "cost_usd": round(cost_usd, 4),
+            "decomposition_method": (
+                getattr(pm, "decomposition_method", "") if pm else ""
+            ),
+            "sub_questions_count": len(getattr(pm, "sub_questions", []) or []) if pm else 0,
+            "query_domain_detected": (
+                final.metadata.get("query_domain") if final else None
+            ),
+            "evidence_quality": final.metadata.get("evidence_quality") if final else None,
+            "source_count_in_final": len(final.all_sources) if final else 0,
+            "evidence_grade_distribution": (
+                evidence_grade_distribution(final) if final else None
+            ),
+        }
+        summary.append(per_query)
+
+        payload = {
+            "query_id": qid,
+            "question": question,
+            "ran_at_utc": datetime.now(timezone.utc).isoformat(),
+            "research_prompt": pm.model_dump() if pm else None,
+            "analysis": session.analysis.model_dump() if session.analysis else None,
+            "final_report": final.model_dump() if final else None,
+            "events": events,
+            "evaluation": per_query,
+        }
+        out_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2, default=str),
+            encoding="utf-8",
+        )
+        print(f"  saved: {out_path.name}")
+        print(f"  cost: \${cost_usd:.4f} | grades: {per_query['evidence_grade_distribution']}")
+
+    # Aggregate vs Run 1 + Step 3.2 baselines for grade comparison
+    run1_grades = {
+        "q1_ev": {"STRONG": 0, "MODERATE": 6, "WEAK": 19, "SPECULATIVE": 9},
+        "q2_moscow_re": {"STRONG": 0, "MODERATE": 1, "WEAK": 35, "SPECULATIVE": 6},
+        "q3_eu_dac": {"STRONG": 23, "MODERATE": 13, "WEAK": 4, "SPECULATIVE": 3},
+    }
+    aggregate = {
+        "ran_at_utc": datetime.now(timezone.utc).isoformat(),
+        "total_cost_usd": round(sum(q["cost_usd"] for q in summary), 4),
+        "queries": summary,
+        "grade_comparison_vs_run1": [
+            {
+                "query_id": q["query_id"],
+                "run1": run1_grades.get(q["query_id"]),
+                "step33": q["evidence_grade_distribution"],
+                "strong_delta": (
+                    (q["evidence_grade_distribution"] or {}).get("STRONG", 0)
+                    - run1_grades.get(q["query_id"], {}).get("STRONG", 0)
+                ),
+            }
+            for q in summary
+        ],
+    }
+    agg_path = out_dir / "_step33_aggregate_summary.json"
+    agg_path.write_text(
+        json.dumps(aggregate, ensure_ascii=False, indent=2, default=str),
+        encoding="utf-8",
+    )
+    print()
+    print("=== STEP 3.3 LIVE ACCEPTANCE AGGREGATE ===")
+    print(json.dumps(aggregate, ensure_ascii=False, indent=2, default=str))
+    return aggregate
+
+
 async def main(test_name: str):
     runner = {
         "test1": test1,
@@ -1474,6 +1603,7 @@ async def main(test_name: str):
         "comparison1": comparison_run_1,
         "step31_q3": step31_q3_rerun,
         "step32": step32_domain_aware_acceptance,
+        "step33": step33_self_assessed_acceptance,
     }.get(test_name)
     if runner is None:
         print(

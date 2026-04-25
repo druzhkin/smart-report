@@ -1,0 +1,104 @@
+{
+  "ran_at_utc": "2026-04-25T22:36:57.143770+00:00",
+  "total_cost_usd": 2.7743,
+  "queries": [
+    {
+      "query_id": "q1_ev",
+      "question": "Сравните перспективы трёх лидеров электромобильного рынка в России (Москвич, АВТОВАЗ, Evolute) на горизонте 3 лет в условиях конкуренции с китайскими брендами BYD, Geely, Chery",
+      "cost_usd": 0.8745,
+      "decomposition_method": "llm_planner",
+      "sub_questions_count": 5,
+      "query_domain_detected": "ru_automotive",
+      "evidence_quality": "LOW_EVIDENCE_QUALITY",
+      "source_count_in_final": 18,
+      "evidence_grade_distribution": {
+        "STRONG": 37,
+        "MODERATE": 6,
+        "WEAK": 7,
+        "SPECULATIVE": 20
+      }
+    },
+    {
+      "query_id": "q2_moscow_re",
+      "question": "Какие тренды повлияют на девелоперов бизнес-сегмента жилья в Москве в 2026-2027?",
+      "cost_usd": 1.0094,
+      "decomposition_method": "domain_template_ru_re",
+      "sub_questions_count": 0,
+      "query_domain_detected": "ru_real_estate",
+      "evidence_quality": "LOW_EVIDENCE_QUALITY",
+      "source_count_in_final": 46,
+      "evidence_grade_distribution": {
+        "STRONG": 24,
+        "MODERATE": 24,
+        "WEAK": 0,
+        "SPECULATIVE": 9
+      }
+    },
+    {
+      "query_id": "q3_eu_dac",
+      "question": "How is Direct Air Capture regulated in the EU and what subsidies are available in 2026?",
+      "cost_usd": 0.8904,
+      "decomposition_method": "llm_planner",
+      "sub_questions_count": 4,
+      "query_domain_detected": "eu_regulatory",
+      "evidence_quality": "OK",
+      "source_count_in_final": 29,
+      "evidence_grade_distribution": {
+        "STRONG": 64,
+        "MODERATE": 1,
+        "WEAK": 1,
+        "SPECULATIVE": 1
+      }
+    }
+  ],
+  "grade_comparison_vs_run1": [
+    {
+      "query_id": "q1_ev",
+      "run1": {
+        "STRONG": 0,
+        "MODERATE": 6,
+        "WEAK": 19,
+        "SPECULATIVE": 9
+      },
+      "step33": {
+        "STRONG": 37,
+        "MODERATE": 6,
+        "WEAK": 7,
+        "SPECULATIVE": 20
+      },
+      "strong_delta": 37
+    },
+    {
+      "query_id": "q2_moscow_re",
+      "run1": {
+        "STRONG": 0,
+        "MODERATE": 1,
+        "WEAK": 35,
+        "SPECULATIVE": 6
+      },
+      "step33": {
+        "STRONG": 24,
+        "MODERATE": 24,
+        "WEAK": 0,
+        "SPECULATIVE": 9
+      },
+      "strong_delta": 24
+    },
+    {
+      "query_id": "q3_eu_dac",
+      "run1": {
+        "STRONG": 23,
+        "MODERATE": 13,
+        "WEAK": 4,
+        "SPECULATIVE": 3
+      },
+      "step33": {
+        "STRONG": 64,
+        "MODERATE": 1,
+        "WEAK": 1,
+        "SPECULATIVE": 1
+      },
+      "strong_delta": 41
+    }
+  ]
+}
