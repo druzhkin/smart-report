@@ -108,3 +108,12 @@ Hard guardrails: stop deploying to prod if last 3 deploys broken; halt all paid 
 **Git:** committing now, will push for Railway deploy.
 
 **Cost spent:** $0 (mocks only this far). Live verification budget reserved for after deploy.
+
+**Post-deploy live smoke (1eec948 deployed to prod):**
+- `/health` 200, `/api/v4/sessions/{id}/auto-dr` route registered
+- Real flow: signup new user → POST /sessions ("Что нового в OpenAI GPT-5 за последний месяц?") → POST /auto-dr {service:"tavily", prompt:"OpenAI GPT-5 release news 2026"}
+- Result: HTTP 200 in 1.7s, 10 Tavily sources, **$0.005**, 553-word markdown persisted as `auto_dr_tavily.md`, session.status flipped to `reports_uploaded`, cost cap charged 0.377 rub
+- Conclusion: integrated DR launcher works end-to-end in prod ✓
+- One note: `print()` showed `—` (em-dash) escaped in console, but content is correct UTF-8 — purely a Windows-cp1251 console encoding quirk, not a server bug.
+
+**Day 1 cost actual: $0.005 (one Tavily basic call, well under budget).**
