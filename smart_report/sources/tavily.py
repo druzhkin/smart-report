@@ -95,9 +95,23 @@ class TavilyClient:
 
         Empty result list is a valid success — caller may fall back
         to a different backend per the routing matrix.
+
+        Tavily has a hard 400-char limit on `query` — anything longer
+        returns 400 BadRequest. Auto-DR callers tend to forward the
+        full v4 research prompt (~2000 chars), so we defensively
+        truncate here to keep the call alive. The truncation lands on
+        a word boundary when possible.
         """
         if not query or not query.strip():
             return []
+        # Defensive: Tavily's hard query cap is 400 chars.
+        if len(query) > 380:
+            cut = query[:380]
+            last_space = cut.rfind(" ")
+            if last_space > 200:
+                cut = cut[:last_space]
+            query = cut.rstrip(",.;: ")
+            _logger.info("tavily: query truncated to %d chars (Tavily cap)", len(query))
         sdk = self._get_sdk()
 
         def _do_search() -> Any:

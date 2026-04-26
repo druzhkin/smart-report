@@ -124,6 +124,27 @@ def test_adapter_cost_per_call_property():
     assert cost.notes
 
 
+@pytest.mark.asyncio
+async def test_client_truncates_long_query_to_tavily_400_char_cap():
+    """Tavily SDK 4xxs on queries > 400 chars. Client must truncate defensively."""
+    from smart_report.sources.tavily import TavilyClient
+
+    captured: dict = {}
+
+    class _Fake:
+        def search(self, **kwargs):
+            captured["query"] = kwargs["query"]
+            return {"results": []}
+
+    client = TavilyClient(api_key="x", sdk_factory=lambda: _Fake())
+    long_q = "OpenAI GPT-5 release news 2026 deep analysis " * 60  # ~2700 chars
+    await client.search(long_q)
+    assert "query" in captured
+    assert len(captured["query"]) <= 380, (
+        f"Tavily client should truncate to <=380 chars, got {len(captured['query'])}"
+    )
+
+
 @pytest.mark.live
 @pytest.mark.asyncio
 async def test_adapter_live_smoke_basic_query():

@@ -28,6 +28,10 @@ export interface ChatMessage {
   secondary?: string;
   action?: string;
   secondaryAction?: string;
+  // Auto-DR ref: filename of the source_report this ref points to.
+  // When set, ref-click opens the source-md viewer instead of the
+  // generic upload-stage placeholder.
+  sourceFilename?: string;
 }
 
 export interface Session {
@@ -48,7 +52,7 @@ export interface Project {
 }
 
 export interface Artifact {
-  kind: "prompt" | "upload" | "upload-stage" | "critique" | "topup" | "report";
+  kind: "prompt" | "upload" | "upload-stage" | "critique" | "topup" | "report" | "source-md";
   // Real API data payload (present when connected to backend)
   data?: unknown;
 }

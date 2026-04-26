@@ -31,8 +31,8 @@ export const DR_SERVICES: DrServiceMeta[] = [
   {
     key: "valyu",
     label: "Valyu",
-    price: "≈ $0.10 / прогон",
-    when: "SEC-фалинги, FRED, arXiv, PubMed. Лучший выбор для финансов, регуляторики, науки.",
+    price: "≈ $0.01–0.02 (fast mode)",
+    when: "SEC-фалинги, FRED, arXiv, PubMed. Лучший выбор для финансов, регуляторики, науки. Стандартный режим у Valyu стоит ~$0.25, но мы используем fast — быстрее и в 10× дешевле.",
     mode: "integrated",
     badge: "🏆 для отчётности",
   },

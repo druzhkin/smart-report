@@ -148,6 +148,7 @@ export default function Workspace() {
   const [drBusy, setDrBusy] = useState<DrServiceKey | null>(null);
   const [savedSessions, setSavedSessions] = useState<SessionListItem[]>([]);
   const [qualityGrade, setQualityGrade] = useState<QualityGrade | null>(null);
+  const [sourceContent, setSourceContent] = useState<{ filename: string; content: string } | null>(null);
 
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     if (typeof window === "undefined") return "light";
@@ -420,6 +421,34 @@ export default function Workspace() {
     [sessionId]
   );
 
+  // ===== View an auto-DR source markdown =====
+  // Auto-DR results live inside session.source_reports[].content. When
+  // user clicks an "auto_dr_*.md" ref in the chat, we fetch the session,
+  // pull the matching source by filename, and surface its content in the
+  // artifact panel as a read-only markdown view.
+  const viewSourceContent = useCallback(
+    async (filename: string) => {
+      if (!sessionId) return;
+      setArtifact({ kind: "source-md", data: { filename } });
+      setSourceContent({ filename, content: "Загружаю содержимое…" });
+      try {
+        const s = await getSession(sessionId);
+        const found = (s.source_reports || []).find((u: any) => u.filename === filename);
+        if (found && typeof found.content === "string") {
+          setSourceContent({ filename, content: found.content });
+        } else {
+          setSourceContent({ filename, content: `(файл «${filename}» не найден в этой сессии)` });
+        }
+      } catch (e) {
+        setSourceContent({
+          filename,
+          content: `Ошибка загрузки: ${e instanceof Error ? e.message : String(e)}`,
+        });
+      }
+    },
+    [sessionId]
+  );
+
   // ===== Cancel handler =====
   const onCancel = useCallback(async () => {
     if (!sessionId || !pending) return;
@@ -628,8 +657,9 @@ export default function Workspace() {
           kind: "ref",
           refKind: "upload",
           title: `${serviceLabel}: готовый отчёт`,
-          subtitle: `${res.source_count} источник(ов) · ${res.word_count} слов · готов к анализу`,
+          subtitle: `${res.source_count} источник(ов) · ${res.word_count} слов · открыть содержимое →`,
           accent: true,
+          sourceFilename: res.filename,
         });
         push({
           role: "system",
@@ -1020,7 +1050,9 @@ export default function Workspace() {
     if (m.kind === "ref") {
       const isActive =
         artifact?.kind === m.refKind ||
-        (artifact?.kind === "upload-stage" && m.refKind === "upload");
+        (artifact?.kind === "upload-stage" && m.refKind === "upload") ||
+        (artifact?.kind === "source-md" &&
+          (artifact?.data as { filename?: string } | undefined)?.filename === m.sourceFilename);
       return (
         <Msg key={m.id} role="system">
           <ArtifactRef
@@ -1029,9 +1061,13 @@ export default function Workspace() {
             subtitle={m.subtitle || ""}
             active={isActive}
             accent={m.accent}
-            onClick={() =>
-              setArtifact({ kind: m.refKind as Artifact["kind"] })
-            }
+            onClick={() => {
+              if (m.sourceFilename) {
+                viewSourceContent(m.sourceFilename);
+              } else {
+                setArtifact({ kind: m.refKind as Artifact["kind"] });
+              }
+            }}
           />
         </Msg>
       );
@@ -1103,6 +1139,31 @@ export default function Workspace() {
             onClick={() => uploadRef.current?.click()}
           >
             выбрать файлы
+          </button>
+        ),
+      };
+    }
+    if (artifact.kind === "source-md") {
+      const fname = (artifact.data as { filename?: string } | undefined)?.filename || "источник";
+      return {
+        kind: "Источник",
+        title: fname,
+        actions: (
+          <button
+            className="icon-btn"
+            onClick={async () => {
+              if (sourceContent?.content) {
+                try {
+                  await navigator.clipboard.writeText(sourceContent.content);
+                  showToast(`Скопировано — ${sourceContent.content.length.toLocaleString("ru-RU")} символов`);
+                } catch (e) {
+                  showToast("Не удалось скопировать");
+                }
+              }
+            }}
+            title="Скопировать markdown в буфер"
+          >
+            скопировать
           </button>
         ),
       };
@@ -1748,6 +1809,15 @@ export default function Workspace() {
               )}
               {artifact.kind === "report" && !finalData && (
                 <div style={{ padding: 24, color: "var(--ink-3)" }}>Отчёт не готов</div>
+              )}
+              {artifact.kind === "source-md" && (
+                <div className="source-md-view">
+                  {sourceContent ? (
+                    <pre className="source-md-pre">{sourceContent.content}</pre>
+                  ) : (
+                    <div style={{ padding: 24, color: "var(--ink-3)" }}>Загружаю…</div>
+                  )}
+                </div>
               )}
             </div>
           </section>

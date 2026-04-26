@@ -924,6 +924,25 @@
   line-height: 1;
 }
 
+/* === Source markdown viewer (auto-DR result) === */
+.ws-root .source-md-view {
+  padding: 18px 24px;
+  height: 100%;
+  overflow: auto;
+}
+.ws-root .source-md-pre {
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ink-2);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  background: var(--paper-2);
+  padding: 16px 18px;
+  border: 1px solid var(--rule);
+  margin: 0;
+}
+
 /* === Composer === */
 .ws-root .composer-wrap {
   position: sticky;
