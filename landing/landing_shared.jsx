@@ -32,10 +32,12 @@ function Topbar({ ctaLabel = "Заказать отчёт", variant = "a", onCta
     if (el) { e.preventDefault(); el.scrollIntoView({ behavior: "smooth", block: "start" }); }
   };
 
-  // Default CTA: open the global lead modal (LandingA exposes window.__openLeadModal).
+  // Default CTA: SaaS signup (LandingA exposes window.__landingCta).
+  // Falls back to direct navigation if the page hasn't wired it.
   const handleCta = () => {
     if (typeof onCtaClick === "function") return onCtaClick();
-    if (typeof window.__openLeadModal === "function") return window.__openLeadModal("start");
+    if (typeof window.__landingCta === "function") return window.__landingCta();
+    window.location.href = "/app/signup.html";
   };
 
   return (

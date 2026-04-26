@@ -129,19 +129,21 @@ function _scrollToId(id) {
 }
 
 function LandingA() {
-  const [modalOpen, setModalOpen] = useStateA(false);
-  const [packageId, setPackageId] = useStateA("start");
+  // SaaS pivot: "Заказать"/"Купить"/"Подключить"/"Оплатить" CTAs no longer
+  // open a lead-capture modal. Smart Report is a self-serve SaaS — clicking
+  // any purchase intent CTA jumps to /app/signup so the user creates an
+  // account and runs the report themselves. Pre-Apr-26 the buttons opened
+  // a "leave email, we'll contact" form; user feedback: "при чем тут
+  // заявка и свяжутся. это саас".
+  const goSignup = () => { window.location.href = "/app/signup.html"; };
+  const goDashboard = () => { window.location.href = "/app/dashboard.html"; };
 
-  const openLead = (pkg) => { setPackageId(pkg || "generic"); setModalOpen(true); };
-  const closeLead = () => setModalOpen(false);
-
-  // Expose openLead globally so the shared Topbar (defined in
-  // landing_shared.jsx) can call it without a prop chain.
-  useEffectA(() => { window.__openLeadModal = openLead; return () => { delete window.__openLeadModal; }; }, []);
+  // Topbar's CTA delegates to window.__landingCta — set so the shared
+  // header doesn't need a prop drill into this component.
+  useEffectA(() => { window.__landingCta = goSignup; return () => { delete window.__landingCta; }; }, []);
 
   return (
     <>
-      <LeadModal open={modalOpen} packageId={packageId} onClose={closeLead} />
       <window.Topbar variant="a" />
 
       {/* HERO */}
@@ -162,7 +164,7 @@ function LandingA() {
                 Smart Report — это не «AI с веб-поиском». Это система, в промпты которой зашиты четыре проверенных временем аналитических протокола: <strong>ACH</strong>, <strong>Key Assumptions Check</strong>, <strong>MECE</strong> и <strong>Pyramid Principle</strong>. То же самое, что senior-аналитик делает руками — на каждом отчёте, без пропусков. На выходе — документ, где у каждого утверждения помечен уровень доказательности.
               </p>
               <div className="va-cta-row">
-                <button className="lp-btn" onClick={() => openLead("start")}>Заказать отчёт за ₽10 000 <span className="lp-btn-arrow">→</span></button>
+                <button className="lp-btn" onClick={goSignup}>Заказать отчёт за ₽10 000 <span className="lp-btn-arrow">→</span></button>
                 <button className="lp-btn lp-btn-ghost" onClick={() => _scrollToId("how")}>Посмотреть структуру отчёта</button>
                 <span className="va-cta-meta">12–20 минут · 5 DR · 4 протокола · ₽10 000</span>
               </div>
@@ -182,7 +184,7 @@ function LandingA() {
                 <li>Честное «нет данных» вместо красивой выдумки</li>
                 <li>Отчёт + презентация · все основные форматы</li>
               </ul>
-              <button className="lp-btn" onClick={() => openLead("start")}>Оплатить и начать <span className="lp-btn-arrow">→</span></button>
+              <button className="lp-btn" onClick={goSignup}>Оплатить и начать <span className="lp-btn-arrow">→</span></button>
             </div>
           </div>
         </div>
@@ -426,7 +428,7 @@ function LandingA() {
                 <li>Калибровка уверенности у каждого тезиса</li>
                 <li>Отчёт + презентация · все основные форматы</li>
               </ul>
-              <button className="lp-btn lp-btn-ghost" onClick={() => openLead("single")}>Заказать отчёт</button>
+              <button className="lp-btn lp-btn-ghost" onClick={goSignup}>Заказать отчёт</button>
             </div>
 
             <div className="va-price-card va-featured">
@@ -442,7 +444,7 @@ function LandingA() {
                 <li>Архив отчётов с полнотекстовым поиском</li>
                 <li>Менеджер на связи в Telegram</li>
               </ul>
-              <button className="lp-btn" onClick={() => openLead("pack5")}>Купить пакет</button>
+              <button className="lp-btn" onClick={goSignup}>Купить пакет</button>
             </div>
 
             <div className="va-price-card">
@@ -457,7 +459,7 @@ function LandingA() {
                 <li>API и веб-хуки</li>
                 <li>Командные роли и SSO</li>
               </ul>
-              <button className="lp-btn lp-btn-ghost" onClick={() => openLead("subscription")}>Подключить</button>
+              <button className="lp-btn lp-btn-ghost" onClick={goSignup}>Подключить</button>
             </div>
           </div>
         </div>
@@ -541,7 +543,7 @@ function LandingA() {
           <h2>Закажите <em>метод</em>, не текст.</h2>
           <p>Опишите задачу. Через 12–20 минут получите документ, прошедший через MECE-декомпозицию, ACH, Key Assumptions Check и Pyramid Principle. Каждое утверждение помечено уровнем доказательности. ₽10 000 разово, без подписки.</p>
           <div className="va-cta-row">
-            <button className="lp-btn" onClick={() => openLead("start")}>Заказать отчёт <span className="lp-btn-arrow">→</span></button>
+            <button className="lp-btn" onClick={goSignup}>Заказать отчёт <span className="lp-btn-arrow">→</span></button>
             <button className="lp-btn lp-btn-ghost" onClick={() => _scrollToId("how")}>Посмотреть структуру отчёта</button>
           </div>
         </div>

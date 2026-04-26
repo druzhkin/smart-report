@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<title>Smart Report — кабинет</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/app/app.css?v=1" />
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+
+<script type="text/babel">
+const { useState, useEffect, useCallback } = React;
+
+function App() {
+  const [me, setMe] = useState(null); // {authenticated, email}
+  const [reports, setReports] = useState([]);
+  const [question, setQuestion] = useState("");
+  const [uploads, setUploads] = useState([]); // [{filename, content}]
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const [info, setInfo] = useState("");
+
+  // Auth check + reports load
+  useEffect(() => {
+    fetch("/api/auth/me").then(r => r.json()).then(d => {
+      if (!d.authenticated) { window.location.href = "/app/login.html"; return; }
+      setMe(d);
+      loadReports();
+    });
+  }, []);
+
+  const loadReports = useCallback(() => {
+    fetch("/api/v4/reports").then(r => r.json()).then(setReports).catch(() => {});
+  }, []);
+
+  // Auto-poll every 15s for status updates on running reports
+  useEffect(() => {
+    const hasActive = reports.some(r => ["queued", "running"].includes(r.status));
+    if (!hasActive) return;
+    const t = setInterval(loadReports, 15000);
+    return () => clearInterval(t);
+  }, [reports, loadReports]);
+
+  const onFileChange = async (e) => {
+    const files = Array.from(e.target.files || []);
+    const out = [];
+    for (const f of files.slice(0, 5)) {
+      const text = await f.text();
+      out.push({ filename: f.name, content: text.slice(0, 200000) });
+    }
+    setUploads(out);
+  };
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (question.trim().length < 8) { setError("Вопрос слишком короткий (мин 8 символов)"); return; }
+    setSubmitting(true); setError(""); setInfo("");
+    try {
+      const r = await fetch("/api/v4/reports", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question: question.trim(), uploads }),
+      });
+      if (!r.ok) {
+        const data = await r.json().catch(() => ({}));
+        setError(data.detail || `HTTP ${r.status}`);
+        setSubmitting(false); return;
+      }
+      const data = await r.json();
+      setInfo(`Отчёт ${data.id} поставлен в очередь — обычно занимает 25-45 минут (Sonnet 4.6 + retries).`);
+      setQuestion(""); setUploads([]);
+      loadReports();
+    } catch (err) {
+      setError(String(err));
+    }
+    setSubmitting(false);
+  };
+
+  const logout = async () => {
+    await fetch("/api/auth/logout", { method: "POST" });
+    window.location.href = "/landing/";
+  };
+
+  if (!me) return <div className="app-page"><p>Загрузка…</p></div>;
+
+  return (
+    <div className="app-page">
+      <div className="app-topbar">
+        <a href="/landing/" style={{textDecoration: "none"}}>
+          <div className="app-brand">
+            <div className="app-brand-mark">SR</div>
+            <div>
+              <div>Smart Report</div>
+              <div className="app-brand-meta">v.IV · research orchestrator</div>
+            </div>
+          </div>
+        </a>
+        <div className="app-userbar">
+          <span>{me.email}</span>
+          <button className="btn-link" onClick={logout}>Выйти</button>
+        </div>
+      </div>
+
+      <div className="app-card">
+        <div className="app-eyebrow">03 · Новый отчёт</div>
+        <h2>Создать отчёт</h2>
+        <p className="lead">
+          Сформулируйте вопрос исследования (одной-двумя фразами). Опционально
+          приложите DR-материалы (Markdown). Цикл: Prompt Master → Analyzer
+          → Synthesizer на Sonnet 4.6, ~25-45 минут wall-clock на отчёт.
+          Результат — DOCX с inline grade-метками на каждом claim.
+        </p>
+
+        <form onSubmit={submit}>
+          {error && <div className="alert alert-error">{error}</div>}
+          {info && <div className="alert alert-success">{info}</div>}
+          <label>
+            <span>Вопрос исследования</span>
+            <textarea value={question} onChange={e => setQuestion(e.target.value)}
+                      required minLength="8" rows="4"
+                      placeholder="Например: Сравните перспективы трёх лидеров электромобильного рынка России на горизонте 3 лет в условиях конкуренции с китайскими брендами." />
+          </label>
+          <label>
+            <span>DR-материалы (опционально, до 5 файлов .md / .txt)</span>
+            <input type="file" multiple accept=".md,.txt,text/markdown,text/plain" onChange={onFileChange} />
+          </label>
+          {uploads.length > 0 && (
+            <div className="alert alert-info">
+              Прикреплено: {uploads.map(u => u.filename).join(", ")}
+            </div>
+          )}
+          <button type="submit" className="btn" disabled={submitting}>
+            {submitting ? "Ставим в очередь…" : "Запустить отчёт →"}
+          </button>
+        </form>
+      </div>
+
+      <div className="app-card">
+        <div className="app-eyebrow">04 · Ваши отчёты</div>
+        <h2>История</h2>
+        {reports.length === 0 ? (
+          <p className="lead">Пока ни одного отчёта. Создайте первый выше.</p>
+        ) : (
+          <div>
+            {reports.map(r => (
+              <div className="report-row" key={r.id}>
+                <div className="q" title={r.question}>{r.question || "(без вопроса)"}</div>
+                <div className="meta">{r.created_at?.slice(0, 16).replace("T", " ")}</div>
+                <span className={"status status-" + (r.status || "unknown")}>{r.status}</span>
+                <div>
+                  {r.status === "done" && (
+                    <a className="btn btn-ghost" href={`/api/v4/reports/${r.id}/docx`}>DOCX ↓</a>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {reports.some(r => ["queued", "running"].includes(r.status)) && (
+          <p className="lead" style={{marginTop: 16, fontSize: 12}}>
+            Активные отчёты обновляются каждые 15 секунд.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>

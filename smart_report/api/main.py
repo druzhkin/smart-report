@@ -8,9 +8,13 @@ import logging
 from pathlib import Path
 from typing import Any
 
+import os
+import secrets as _secrets
+
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, Response, StreamingResponse
+from starlette.middleware.sessions import SessionMiddleware
 
 from ..io import RUNS_DIR
 from ..orchestrator import run as run_orchestrator
@@ -27,10 +31,26 @@ from .models import JobSummary, ResearchIn, ResearchOut
 from .v4_endpoints import router as v4_router
 from .landing import router as landing_router
 from .lead import router as lead_router
+from .auth import router as auth_router
+from .reports import router as reports_router
 
 log = logging.getLogger("smart_report.api")
 
 app = FastAPI(title="smart-report-mvp-v3 API", version="0.1.0")
+
+# Session cookie middleware for SaaS auth (smart_report.api.auth).
+# SESSION_SECRET_KEY env var preferred for production; falls back to a
+# per-process random key for local dev (sessions don't survive restart,
+# but that's fine for dev).
+_SESSION_KEY = os.environ.get("SESSION_SECRET_KEY") or _secrets.token_urlsafe(32)
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=_SESSION_KEY,
+    session_cookie="sr_session",
+    max_age=60 * 60 * 24 * 14,  # 14 days
+    same_site="lax",
+    https_only=False,  # Railway terminates TLS at the edge; cookie travels HTTP internally
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -52,6 +72,8 @@ app.add_middleware(
 app.include_router(v4_router)
 app.include_router(landing_router)
 app.include_router(lead_router)
+app.include_router(auth_router)
+app.include_router(reports_router)
 
 
 # ---------- runtime ----------
@@ -72,8 +94,11 @@ async def _run_job(job: Job) -> None:
 
 
 @app.get("/", include_in_schema=False)
-async def root() -> RedirectResponse:
-    """Bare domain → landing page (admin/admin auth gate)."""
+async def root(request: Request) -> RedirectResponse:
+    """Bare domain → dashboard if logged in, else marketing landing."""
+    sess = getattr(request, "session", {}) or {}
+    if sess.get("user_email"):
+        return RedirectResponse(url="/app/dashboard.html", status_code=307)
     return RedirectResponse(url="/landing/", status_code=307)
 
 

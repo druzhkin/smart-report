@@ -1,64 +1,34 @@
-"""Static landing page router with HTTP Basic auth (admin/admin).
+"""Static landing + /app pages router.
 
-Serves the React+Babel UMD landing site checked in under `landing/` at
-the project root. Auth is HTTP Basic with hard-coded admin/admin
-credentials per user request — INTENTIONALLY trivial; this is a
-demo-grade gate, not production access control.
+Landing is PUBLIC (marketing). The /app/ pages (signup/login/dashboard)
+are HTML shells; their auth is enforced by the JS calling /api/auth/me
+on load and bouncing to /app/login if not authenticated. The actual
+data API endpoints (/api/auth/*, /api/reports/*) gate via session
+cookies — see smart_report/api/auth.py and smart_report/api/reports.py.
 
-Routes:
-  GET /landing/          → index.html (Smart Report - Landing.html)
-  GET /landing/{path}    → serve any file under landing/ directory
-
-The hard-coded credentials live in this file rather than env vars so
-the deployment story is "git pull, run, browse" without secrets
-plumbing.
+Removed admin/admin HTTP Basic auth from the previous version — SaaS
+needs the marketing page reachable to prospects without credentials.
 """
 
 from __future__ import annotations
 
-import secrets
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, Response
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
-router = APIRouter(prefix="/landing", tags=["landing"])
+router = APIRouter(tags=["landing"])
 
-_security = HTTPBasic()
-
-# Demo credentials per user request. Comparing with secrets.compare_digest
-# avoids timing-attack leakage; not that it matters at this stage but it's
-# the right tool.
-_ADMIN_USER = "admin"
-_ADMIN_PASS = "admin"
-
-
-# Project-root / landing/ directory (where the ZIP was extracted).
 _LANDING_ROOT = Path(__file__).resolve().parent.parent.parent / "landing"
-
-# Default landing entry point — the HTML file from the ZIP.
 _INDEX_FILENAME = "Smart Report - Landing.html"
 
 
-def _verify_admin(creds: HTTPBasicCredentials = Depends(_security)) -> str:
-    user_ok = secrets.compare_digest(creds.username, _ADMIN_USER)
-    pass_ok = secrets.compare_digest(creds.password, _ADMIN_PASS)
-    if not (user_ok and pass_ok):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials",
-            headers={"WWW-Authenticate": "Basic"},
-        )
-    return creds.username
-
-
-def _safe_path(rel_path: str) -> Path:
-    """Resolve `rel_path` under the landing root, refusing escape attempts."""
-    candidate = (_LANDING_ROOT / rel_path).resolve()
-    root = _LANDING_ROOT.resolve()
+def _safe_path(root: Path, rel_path: str) -> Path:
+    """Resolve `rel_path` under `root`, refusing traversal attempts."""
+    candidate = (root / rel_path).resolve()
+    base = root.resolve()
     try:
-        candidate.relative_to(root)
+        candidate.relative_to(base)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="path escapes landing root") from exc
     if not candidate.exists() or not candidate.is_file():
@@ -66,21 +36,34 @@ def _safe_path(rel_path: str) -> Path:
     return candidate
 
 
-@router.get("/", include_in_schema=False)
-async def landing_index(_user: str = Depends(_verify_admin)) -> Response:
-    """Serve the default landing index HTML."""
+@router.get("/landing/", include_in_schema=False)
+async def landing_index() -> Response:
+    """Public marketing landing page."""
     index_path = _LANDING_ROOT / _INDEX_FILENAME
     if not index_path.exists():
         raise HTTPException(status_code=500, detail=f"missing landing index: {_INDEX_FILENAME}")
     return FileResponse(index_path, media_type="text/html")
 
 
-@router.get("/{rel_path:path}", include_in_schema=False)
-async def landing_asset(rel_path: str, _user: str = Depends(_verify_admin)) -> Response:
-    """Serve any file under landing/ (CSS, JSX, HTML, PNG, ...).
+@router.get("/app/{rel_path:path}", include_in_schema=False)
+async def app_page(rel_path: str) -> Response:
+    """Serve any file under landing/app/ (signup/login/dashboard pages + assets).
 
-    Path traversal attempts (e.g. `..//etc/passwd`) get a 400 via the
-    relative_to check in `_safe_path`.
+    Auth is enforced client-side: each page calls /api/auth/me and
+    redirects accordingly. The data endpoints (POST /api/reports etc.)
+    do server-side gating via session cookies.
+
+    Default to dashboard.html for the /app/ root.
     """
-    target = _safe_path(rel_path)
+    if not rel_path or rel_path.endswith("/"):
+        rel_path = (rel_path or "") + "dashboard.html"
+    app_root = _LANDING_ROOT / "app"
+    target = _safe_path(app_root, rel_path)
+    return FileResponse(target)
+
+
+@router.get("/landing/{rel_path:path}", include_in_schema=False)
+async def landing_asset(rel_path: str) -> Response:
+    """Serve any file under landing/ (CSS, JSX, HTML, PNG, ...)."""
+    target = _safe_path(_LANDING_ROOT, rel_path)
     return FileResponse(target)

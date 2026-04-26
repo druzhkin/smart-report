@@ -17,3 +17,5 @@ python-docx>=1.1
 valyu>=2.9
 pyyaml>=6.0
 requests>=2.31
+itsdangerous>=2.1
+bcrypt>=4.0
