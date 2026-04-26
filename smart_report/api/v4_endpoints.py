@@ -28,7 +28,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, UploadFile
+from fastapi import APIRouter, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from typing import Literal
@@ -137,14 +137,85 @@ class ModelPreferenceIn(BaseModel):
 # ---- endpoints ----
 
 
+# ----- per-user ownership helpers -----
+
+
+def _current_email(request: Request) -> str | None:
+    """Read auth cookie; returns user email if signed in, None for anonymous.
+
+    Avoids hard import on smart_report.api.auth so unit tests that monkeypatch
+    request.session keep working.
+    """
+    sess = getattr(request, "session", {}) or {}
+    return sess.get("user_email")
+
+
+def _ensure_owner(session, email: str | None) -> None:
+    """Raise 403 if session is owner-tagged and the request's user doesn't match.
+
+    Anonymous sessions (user_email=None) remain public — backwards-compat
+    with frontend's fake-passwordless login. Once user signs in via
+    /api/auth/signup or /api/auth/login, their cookie email is stored on the
+    session and subsequent calls are gated.
+    """
+    owner = getattr(session, "user_email", None)
+    if owner is None:
+        return  # legacy/public session
+    if email != owner:
+        raise HTTPException(status_code=403, detail="not your session")
+
+
+def _get_owned(session_id: str, request: Request):
+    """Fetch session by id and check ownership in one call.
+
+    404 if missing, 403 if owned by another user, returns V4Session otherwise.
+    Use this in every /sessions/{session_id}/* handler.
+    """
+    try:
+        session = _store.get(session_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"session {session_id} not found")
+    _ensure_owner(session, _current_email(request))
+    return session
+
+
 @router.post("/sessions", response_model=CreateSessionOut)
-async def create_session(payload: CreateSessionIn) -> CreateSessionOut:
+async def create_session(payload: CreateSessionIn, request: Request) -> CreateSessionOut:
     session_id = uuid.uuid4().hex[:12]
-    _store.create(session_id=session_id, raw_question=payload.question)
+    session = _store.create(session_id=session_id, raw_question=payload.question)
+    # Tag with current user (if signed in) so subsequent calls can verify.
+    email = _current_email(request)
+    if email:
+        session.user_email = email
+        _store.update(session)
     _V4_EVENTS[session_id] = []
     _V4_EVENT_SIGNALS[session_id] = asyncio.Event()
-    log.info("v4 session %s created", session_id)
+    log.info("v4 session %s created (owner=%s)", session_id, email or "anonymous")
     return CreateSessionOut(session_id=session_id)
+
+
+@router.get("/sessions")
+async def list_my_sessions(request: Request) -> list[dict]:
+    """List sessions owned by the current authenticated user.
+
+    Anonymous callers get an empty list (cannot enumerate public sessions).
+    """
+    email = _current_email(request)
+    if not email:
+        return []
+    out = []
+    for s in _store.all():
+        if s.user_email == email:
+            out.append({
+                "session_id": s.session_id,
+                "raw_question": s.raw_question,
+                "status": s.status,
+                "created_at": s.created_at.isoformat() if hasattr(s.created_at, "isoformat") else s.created_at,
+                "total_cost_rub": s.total_cost_rub,
+                "has_final_report": s.final_report is not None,
+            })
+    out.sort(key=lambda r: r["created_at"], reverse=True)
+    return out
 
 
 @router.post("/admin/restore-session")
@@ -168,9 +239,8 @@ async def admin_restore_session(payload: dict) -> dict:
 
 
 @router.post("/sessions/{session_id}/generate-prompt", response_model=ResearchPrompt)
-async def generate_prompt(session_id: str, payload: ModelPreferenceIn | None = None) -> ResearchPrompt:
-    if not _store.exists(session_id):
-        raise HTTPException(status_code=404, detail=f"session {session_id} not found")
+async def generate_prompt(session_id: str, request: Request, payload: ModelPreferenceIn | None = None) -> ResearchPrompt:
+    _get_owned(session_id, request)
     orch = V4Orchestrator(_store, emitter=_SessionEmitter(session_id))
     model_preference = payload.model_preference if payload else None
     try:
@@ -187,22 +257,23 @@ async def generate_prompt(session_id: str, payload: ModelPreferenceIn | None = N
 
 @router.post("/sessions/{session_id}/upload-reports")
 async def upload_reports(
-    session_id: str, files: list[UploadFile]
+    session_id: str, request: Request, files: list[UploadFile]
 ) -> list[dict[str, Any]]:
+    _get_owned(session_id, request)
     return await _upload_markdown(session_id, files, dest="source")
 
 
 @router.post("/sessions/{session_id}/upload-followup")
 async def upload_followup(
-    session_id: str, files: list[UploadFile]
+    session_id: str, request: Request, files: list[UploadFile]
 ) -> list[dict[str, Any]]:
+    _get_owned(session_id, request)
     return await _upload_markdown(session_id, files, dest="followup")
 
 
 @router.post("/sessions/{session_id}/analyze", response_model=AnalysisOutput)
-async def analyze(session_id: str, payload: ModelPreferenceIn | None = None) -> AnalysisOutput:
-    if not _store.exists(session_id):
-        raise HTTPException(status_code=404, detail=f"session {session_id} not found")
+async def analyze(session_id: str, request: Request, payload: ModelPreferenceIn | None = None) -> AnalysisOutput:
+    _get_owned(session_id, request)
     orch = V4Orchestrator(_store, emitter=_SessionEmitter(session_id))
     model_preference = payload.model_preference if payload else None
     try:
@@ -215,9 +286,8 @@ async def analyze(session_id: str, payload: ModelPreferenceIn | None = None) -> 
 
 
 @router.post("/sessions/{session_id}/synthesize", response_model=FinalReport)
-async def synthesize(session_id: str, payload: ModelPreferenceIn | None = None) -> FinalReport:
-    if not _store.exists(session_id):
-        raise HTTPException(status_code=404, detail=f"session {session_id} not found")
+async def synthesize(session_id: str, request: Request, payload: ModelPreferenceIn | None = None) -> FinalReport:
+    _get_owned(session_id, request)
     orch = V4Orchestrator(_store, emitter=_SessionEmitter(session_id))
     model_preference = payload.model_preference if payload else None
     try:
@@ -348,15 +418,14 @@ async def check_gaps(session_id: str) -> CheckGapsResponse:
 
 
 @router.get("/sessions/{session_id}")
-async def get_session(session_id: str) -> dict:
-    if not _store.exists(session_id):
-        raise HTTPException(status_code=404, detail=f"session {session_id} not found")
-    s = _store.get(session_id)
+async def get_session(session_id: str, request: Request) -> dict:
+    s = _get_owned(session_id, request)
     return s.model_dump(mode="json")
 
 
 @router.get("/sessions/{session_id}/events")
-async def get_events(session_id: str, since: int = 0, timeout: float = 25.0) -> dict:
+async def get_events(session_id: str, request: Request, since: int = 0, timeout: float = 25.0) -> dict:
+    _get_owned(session_id, request)
     if session_id not in _V4_EVENTS:
         raise HTTPException(status_code=404, detail=f"session {session_id} not found")
     timeout = max(0.0, min(float(timeout), 30.0))
@@ -381,15 +450,13 @@ _EXPORT_FORMATS = {"md", "json", "docx", "pptx", "onepager", "gamma-pptx", "gamm
 
 
 @router.get("/sessions/{session_id}/export")
-async def export_session(session_id: str, format: str = "md") -> FileResponse:
+async def export_session(session_id: str, request: Request, format: str = "md") -> FileResponse:
     if format not in _EXPORT_FORMATS:
         raise HTTPException(
             status_code=400,
             detail=f"unknown format {format!r}; allowed: {sorted(_EXPORT_FORMATS)}",
         )
-    if not _store.exists(session_id):
-        raise HTTPException(status_code=404, detail=f"session {session_id} not found")
-    session = _store.get(session_id)
+    session = _get_owned(session_id, request)
     if session.final_report is None:
         raise HTTPException(
             status_code=409,

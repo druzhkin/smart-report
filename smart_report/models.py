@@ -595,6 +595,12 @@ class V4Session(_V4Base):
     # but flips can_iterate_more to False so the analyst stops looping.
     gap_check_iterations: int = 0
 
+    # SaaS — owner email captured at session creation when an authenticated
+    # cookie is present (smart_report.api.auth). None for anonymous sessions
+    # (e.g. frontend's fake-passwordless login). When set, all session-scoped
+    # endpoints must verify the requesting user matches; None = legacy/public.
+    user_email: str | None = None
+
 
 V4Session.model_rebuild()
 FinalReport.model_rebuild()
