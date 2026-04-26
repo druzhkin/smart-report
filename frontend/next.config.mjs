@@ -24,6 +24,7 @@ const nextConfig = {
         // properly (the rewrite mechanism silently dropped multipart
         // uploads in Railway prod). Keep ONLY non-/api paths here.
         { source: "/health", destination: `${API_BASE}/health` },
+        { source: "/health/:path*", destination: `${API_BASE}/health/:path*` },
         { source: "/favicon.ico", destination: `${API_BASE}/favicon.ico` },
         { source: "/landing/:path*", destination: `${API_BASE}/landing/:path*` },
         { source: "/app/:path*", destination: `${API_BASE}/app/:path*` },
