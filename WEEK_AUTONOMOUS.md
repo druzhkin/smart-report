@@ -161,3 +161,15 @@ Hard guardrails: stop deploying to prod if last 3 deploys broken; halt all paid 
 - `workspace.css`: split `.sb-session` into div container + `.sb-session-main` (click-to-load) + `.sb-session-del` (hover ✕). Added `.sb-session-meta` for date+cost.
 
 **Trade-off note:** chat history is not persisted server-side, so loading a saved session shows a one-line "session restored" message instead of replaying every CTA/upload. The artifacts (prompt, analysis, final report) ARE restored from the JSONB payload — that's where the actual product value lives. Session-restore-with-full-chat-replay would require new backend storage; deferred.
+
+### 2026-04-26 (Day 6-7 hotfix — caught a deploy regression)
+
+**Discovery via Railway CLI:** the last 3 deploys (Day 2 / 4-5 / 6-7) all FAILED at the `npm run build` step. Auto-deploy was wired correctly all along — TypeScript strict mode caught a TDZ violation in my Day 2 `onCancel` callback that I missed locally because frontend/node_modules wasn't installed.
+
+Error: `Block-scoped variable 'push' used before its declaration` (Workspace.tsx:367 — onCancel's deps array referenced `push` which is declared at line 370).
+
+**Fix (`c8cf787`):** rewrote `onCancel` to call `setMessages` directly with an inline message shape, dropping the dep on `push`. All other new callbacks (`runIntegratedDr`, `launchExternalDr`, `loadSavedSession`, `deleteSavedSession`) verified to be either declared after `push` or to not reference it.
+
+**Lesson learned:** install frontend deps locally before next push to catch this without a Railway round-trip. Or set up a CI step.
+
+**Discovered via Railway:** project token can read deployment list + build logs (`railway deployment list --service smart-report` + `railway logs --service smart-report --build <ID>`) — invaluable for autonomous debugging. Saved to memory.
