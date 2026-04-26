@@ -95,10 +95,16 @@ async def _run_job(job: Job) -> None:
 
 @app.get("/", include_in_schema=False)
 async def root(request: Request) -> RedirectResponse:
-    """Bare domain → dashboard if logged in, else marketing landing."""
+    """Bare domain → chat UI when logged in, marketing landing otherwise.
+
+    In production this rarely fires — Next.js handles / and rewrites it
+    to /landing.html (frontend's own marketing page). This handler only
+    runs when someone reaches FastAPI directly (e.g. local backend-only
+    dev on uvicorn :8000).
+    """
     sess = getattr(request, "session", {}) or {}
     if sess.get("user_email"):
-        return RedirectResponse(url="/app/dashboard.html", status_code=307)
+        return RedirectResponse(url="/v4/chat", status_code=307)
     return RedirectResponse(url="/landing/", status_code=307)
 
 

@@ -44,7 +44,7 @@ function App() {
 
   useEffect(() => {
     fetch("/api/auth/me").then(r => r.json()).then(d => {
-      if (d.authenticated) window.location.href = "/app/dashboard.html";
+      if (d.authenticated) window.location.href = "/v4/chat";
     });
   }, []);
 
@@ -57,7 +57,7 @@ function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: email.trim(), password }),
       });
-      if (r.ok) { window.location.href = "/app/dashboard.html"; return; }
+      if (r.ok) { window.location.href = "/v4/chat"; return; }
       const data = await r.json().catch(() => ({}));
       setStatus("error");
       setError(formatError(data, `HTTP ${r.status}`));
