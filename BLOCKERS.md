@@ -107,6 +107,66 @@ always-on.
 
 ---
 
+### A8 — v3 brief paths (`backend/v2/sources/`) not followed
+
+**Date:** 2026-04-26 (Day 5)
+
+**Decision:** Keep existing `smart_report/sources/` paths instead of
+the brief's `backend/v2/sources/` naming. Refactor risk too high
+mid-pivot; existing imports across 50+ files would break with no
+functional benefit. The architectural shape is what matters.
+
+**Risk if wrong:** None — easy to rename later via a single
+`git mv` + import-rewrite sweep if the user wants the brief's
+naming applied.
+
+---
+
+### A9 — routing_matrix.py NOT yet wired into SearchOrchestrator
+
+**Date:** 2026-04-26 (Day 5)
+
+**Decision:** Build the v3 routing matrix + invariant test as
+standalone modules first, leave Day 3's `BACKEND_PLAN_BY_DOMAIN`
+in place. Wiring requires:
+1. Mapping our QueryDomain enum to the brief's 11 string-keyed
+   domains (some don't exist in the enum — financial_us,
+   regulatory_us, medical_clinical, scientific, legal,
+   technical_research, realtime_news need new markers).
+2. Rewriting SearchOrchestrator dispatch with augment-on-failure
+   semantics (only call augment if Valyu returns empty/error,
+   not on any condition).
+3. Implementing real Tavily and Exa clients first (Day 3 of v3).
+4. Adding degradation_warning surface in DOCX renderer.
+
+That's a 2-3 sprint chunk. Splitting it from today's Day 5 keeps
+the commit reviewable.
+
+**Risk if wrong:** None — the `routing_matrix.py` + invariant test
+are ready to be wired the moment the orchestrator is rewritten.
+
+---
+
+### A10 — Standard recon less informative than brief assumed
+
+**Date:** 2026-04-26 (Day 5)
+
+**What happened:** v3 §5.1 mandated $0.25 standard-tier recon to
+"enumerate Valyu's actual capability surface". Actual cost: $0.0105.
+Result: 7 web search hits all from Valyu's own marketing/docs pages.
+The authoritative dataset enumeration STILL came from Day 1's free
+`client.datasources()` call (36 datasources with full schemas).
+
+**Implication:** The brief's expectation that the paid recon would
+discover hidden capabilities was wrong. The free SDK call is the
+right surface for capability mapping; the paid call is for actual
+research queries.
+
+**Easy to revert:** N/A — money already spent ($0.0105). Capability
+map updated to merge both inputs.
+
+---
+
 ### A6 — HALT Day 5 multi-query A/B (Valyu hybrid regresses on Q3)
 
 **Date:** 2026-04-26 (Day 4)

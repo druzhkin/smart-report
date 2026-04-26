@@ -110,3 +110,33 @@ for EU_REGULATORY.
 
 **Decisions logged:** A6 (halt Day 5 multi-query A/B due to
 regression), A7 (operational mistake, no spend recovery possible).
+
+---
+
+## Day 5 — 2026-04-26 (continued, **v3 brief reset**)
+
+User dropped WEEK_BRIEF_v3.md mid-session. Architectural pivot. New
+budget profile: OpenRouter $14, Valyu $5, Exa $2.5, Tavily $1, total
+$22.50 hard cap.
+
+| Date | Task | Expected | Actual | OpenRouter left | Valyu left |
+|---|---|---|---|---|---|
+| 2026-04-26 | v3 §5.1 standard recon (one-shot) | $0.25 | **$0.0105** | $55.82 | ~$5.987 |
+| 2026-04-26 | routing_matrix.py + invariant tests (mock-only) | $0.00 | $0.00 | $55.82 | ~$5.987 |
+
+**End-of-Day-5 totals:**
+
+| Category | Spent today | Week-to-date | Hard cap (v3) |
+|---|---|---|---|
+| OpenRouter | $0.00 | ~$2.68 | $14.00 |
+| Valyu | $0.0105 | ~$0.020 | $5.00 |
+| Exa | $0.00 | $0.00 | $2.50 |
+| Tavily | $0.00 | $0.00 | $1.00 |
+| **Total** | **$0.0105** | **~$2.70** | **$22.50** |
+
+Week headroom: 88% remaining.
+
+**Decisions logged:** A8 (kept `smart_report/sources/` paths instead
+of brief's `backend/v2/sources/`), A9 (routing_matrix not yet wired
+into orchestrator — separate sprint), A10 (standard recon returned
+web search of Valyu's marketing pages, $0.0105 not $0.25).

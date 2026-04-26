@@ -1,14 +1,39 @@
-# Valyu Capability Map — recon 2026-04-26
+# Valyu Capability Map — recon 2026-04-26 (v3 brief update)
 
 > **Source:** Valyu Python SDK 2.9.4 (`pip show valyu`) + MCP introspection
 > against `https://mcp.valyu.ai/mcp` + free `client.datasources()` listing
-> endpoint. **No paid `standard` recon was used** — the SDK and the MCP
-> server expose the canonical capability surface for free, which makes
-> the brief's $0.25 standard call redundant. Saved $0.25 of the Valyu
-> budget for actual research calls. (Logged in `BLOCKERS.md` as
-> autonomous decision.)
+> endpoint + **standard-tier recon** (1× call, $0.0105 actual, mandated
+> by v3 brief §5.1; saved to `runs/valyu_recon/standard_recon_response.json`).
+> Standard mode for a self-introspective query returned web search of
+> Valyu's own marketing/docs pages; the authoritative dataset enumeration
+> still comes from `client.datasources()` (36 datasources, gitignored
+> `runs/valyu_recon/datasources_full.json`).
 >
 > **Last verified:** 2026-04-26.
+>
+> ## Per-domain coverage verdict (v3 routing matrix support)
+>
+> Validated against the 36-dataset enumeration + Day 4 empirical
+> Q3 EU DAC dry-run + standard-tier meta-search.
+>
+> | v3 brief domain | Valyu native dataset(s) | Real coverage verdict |
+> |---|---|---|
+> | `financial_us` | `valyu-sec-filings`, `valyu-fred`, `valyu-bls` | **STRONG** — proprietary |
+> | `financial_global` | (none global-specific) | **WEAK** — falls back to web; expect frequent degradation_warning |
+> | `regulatory_eu` | (NO eur-lex / cinea / europa) | **NONE** — Day 4 confirmed empirically; every regulatory_eu call will degrade to augment + DOCX warning |
+> | `regulatory_us` | `valyu-sec-filings`, `valyu-drug-labels` (FDA) | **PARTIAL** — SEC strong, FDA strong, FCC/FTC absent |
+> | `medical_clinical` | `valyu-clinical-trials`, `valyu-pubmed`, `valyu-medrxiv` | **STRONG** |
+> | `scientific` | `valyu-arxiv` (1M+ preprints) | **STRONG** for CS / physics / biomed |
+> | `legal` | `valyu-patents` (US 2001+) | **PARTIAL** — patents only; no UK/case-law |
+> | `technical_research` | `valyu-arxiv` + general web | **STRONG** if "technical" = CS research papers |
+>
+> **Bottom line:** v3 brief's "Valyu-first" invariant is correct in
+> principle. In practice, `regulatory_eu` and `financial_global` are
+> known structural gaps where every call WILL trigger the degradation
+> warning per §3.4. That's the brief's design — surface the gap to
+> users transparently, don't paper over it. Expect ~30-40% of v3 brief
+> "covered domains" calls to land in degradation mode until Valyu
+> expands their corpus.
 
 ---
 

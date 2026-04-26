@@ -13,18 +13,18 @@
 
 ## TL;DR (running update)
 
-Days 1–3 closed at $0.002 spend (mock-only). Day 4 broke open the
-brief's load-bearing assumption: **Valyu's `proprietary` mode does
-NOT cover EU regulatory primary docs** — first live Q3 dry-run
-returned arxiv/pubmed instead of eur-lex, and the resulting hybrid
-report regressed 64→0 STRONG, 29→2 sources, +78% cost vs baseline.
+Days 1–3 mock-only. Day 4 broke v1 brief's load-bearing assumption
+(Valyu proprietary ≠ EU regulatory) at ~$2.69 cost. Day 5: user
+dropped **WEEK_BRIEF_v3.md** mid-session — full architectural pivot
+to "Valyu-first" with hard invariant test. Day 5 closed v3 §5.1
+(standard recon, $0.0105) + §3.5 (4 invariant tests) + capability
+map per-domain coverage verdict. Routing matrix built but NOT yet
+wired into orchestrator (separate sprint).
 
-Day 4 spend ~$2.69 (1st live run $1.58 + duplicate-launch operator
-mistake ~$1.10), week-to-date $2.69 of $20 cap. Day 5 multi-query
-A/B HALTED per stop-condition (BLOCKERS.md A6); Day 6 Phase 4 brief
-is now load-bearing — original Phase 4 candidate list torn up.
-
-Test suite still at 547 passed (no Day 4 regressions in code).
+Test suite 551 passed (+4 Day 5 invariants). Week-to-date $2.70
+of new $22.50 v3 hard cap (12% spent). Days 6-7 + extended need
+for SearchBackend abstraction + Tavily/Exa clients + orchestrator
+rewrite + degradation warning.
 
 ## What's done
 
@@ -92,7 +92,39 @@ Test suite still at 547 passed (no Day 4 regressions in code).
 - Day 5 multi-query A/B HALTED per stop-condition (BLOCKERS.md A6).
 - Commits: `092ebc3` (scaffolding) + Day 4 close (this commit).
 
-### Day 5 (PENDING — replanned)
+### Day 5 (2026-04-26) ✅ — **v3 brief reset**
+
+User dropped `WEEK_BRIEF_v3.md` mid-session. Architectural pivot to
+"Valyu-first" with code-enforced invariants. Day 5 of original
+calendar = Day 1 of v3 plan. What landed:
+
+- `WEEK_BRIEF_v3.md` saved to repo (API keys redacted).
+- `scripts/valyu_standard_recon.py` — v3 §5.1 mandatory one-shot.
+  Cost $0.0105 (vs $0.25 brief estimate; Valyu prices per-result).
+  Saved to `runs/valyu_recon/standard_recon_response.json` +
+  `docs/VALYU_STANDARD_RECON_FINDINGS.md`.
+- `docs/VALYU_CAPABILITY_MAP.md` updated with per-domain coverage
+  verdict — Day 4's regression now has a documented root cause:
+  Valyu has NO native eur-lex / europa dataset.
+- `smart_report/sources/routing_matrix.py` — v3 §3.2 routing
+  matrix as a string-keyed dict (11 domains, Valyu primary on 8
+  per the architectural invariant).
+- `tests/test_routing_invariants.py` — 4 tests per v3 §3.5; all pass.
+  Total suite 551 passed (+4 from Day 5).
+- 3 autonomous decisions logged: A8 (paths kept), A9 (matrix not
+  yet wired), A10 (recon less informative than brief assumed).
+
+**NOT yet done from v3 plan** (next sprint(s)):
+- §5.6 SearchBackend Protocol abstraction
+- §5.6 PerplexityBackend adapter (existing search.py wrapped)
+- §5.9 Tavily client + tests + live smoke
+- §5.10 Exa client + tests + live smoke (with outputSchema)
+- §5.13 SearchOrchestrator rewrite (Valyu-first hybrid, augment-
+  on-failure semantics)
+- §3.4 / §5.15 Degradation warning surface in DOCX renderer
+- §5.17-5.18 New A/B run (config A vs B per v3, Q1/Q2/Q3 × 2 = 6 runs)
+- §5.20 Phase 4 brief (now load-bearing for the whole pivot)
+- §5.21-5.22 Closing run + WEEK_REPORT finalisation
 
 Brief's full A/B HALTED (A6). Two replacement options pending user
 decision:
@@ -164,8 +196,8 @@ orchestrator.
 | Day 1 | $0.00 | $0.00 | $0.00 | $20.00 |
 | Day 2 | $0.00 | $0.002 | $0.002 | $19.998 |
 | Day 3 | $0.00 | $0.00 | $0.00 | $19.998 |
-| Day 4 | ~$2.68 | ~$0.007 | ~$2.69 (1st run $1.58 + duplicate-launch $1.10) | $17.31 |
-| Day 5 | TBD | TBD | TBD (likely $0 if Day 5 = brief writing) | TBD |
+| Day 4 | ~$2.68 | ~$0.007 | ~$2.69 (1st run $1.58 + duplicate-launch $1.10) | $17.31 (under v1 $20 cap) |
+| Day 5 | $0.00 | $0.0105 | $0.0105 (v3 §5.1 standard recon only) | $19.81 (v3 $22.50 cap) |
 | Day 6 | TBD | TBD | TBD | TBD |
 | Day 7 | TBD | TBD | TBD | TBD |
 | **Week** | ~$2.68 | ~$0.009 | **~$2.69 so far** | $17.31 |
