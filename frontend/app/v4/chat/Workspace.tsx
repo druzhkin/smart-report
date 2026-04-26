@@ -355,16 +355,19 @@ export default function Workspace() {
     } catch (e) {
       // best-effort — server-side flip might fail if session was just deleted
     }
-    setMessages((ms) => ms.filter((m) => m.kind !== "thinking"));
-    push({
-      role: "system",
-      kind: "text",
-      content:
-        "Сессия отменена. Запущенный LLM-вызов завершится в фоне (за него уже списано), но эта сессия больше не примет команд. Создайте новую через ⌘N.",
-    });
+    setMessages((ms) => [
+      ...ms.filter((m) => m.kind !== "thinking"),
+      {
+        id: `cancel-${Date.now()}`,
+        role: "system",
+        kind: "text",
+        content:
+          "Сессия отменена. Запущенный LLM-вызов завершится в фоне (за него уже списано), но эта сессия больше не примет команд. Создайте новую через ⌘N.",
+      },
+    ]);
     setPending(false);
     showToast("Сессия отменена");
-  }, [sessionId, pending, push]);
+  }, [sessionId, pending]);
 
   // ===== Helpers =====
   const push = useCallback(
