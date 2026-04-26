@@ -107,6 +107,93 @@ always-on.
 
 ---
 
+### A12 — Sonnet 4.6 globally broken on OpenRouter today (3/3 hang)
+
+**Date:** 2026-04-26 (Run 2 review session)
+
+**Pattern across 3 separate attempts on different queries:**
+- Q3 attempt 1: PM ✓ → intake ✓ → analyze ✓ → SYNTH HUNG (16min, killed)
+- Q3 attempt 2: PM ✓ → intake (table extract) HUNG (10min, killed)
+- Q1 EV:        PM ✓ → intake ✓ → analyze ✓ → SYNTH HUNG (12min, killed)
+
+Common pattern in every hang: process alive, low CPU, **no outbound
+HTTPS connections** (so the request isn't even in flight to OpenRouter).
+The Python httpx async client is silent-failing — likely TCP connection
+silently dropped, no read timeout fires, asyncio loop sits idle.
+
+**Conclusion:** This is NOT a Q3-specific or query-specific issue
+(supersedes A11's narrower diagnosis). Sonnet 4.6 via OpenRouter is
+broken for our pipeline today, possibly globally on OpenRouter.
+
+**Cost sunk:** ~$2.55 across 3 attempts, 0 DOCX produced.
+
+**Decision (per task §7):** End Block A early with 0/3 fresh runs.
+Block B (reviews) and Block C (SUMMARY) pivot to using the existing
+Day-1 reviews of Step 3.3 Haiku fixtures (`docs/run2_baseline/REVIEW_q*.md`)
+as substance basis. That's NOT what task §2 wanted (fresh Sonnet
+runs on current `origin/v4.5`), but Step 3.3 fixtures ARE current
+origin/v4.5 code path, just on a Haiku tier — the calibration logic,
+domain detection, source classifier, and synth instructions are
+identical between Haiku and Sonnet runs.
+
+**Easy to revert:** when Sonnet 4.6 stabilises, run
+`python -m scripts.run2_baseline --query all` and overwrite the
+review/SUMMARY with fresh-Sonnet observations.
+
+**For next session:** verify Sonnet 4.6 health BEFORE any --live spend.
+A simple smoke test ($0.01): `client.chat.completions.create(model=
+'anthropic/claude-sonnet-4.6', messages=[{'role':'user', 'content':'Reply OK'}])`.
+If it hangs → defer Sonnet work, use Haiku, or wait for OpenRouter
+to recover.
+
+---
+
+### A11 — Q3 EU DAC fresh Sonnet baseline hangs reproducibly
+
+**Date:** 2026-04-26 (Run 2 review session)
+
+**What happened:** Two attempts to run Q3 EU DAC through fresh Sonnet
+4.6 4-stage v4 cycle both hung silently:
+- Attempt 1 (PID 119940, 16min wall): hung at FIRST synthesize call
+  after PM + intake + analyzer all succeeded.
+- Attempt 2 (PID 38588, 10min wall): hung even earlier — at intake
+  table-extraction LLM call.
+
+Pattern in both: process alive, low CPU (mostly I/O wait), no outbound
+HTTPS connections (so not in active LLM call), output dir empty, no
+final_report saved. Killed both manually after watchdog window.
+
+**Cost:** ~$1.65-1.85 sunk across the two attempts (no DOCX
+produced).
+
+**Diagnosis hypothesis:** Sonnet 4.6 via OpenRouter has a transient
+issue today specifically affecting this query. Day 4 (yesterday)
+also saw Sonnet hang on a synthesize call after JSONDecodeError, but
+in a different way. Could be:
+1. OpenRouter Sonnet 4.6 backend instability today
+2. Dual-injection bug in v4 intake (analyzer dump + facts inventory
+   overlap, ~400k tokens) interacting badly with Sonnet's request
+   queue
+3. httpx async client deadlock after silent connection drop
+
+Fixing this is **out of scope** for the Run 2 review session per
+task §8 (no pipeline modifications). Per task §7 stop condition:
+2 unrecoverable failures → BLOCKER + push current state + move on.
+
+**Decision:** Skip Q3 EU DAC fresh baseline. Use the existing
+2026-04-25 Step 3.3 fixture (Haiku-tier) as the de-facto Q3 baseline
+for the qualitative review — it's the same code path through to
+synth, just on a different model tier. This reuses the Day 1 v1
+review of Q3 already in `docs/run2_baseline/REVIEW_q3_eu_dac.md`,
+which was based on that Step 3.3 fixture. Moving directly to Q1 +
+Q2 fresh runs.
+
+**Easy to revert:** if Sonnet 4.6 stabilises, re-run Q3 with the
+same `scripts/run2_baseline.py --query q3_eu_dac` command. No code
+changes needed.
+
+---
+
 ### A8 — v3 brief paths (`backend/v2/sources/`) not followed
 
 **Date:** 2026-04-26 (Day 5)

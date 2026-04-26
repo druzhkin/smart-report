@@ -140,3 +140,32 @@ Week headroom: 88% remaining.
 of brief's `backend/v2/sources/`), A9 (routing_matrix not yet wired
 into orchestrator — separate sprint), A10 (standard recon returned
 web search of Valyu's marketing pages, $0.0105 not $0.25).
+
+---
+
+## Session: Run 2 baseline + qualitative review (2026-04-26)
+
+Replaces v3 §5.6 sprint per user task. Substance check before more
+architecture work. Session hard cap: OpenRouter $11, backends $0.
+
+| Date | Task | Expected | Actual | OpenRouter left | Notes |
+|---|---|---|---|---|---|
+| 2026-04-26 | Pre-flight: harness + Q3 EU DAC fresh Sonnet baseline | $2.69 | TBD | $55.82 | priority §9 — first run validates harness + Day 5 EU regulatory finding |
+| 2026-04-26 | Q3 attempt 1 — HUNG at first synthesize call, killed at 16min | (sunk) | ~$1.35 estimate | $54.47 | PM+intake+analyze succeeded; synth never returned; no DOCX |
+| 2026-04-26 | Q3 attempt 2 — also hung, killed at 10min wall (intake stage) | $1.50 | ~$0.40 estimate | ~$53 | BLOCKER: Sonnet 4.6 hangs reproducibly on Q3 today; moving to Q1 per §7 |
+| 2026-04-26 | Q1 EV — also hung at synth stage, killed at 12min wall | $2.69 | ~$0.80 estimate | ~$52 | confirms Sonnet 4.6 broken globally today, not Q3-specific |
+| 2026-04-26 | Q2 + Block B fresh-run path — SKIPPED | $0 | $0 | ~$52 | Sonnet broken; Block C+D pivot to Day-1 review basis |
+
+**End-of-session totals:**
+
+| Category | Spent | Hard cap |
+|---|---|---|
+| OpenRouter (Q3×2 + Q1 sunk) | **~$2.55** | $11 |
+| Backends | $0 | $0 |
+| **Session total** | **~$2.55** | **$11** |
+
+**Cumulative week-to-date: ~$5.25** ($2.70 prior + $2.55 today) of
+$22.50 v3 hard cap (23% spent). Plenty of headroom. **0 fresh DOCX
+produced** — Block A failed due to A11 (Sonnet 4.6 broken on
+OpenRouter). Block B (reviews) and C (summary) pivoted to
+Day-1-Step-3.3-Haiku-fixture basis.
