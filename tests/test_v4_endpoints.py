@@ -596,6 +596,76 @@ def test_auto_dr_status_completed_appends_to_source_reports(monkeypatch):
     assert sess["pending_dr_jobs"] == []
 
 
+def test_auto_dr_cancel_openai_marks_cancelled(monkeypatch):
+    from smart_report.sources import auto_dr as auto_dr_mod
+    from smart_report.sources import llm_deepresearch as llm_dr_mod
+
+    async def _fake_submit(service, question, *, mode="standard", session_id=None, store=None):
+        return auto_dr_mod.AsyncResearchSubmission(
+            task_id="oai-cancel-test", service="openai", mode="mini",
+            cost_usd=0.50, eta_min_low=5, eta_min_high=10,
+        )
+
+    # Pretend the task is in-flight in the registry.
+    llm_dr_mod._TASKS["oai-cancel-test"] = {
+        "state": "running", "service": "openai", "mode": "mini",
+        "model": "openai/o4-mini-deep-research",
+        "started_at": 0, "result": None, "error": None,
+    }
+
+    monkeypatch.setattr(auto_dr_mod, "submit_async_research", _fake_submit)
+
+    client = _authed_client()
+    sid = client.post(
+        "/api/v4/sessions", json={"question": "openai cancel test"}
+    ).json()["session_id"]
+    client.post(
+        f"/api/v4/sessions/{sid}/auto-dr",
+        json={"service": "openai", "mode": "mini", "prompt": "x"},
+    )
+    r = client.post(f"/api/v4/sessions/{sid}/auto-dr-cancel?task_id=oai-cancel-test")
+    assert r.status_code == 200, r.text
+    assert r.json()["state"] == "cancelled"
+    assert llm_dr_mod._TASKS["oai-cancel-test"]["state"] == "cancelled"
+    # pending_dr_jobs entry removed
+    sess = client.get(f"/api/v4/sessions/{sid}").json()
+    assert all(j.get("task_id") != "oai-cancel-test" for j in (sess.get("pending_dr_jobs") or []))
+    # cleanup
+    llm_dr_mod._TASKS.pop("oai-cancel-test", None)
+
+
+def test_auto_dr_cancel_unknown_service_returns_501(monkeypatch):
+    from smart_report.sources import auto_dr as auto_dr_mod
+
+    async def _fake_submit(service, question, *, mode="standard", session_id=None, store=None):
+        return auto_dr_mod.AsyncResearchSubmission(
+            task_id="valyu-cancel-test", service="valyu", mode="standard",
+            cost_usd=0.50, eta_min_low=10, eta_min_high=20,
+        )
+
+    monkeypatch.setattr(auto_dr_mod, "submit_async_research", _fake_submit)
+
+    client = _authed_client()
+    sid = client.post(
+        "/api/v4/sessions", json={"question": "valyu cancel test"}
+    ).json()["session_id"]
+    client.post(
+        f"/api/v4/sessions/{sid}/auto-dr",
+        json={"service": "valyu", "mode": "standard", "prompt": "x"},
+    )
+    r = client.post(f"/api/v4/sessions/{sid}/auto-dr-cancel?task_id=valyu-cancel-test")
+    assert r.status_code == 501
+
+
+def test_auto_dr_cancel_404_for_unknown_task():
+    client = _authed_client()
+    sid = client.post(
+        "/api/v4/sessions", json={"question": "cancel 404 test"}
+    ).json()["session_id"]
+    r = client.post(f"/api/v4/sessions/{sid}/auto-dr-cancel?task_id=neverexisted")
+    assert r.status_code == 404
+
+
 def test_auto_dr_status_404_for_unknown_task():
     client = _authed_client()
     sid = client.post(

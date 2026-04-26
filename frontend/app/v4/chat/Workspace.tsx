@@ -25,6 +25,7 @@ import {
   pollAutoDRStatus,
   isAsyncOut,
   cancelSession,
+  cancelAutoDR,
   deleteSession,
   getEvents,
   listSessions,
@@ -555,7 +556,33 @@ export default function Workspace() {
 
   // ===== Cancel handler =====
   const onCancel = useCallback(async () => {
-    if (!sessionId || !pending) return;
+    if (!sessionId) return;
+    // Priority 1: active long-running DR task (e.g. OpenAI Deep Research)
+    // — abort just that task, leave the session usable.
+    if (activeResearchTask && activeResearchTask.service === "openai") {
+      const { taskId } = activeResearchTask;
+      try {
+        await cancelAutoDR(sessionId, taskId);
+      } catch (e) {
+        showToast(`Не удалось отменить: ${e instanceof Error ? e.message : String(e)}`);
+        return;
+      }
+      setActiveResearchTask(null);
+      setMessages((ms) => [
+        ...ms,
+        {
+          id: `dr-cancel-${taskId}`,
+          role: "system",
+          kind: "text",
+          content:
+            "OpenAI Deep Research отменён. ВАЖНО: токены, которые уже потратились на стороне OpenAI, не возвращаются — деньги списались.",
+        },
+      ]);
+      showToast("DR отменён");
+      return;
+    }
+    // Otherwise — generic session cancel (existing behaviour).
+    if (!pending) return;
     try {
       await cancelSession(sessionId);
     } catch (e) {
@@ -573,7 +600,7 @@ export default function Workspace() {
     ]);
     setPending(false);
     showToast("Сессия отменена");
-  }, [sessionId, pending]);
+  }, [sessionId, pending, activeResearchTask]);
 
   // ===== Helpers =====
   const push = useCallback(
@@ -1712,15 +1739,19 @@ export default function Workspace() {
                 rows={1}
               />
               <div className="composer-actions">
-                {pending && sessionId ? (
+                {sessionId && (pending || activeResearchTask) ? (
                   <button
                     type="button"
                     className="composer-send"
                     onClick={onCancel}
                     style={{ background: "var(--paper-2)", color: "var(--ink)", border: "1px solid var(--ink)" }}
-                    title="Прервать запущенный шаг (за уже потраченные токены спишется)"
+                    title={
+                      activeResearchTask
+                        ? `Прервать ${activeResearchTask.service} DR (токены уже потрачены — деньги не возвращаются)`
+                        : "Прервать запущенный шаг (за уже потраченные токены спишется)"
+                    }
                   >
-                    Отменить
+                    {activeResearchTask ? `Отменить DR (${activeResearchTask.mode})` : "Отменить"}
                   </button>
                 ) : (
                   <button

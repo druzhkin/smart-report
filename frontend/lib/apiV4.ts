@@ -544,6 +544,14 @@ export async function runAutoDR(
   });
 }
 
+export async function cancelAutoDR(id: string, taskId: string): Promise<{ task_id: string; state: string }> {
+  if (STUB) return { task_id: taskId, state: "cancelled" };
+  return jv4(
+    `/api/v4/sessions/${encodeURIComponent(id)}/auto-dr-cancel?task_id=${encodeURIComponent(taskId)}`,
+    { method: "POST" }
+  );
+}
+
 export async function pollAutoDRStatus(id: string, taskId: string): Promise<AutoDRStatusOut> {
   if (STUB) {
     return {

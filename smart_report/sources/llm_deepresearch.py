@@ -89,7 +89,8 @@ def submit_openai_deep_research(
         "error": None,
     }
     # Fire-and-forget. Errors are caught inside the task and stored on the registry.
-    asyncio.create_task(_run_openai_dr(task_id, question, model_id, session_id, store))
+    bg = asyncio.create_task(_run_openai_dr(task_id, question, model_id, session_id, store))
+    _TASKS[task_id]["asyncio_task"] = bg  # so cancel_openai_dr_task can task.cancel()
     return LLMResearchTaskInfo(
         task_id=task_id,
         service="openai",
@@ -240,3 +241,32 @@ def collect_completed_result(task_id: str):
     if not t or t.get("state") != "completed":
         return None
     return t.get("result")
+
+
+def cancel_openai_dr_task(task_id: str) -> bool:
+    """Best-effort cancel: marks state cancelled + .cancel()s the asyncio task.
+
+    Returns True if the task was found and cancellation was attempted.
+    Returns False if the task_id is unknown.
+
+    IMPORTANT: cancellation does NOT refund the OpenAI API call. If the
+    request already reached OpenRouter/OpenAI, we paid for whatever
+    tokens were generated. Cancellation only ensures we discard the
+    eventual result and stop showing 'running' to the user.
+    """
+    t = _TASKS.get(task_id)
+    if t is None:
+        return False
+    # Only cancel if still in flight; completed/failed are terminal.
+    if t.get("state") not in ("running", "queued"):
+        return True  # idempotent
+    bg = t.get("asyncio_task")
+    if bg is not None and not bg.done():
+        try:
+            bg.cancel()
+        except Exception as e:
+            _logger.warning("openai DR task %s: bg.cancel() raised: %s", task_id, e)
+    t["state"] = "cancelled"
+    t["finished_at"] = time.time()
+    t["error"] = "cancelled by user"
+    return True
