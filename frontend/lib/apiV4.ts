@@ -1,9 +1,14 @@
 // v4 API client — talks to the v3 FastAPI (/api/v4/* endpoints).
 // Stub mode: set NEXT_PUBLIC_V4_STUB=1 to walk the UI without a backend.
 
+// `??` not `||` — Dockerfile sets NEXT_PUBLIC_V4_API_BASE="" at build time
+// so prod uses same-origin relative URLs (handled by Next.js catch-all
+// proxy at /api/[...path]). Empty string is falsy under `||`, which would
+// fall through to the localhost default and try to fetch from the *user's*
+// machine in prod — that's where "Failed to fetch" came from in the field.
 const V4_BASE =
-  process.env.NEXT_PUBLIC_V4_API_BASE ||
-  process.env.NEXT_PUBLIC_V3_API_BASE ||
+  process.env.NEXT_PUBLIC_V4_API_BASE ??
+  process.env.NEXT_PUBLIC_V3_API_BASE ??
   "http://localhost:8010";
 
 const STUB = process.env.NEXT_PUBLIC_V4_STUB === "1";

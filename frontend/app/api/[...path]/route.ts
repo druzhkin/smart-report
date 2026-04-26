@@ -12,6 +12,9 @@ export const runtime = "nodejs";        // multipart needs Node, not Edge
 export const dynamic = "force-dynamic";
 export const maxDuration = 600;
 
+// Server-side proxy target — must be a real URL. Empty string would break
+// fetch(). `||` keeps localhost fallback when Dockerfile sets the env to
+// empty string (which it does to force CLIENT-side relative URLs in apiV4.ts).
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000";
 const PROXY_TIMEOUT_MS = 10 * 60 * 1000;
 
