@@ -151,8 +151,13 @@ async def call_json(
     payload: dict[str, Any] = {
         "model": model_id,
         "messages": messages,
-        "temperature": temp,
     }
+    # OpenAI's reasoning + deep-research models (o3-*, o4-mini-*,
+    # *-deep-research) reject the `temperature` param. Detect by model
+    # name and skip it so the call doesn't 400.
+    _no_temp_markers = ("deep-research", "/o3-", "/o4-", "/o3:", "/o4:")
+    if not any(m in model_id for m in _no_temp_markers):
+        payload["temperature"] = temp
     if response_format is not None:
         payload["response_format"] = response_format
     payload.update(kwargs)
