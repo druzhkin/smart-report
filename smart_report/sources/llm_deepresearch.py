@@ -143,15 +143,21 @@ async def _run_openai_dr(task_id: str, question: str, model_id: str) -> None:
         detected_tool="openai_dr",
         word_count=len(md.split()),
     )
-    # Naive citation count — same heuristic as the perplexity wrapper.
+    # Citation count: try a "Sources" section first, then fall back to
+    # counting unique URL references in the body. OpenAI DR formats vary —
+    # sometimes inline ([url]), sometimes footnote ([N]), sometimes a
+    # References section.
     import re
     src_match = re.search(
-        r"##\s*Sources?\s*$(.+)", md, re.MULTILINE | re.DOTALL | re.IGNORECASE,
+        r"##\s*(Sources?|References|Bibliography|Источники)\s*$(.+)",
+        md, re.MULTILINE | re.DOTALL | re.IGNORECASE,
     )
-    sources_count = (
-        len(re.findall(r"^\s*\d+\.\s", src_match.group(1), re.MULTILINE))
-        if src_match else 0
-    )
+    if src_match:
+        sources_count = len(re.findall(r"^\s*\d+\.\s", src_match.group(2), re.MULTILINE))
+    else:
+        # Fall back to unique URLs in the markdown body
+        urls = set(re.findall(r"https?://[^\s\)\]\>]+", md))
+        sources_count = len(urls)
 
     auto_dr_result = AutoDRResult(
         upload=upload,

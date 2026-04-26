@@ -48,9 +48,10 @@ export const EXA_RESEARCH_MODES: ServiceModeSpec[] = [
 
 // OpenAI Deep Research — настоящий o3/o4-mini-deep-research через OpenRouter,
 // async через background asyncio task в нашем процессе.
+// Verified live 2026-04-27: o4-mini-DR на коротком запросе ~3 мин, $0.71.
 export const OPENAI_DR_MODES: ServiceModeSpec[] = [
-  { key: "mini",     label: "o4-mini-DR", price: "≈$0.50", eta: "5-10 мин" },
-  { key: "standard", label: "o3-DR",      price: "≈$3.00", eta: "15-30 мин" },
+  { key: "mini",     label: "o4-mini-DR", price: "$0.50–$1.50", eta: "3-10 мин" },
+  { key: "standard", label: "o3-DR",      price: "$3.00–$8.00", eta: "15-30 мин" },
 ];
 
 export type DrServiceKey =
