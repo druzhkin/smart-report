@@ -12,7 +12,6 @@ import {
 import type { ChatMessage, Artifact, Phase, ToastState } from "./types";
 import type {
   AnalysisOutput, AutoDRService, FinalReport, ResearchPrompt,
-  ValyuResearchMode,
 } from "@/lib/apiV4";
 import {
   createSession,

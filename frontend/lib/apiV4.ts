@@ -478,7 +478,9 @@ export type AutoDROut = {
 
 export type AutoDRAsyncOut = {
   service: string;
-  mode: ValyuResearchMode;
+  // Free-form: valyu uses fast/standard/heavy/max, tavily uses mini/pro/auto,
+  // exa uses fast/standard/pro. Backend validates per-service.
+  mode: string;
   task_id: string;
   cost_usd: number;
   cost_rub: number;
@@ -510,7 +512,7 @@ export type AutoDRStatusOut = {
 export async function runAutoDR(
   id: string,
   service: AutoDRService,
-  opts: { prompt?: string; domain_hint?: string; mode?: ValyuResearchMode } = {}
+  opts: { prompt?: string; domain_hint?: string; mode?: string } = {}
 ): Promise<AutoDRAnyOut> {
   if (STUB) {
     await new Promise((r) => setTimeout(r, 1200));
