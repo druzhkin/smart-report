@@ -447,13 +447,14 @@ async def auto_dr(session_id: str, request: Request, payload: AutoDRIn):
 
     emitter = _SessionEmitter(session_id)
 
-    # --- Async path: Valyu / Tavily / Exa Research APIs ---
-    if payload.mode is not None and payload.service in {"valyu", "tavily", "exa"}:
+    # --- Async path: Valyu / Tavily / Exa / OpenAI Research APIs ---
+    if payload.mode is not None and payload.service in {"valyu", "tavily", "exa", "openai"}:
         mode = payload.mode
         svc_label = {
             "valyu": "Valyu Research",
             "tavily": "Tavily Research",
             "exa": "Exa Research",
+            "openai": "OpenAI Deep Research",
         }[payload.service]
         emitter.emit(
             "status",

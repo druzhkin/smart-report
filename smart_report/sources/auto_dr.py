@@ -398,9 +398,27 @@ async def submit_async_research(
             cost_usd=sub.cost_usd, eta_min_low=sub.eta_min_low, eta_min_high=sub.eta_min_high,
         )
 
+    if service == "openai":
+        from .llm_deepresearch import (
+            OPENAI_DR_MODELS, submit_openai_deep_research,
+        )
+        if mode not in OPENAI_DR_MODELS:
+            raise AutoDRError(
+                f"unknown openai DR mode: {mode!r}; allowed: {list(OPENAI_DR_MODELS)}"
+            )
+        try:
+            info = submit_openai_deep_research(question, mode=mode)
+        except Exception as e:
+            raise AutoDRError(f"openai DR submit failed: {type(e).__name__}: {e}") from e
+        return AsyncResearchSubmission(
+            task_id=info.task_id, service="openai", mode=info.mode,
+            cost_usd=info.cost_usd,
+            eta_min_low=info.eta_min_low, eta_min_high=info.eta_min_high,
+        )
+
     raise AutoDRError(
         f"async research not available for service {service!r}; "
-        "supported: valyu, tavily, exa"
+        "supported: valyu, tavily, exa, openai"
     )
 
 
@@ -538,6 +556,24 @@ async def try_collect_async_research(
                 notes=f"backend=exa_research model={mode} research_id={task_id}",
             ),
         )
+
+    if service == "openai":
+        from .llm_deepresearch import get_llm_research_task
+        t = get_llm_research_task(task_id)
+        if not t:
+            return AsyncResearchPoll(state="failed", error=f"task_id {task_id} not found in registry")
+        state = t.get("state", "running")
+        if state == "running":
+            elapsed = int((__import__("time").time() - t.get("started_at", 0)))
+            return AsyncResearchPoll(
+                state="running",
+                message=f"OpenAI Deep Research работает уже {elapsed}с (обычно 5-30 мин)",
+            )
+        if state == "failed":
+            return AsyncResearchPoll(state="failed", error=t.get("error") or "unknown")
+        if state == "completed":
+            return AsyncResearchPoll(state="completed", result=t.get("result"))
+        return AsyncResearchPoll(state=state)
 
     return AsyncResearchPoll(state="failed", error=f"unknown service {service!r}")
 

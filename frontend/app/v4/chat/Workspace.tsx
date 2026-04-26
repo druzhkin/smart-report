@@ -329,7 +329,8 @@ export default function Workspace() {
     const svcLabel =
       service === "valyu" ? "Valyu Research" :
       service === "tavily" ? "Tavily Research" :
-      service === "exa" ? "Exa Research" : service;
+      service === "exa" ? "Exa Research" :
+      service === "openai" ? "OpenAI Deep Research" : service;
     let cancelled = false;
     let pollCount = 0;
     let lastState = "";
@@ -728,9 +729,11 @@ export default function Workspace() {
         service === "openai" ? "OpenAI GPT-4o" :
         service === "claude" ? "Anthropic Claude Sonnet 4.5" :
         service === "gemini" ? "Google Gemini 2.5 Pro" : service;
-      // Async path is only for valyu/tavily/exa Research APIs (mode set).
-      // perplexity/openai/claude/gemini are sync LLM calls regardless.
-      const isAsync = !!opts?.mode && (service === "valyu" || service === "tavily" || service === "exa");
+      // Async path is for valyu/tavily/exa Research APIs and OpenAI Deep
+      // Research (when mode is set). claude/gemini/perplexity are sync.
+      const isAsync = !!opts?.mode && (
+        service === "valyu" || service === "tavily" || service === "exa" || service === "openai"
+      );
       const askLabel = isAsync
         ? `Заказать ${serviceLabel} (${opts!.mode})`
         : `Заказать исследование у ${serviceLabel}`;

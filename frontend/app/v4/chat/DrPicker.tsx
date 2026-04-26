@@ -46,6 +46,13 @@ export const EXA_RESEARCH_MODES: ServiceModeSpec[] = [
   { key: "pro",      label: "Pro",      price: "$2.00", eta: "30-60 мин" },
 ];
 
+// OpenAI Deep Research — настоящий o3/o4-mini-deep-research через OpenRouter,
+// async через background asyncio task в нашем процессе.
+export const OPENAI_DR_MODES: ServiceModeSpec[] = [
+  { key: "mini",     label: "o4-mini-DR", price: "≈$0.50", eta: "5-10 мин" },
+  { key: "standard", label: "o3-DR",      price: "≈$3.00", eta: "15-30 мин" },
+];
+
 export type DrServiceKey =
   | AutoDRService          // valyu | tavily | exa | perplexity (integrated)
   | "openai"               // copy-launch: ChatGPT Deep Research
@@ -95,23 +102,24 @@ export const DR_SERVICES: DrServiceMeta[] = [
   },
   {
     key: "openai",
-    label: "OpenAI GPT-4o (online)",
-    price: "≈ $0.05–$0.50 + $0.004 за веб-поиск",
-    when: "Через OpenRouter с :online плагином — модель ищет в вебе перед ответом. Не настоящий ChatGPT Deep Research (тот закрыт API), но получает свежие веб-источники.",
+    label: "OpenAI Deep Research",
+    price: "$0.50–$3 (2 режима)",
+    when: "Настоящий OpenAI Deep Research: o4-mini-DR ($0.50, 5-10 мин) или o3-DR ($3, 15-30 мин). Агентский поиск, fact-verification, длинный отчёт. Async — можно закрыть вкладку.",
     mode: "integrated",
+    badge: "🏆 настоящий DR",
   },
   {
     key: "claude",
     label: "Claude Sonnet 4.5 (online)",
     price: "≈ $0.10–$1.00 + $0.004 за веб-поиск",
-    when: "Через OpenRouter с :online плагином — Claude с веб-поиском. Длинный контекст, аккуратные цитаты, sober выводы.",
+    when: "ВНИМАНИЕ: настоящий Claude Research доступен только в claude.ai, не как отдельный API. Это лучшая API-альтернатива: Claude Sonnet 4.5 с веб-поиском через OpenRouter :online. Один синхронный вызов, без многошагового агентского цикла.",
     mode: "integrated",
   },
   {
     key: "gemini",
     label: "Gemini 2.5 Pro (online)",
     price: "≈ $0.05–$0.50 + $0.004 за веб-поиск",
-    when: "Через OpenRouter с :online плагином — Gemini с веб-поиском. ВНИМАНИЕ: настоящий Google Gemini Deep Research (агентский multi-step) недоступен через API, только в Gemini-приложении. Это упрощённая альтернатива.",
+    when: "ВНИМАНИЕ: настоящий Gemini Deep Research (тот что в блоге Google) — фича приложения, в API недоступна. Это лучшая API-альтернатива: Gemini 2.5 Pro с веб-поиском через OpenRouter :online. Один вызов, не агентский multi-step.",
     mode: "integrated",
   },
 ];
@@ -135,11 +143,13 @@ export function DrPicker({
   const [valyuMode, setValyuMode] = useState<ValyuResearchMode>("standard");
   const [tavilyMode, setTavilyMode] = useState<string>("pro");
   const [exaMode, setExaMode] = useState<string>("standard");
+  const [openaiMode, setOpenaiMode] = useState<string>("mini");
 
   const modeFor = (key: DrServiceKey): string | undefined => {
     if (key === "valyu") return valyuMode;
     if (key === "tavily") return tavilyMode;
     if (key === "exa") return exaMode;
+    if (key === "openai") return openaiMode;
     return undefined;
   };
 
@@ -147,6 +157,7 @@ export function DrPicker({
     if (key === "valyu") return VALYU_MODES;
     if (key === "tavily") return TAVILY_RESEARCH_MODES;
     if (key === "exa") return EXA_RESEARCH_MODES;
+    if (key === "openai") return OPENAI_DR_MODES;
     return [];
   };
 
@@ -154,6 +165,7 @@ export function DrPicker({
     if (key === "valyu") setValyuMode(value as ValyuResearchMode);
     else if (key === "tavily") setTavilyMode(value);
     else if (key === "exa") setExaMode(value);
+    else if (key === "openai") setOpenaiMode(value);
   };
 
   const handleClick = async (svc: DrServiceMeta) => {
