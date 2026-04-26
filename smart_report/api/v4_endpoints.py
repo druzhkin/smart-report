@@ -614,6 +614,18 @@ async def delete_session(session_id: str, request: Request):
     return None
 
 
+@router.get("/sessions/{session_id}/quality")
+async def get_quality_grade(session_id: str, request: Request) -> dict:
+    """Compute the quality grade for a completed session.
+
+    Returns 200 with grade='N/A' if synthesize hasn't run yet (rather than
+    404) so the frontend can show a "still in progress" placeholder.
+    """
+    from ..quality_grade import compute_quality_grade
+    session = _get_owned(session_id, request)
+    return compute_quality_grade(session).to_dict()
+
+
 @router.get("/sessions/{session_id}")
 async def get_session(session_id: str, request: Request) -> dict:
     s = _get_owned(session_id, request)

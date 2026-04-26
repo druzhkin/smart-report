@@ -24,7 +24,9 @@ import {
   deleteSession,
   getEvents,
   listSessions,
+  getQualityGrade,
   type SessionListItem,
+  type QualityGrade,
 } from "@/lib/apiV4";
 import { DrPicker, type DrServiceKey } from "./DrPicker";
 import { ModelPicker, getPipelineModel } from "@/components/ModelPicker";
@@ -110,6 +112,7 @@ export default function Workspace() {
   const [exportOpen, setExportOpen] = useState(false);
   const [drBusy, setDrBusy] = useState<DrServiceKey | null>(null);
   const [savedSessions, setSavedSessions] = useState<SessionListItem[]>([]);
+  const [qualityGrade, setQualityGrade] = useState<QualityGrade | null>(null);
 
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     if (typeof window === "undefined") return "light";
@@ -217,6 +220,22 @@ export default function Workspace() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [activeCite]);
+
+  // ===== Quality grade =====
+  // Fetch only when we have a final report — pre-synth there's nothing
+  // to grade. Re-fetch on sessionId change so saved-session loads pull
+  // the right grade.
+  useEffect(() => {
+    if (!sessionId || !finalData) {
+      setQualityGrade(null);
+      return;
+    }
+    let cancelled = false;
+    getQualityGrade(sessionId)
+      .then((g) => { if (!cancelled) setQualityGrade(g); })
+      .catch(() => { if (!cancelled) setQualityGrade(null); });
+    return () => { cancelled = true; };
+  }, [sessionId, finalData]);
 
   // ===== Saved sessions list =====
   // Refresh on mount, after cost changes (signals new server-side activity),
@@ -1586,10 +1605,33 @@ export default function Workspace() {
                 <div style={{ padding: 24, color: "var(--ink-3)" }}>Анализ не загружен</div>
               )}
               {artifact.kind === "report" && finalData && (
-                <ReportArtifact
-                  finalReport={finalData}
-                  openSource={openSource}
-                />
+                <>
+                  {qualityGrade && qualityGrade.grade !== "N/A" && (
+                    <div className={`quality-grade quality-grade--${qualityGrade.grade.toLowerCase()}`}>
+                      <div className="quality-grade__head">
+                        <span className="quality-grade__label">Quality</span>
+                        <span className="quality-grade__letter">{qualityGrade.grade}</span>
+                        <span className="quality-grade__score">{(qualityGrade.score * 100).toFixed(0)}/100</span>
+                      </div>
+                      <div className="quality-grade__summary">{qualityGrade.summary}</div>
+                      <div className="quality-grade__metrics">
+                        <span title="Источники с высокой надёжностью">
+                          STRONG <b>{qualityGrade.strong_count}</b>/{qualityGrade.total_sources}
+                        </span>
+                        <span title="Уникальных доменов в библиографии">
+                          доменов <b>{qualityGrade.unique_domains}</b>
+                        </span>
+                        <span title="Согласованные утверждения / противоречия / пробелы">
+                          согл. <b>{qualityGrade.consensus_count}</b> · конф. <b>{qualityGrade.conflict_count}</b> · проб. <b>{qualityGrade.gap_count}</b>
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                  <ReportArtifact
+                    finalReport={finalData}
+                    openSource={openSource}
+                  />
+                </>
               )}
               {artifact.kind === "report" && !finalData && (
                 <div style={{ padding: 24, color: "var(--ink-3)" }}>Отчёт не готов</div>

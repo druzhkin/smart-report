@@ -820,6 +820,65 @@
 .ws-root .dr-picker__skip:hover { color: var(--ink); }
 .ws-root .dr-picker__skip:disabled { opacity: 0.4; cursor: wait; }
 
+/* === Quality grade badge (Day 8-9) === */
+.ws-root .quality-grade {
+  margin: 14px 18px 0 18px;
+  border: 1px solid var(--rule);
+  background: var(--paper-2);
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ws-root .quality-grade--a { border-left: 4px solid #2d8b4e; }
+.ws-root .quality-grade--b { border-left: 4px solid var(--accent, #c69749); }
+.ws-root .quality-grade--c { border-left: 4px solid #c75e3a; }
+.ws-root .quality-grade__head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+.ws-root .quality-grade__label {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-3);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.ws-root .quality-grade__letter {
+  font-family: var(--sans);
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+.ws-root .quality-grade__score {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-3);
+  margin-left: auto;
+}
+.ws-root .quality-grade__summary {
+  font-family: var(--sans);
+  font-size: 12.5px;
+  color: var(--ink-2);
+  line-height: 1.5;
+}
+.ws-root .quality-grade__metrics {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-3);
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+.ws-root .quality-grade__metrics b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
 /* === Composer === */
 .ws-root .composer-wrap {
   position: sticky;

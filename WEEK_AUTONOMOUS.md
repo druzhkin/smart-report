@@ -173,3 +173,19 @@ Error: `Block-scoped variable 'push' used before its declaration` (Workspace.tsx
 **Lesson learned:** install frontend deps locally before next push to catch this without a Railway round-trip. Or set up a CI step.
 
 **Discovered via Railway:** project token can read deployment list + build logs (`railway deployment list --service smart-report` + `railway logs --service smart-report --build <ID>`) — invaluable for autonomous debugging. Saved to memory.
+
+### 2026-04-26 (Day 8-9 — quality grade)
+
+**Backend:**
+- `smart_report/quality_grade.py` — `compute_quality_grade(session)` → `QualityGrade` dataclass with composite score in [0, 1] (50% strong-share + 30% domain diversity + 20% consensus coverage), bands A ≥ 0.75, B ≥ 0.55, C otherwise. Tolerates missing analysis/final → returns "N/A".
+- `GET /api/v4/sessions/{id}/quality` — owner-gated, returns the dict including raw counts (STRONG/MODERATE/WEAK, unique domains, consensus/conflict/gap/unverified) so the UI doesn't re-derive client-side.
+- 7 new tests covering all bands + edge cases (no final, no sources, www-prefix dedupe, www vs sec.gov collapsing). Suite 80/80 green.
+
+**Frontend:**
+- `lib/apiV4.ts`: `getQualityGrade(id)` + `QualityGrade` type
+- `Workspace.tsx`: fetches grade when `finalData && sessionId`; renders a colored badge (A=green / B=accent gold / C=red) above the report artifact with score, one-line summary, and metric line ("STRONG 3/8 · доменов 7 · согл. 5 · конф. 1 · проб. 2")
+- `workspace.css`: `.quality-grade` block with band-colored left border
+
+**Push notes:** also queued a `next.config.mjs` fix that exposes `/health/deep` (Day 4-5 deep healthcheck couldn't reach the backend through the Next.js rewrite layer because the existing rule only matched exact `/health`).
+
+**Live verification (post c8cf787 deploy):** cancel + DELETE + listSessions all work in prod. Day 1 (auto-dr) still solid. Pending verifications after next deploy: `/health/deep`, quality grade widget, full chat flow with picker.

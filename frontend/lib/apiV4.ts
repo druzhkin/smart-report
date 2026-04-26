@@ -392,6 +392,37 @@ export async function getEvents(
   );
 }
 
+// -- Quality grade --------------------------------------------------------
+
+export type QualityGrade = {
+  grade: "A" | "B" | "C" | "N/A";
+  score: number;
+  strong_count: number;
+  moderate_count: number;
+  weak_count: number;
+  unique_domains: number;
+  total_sources: number;
+  consensus_count: number;
+  conflict_count: number;
+  gap_count: number;
+  unverified_number_count: number;
+  summary: string;
+};
+
+export async function getQualityGrade(id: string): Promise<QualityGrade> {
+  if (STUB) {
+    return {
+      grade: "B", score: 0.62,
+      strong_count: 3, moderate_count: 4, weak_count: 1,
+      unique_domains: 7, total_sources: 8,
+      consensus_count: 5, conflict_count: 1, gap_count: 2,
+      unverified_number_count: 0,
+      summary: "Стаб: достаточно — 3/8 STRONG.",
+    };
+  }
+  return jv4<QualityGrade>(`/api/v4/sessions/${encodeURIComponent(id)}/quality`);
+}
+
 // -- Session list ---------------------------------------------------------
 
 export type SessionListItem = {
