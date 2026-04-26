@@ -54,6 +54,41 @@ const PHASE_STEPS = [
   { key: "final", num: "05", label: "Отчёт", when: (p: Phase) => p === "done" },
 ];
 
+// Preset templates — Day 10. Shown in start phase to seed the textarea.
+// Order matters: most-common verticals first.
+const PROMPT_TEMPLATES: { label: string; emoji: string; prompt: string }[] = [
+  {
+    emoji: "🏢",
+    label: "Девелоперы РФ",
+    prompt:
+      "Что важнее для коммерческого успеха бизнес-класса в Москве 2023–2025: бренд, скорость или качество продукта? Сравни 9 девелоперов (PIK, Donstroy, MR Group, Level Group, Etalon, Sminex, Capital Group, FSK, A101) по данным ERZ, bnMAP и CIAN Pro. Не уклоняйся — выбери драйвер и защити позицию.",
+  },
+  {
+    emoji: "📊",
+    label: "Финансы (10-K)",
+    prompt:
+      "Проанализируй последний 10-K Tesla: ключевые метрики выручки и маржи по сегментам, риски от регулятора и тренды R&D. Опирайся на sec.gov как первичный источник, цитируй каждую цифру.",
+  },
+  {
+    emoji: "⚖️",
+    label: "ЕС регулятор",
+    prompt:
+      "Разъясни обязанности компаний по EU AI Act статьи 6–9 для high-risk систем: что нужно сделать к фазе compliance в 2026. Цитируй eur-lex.europa.eu и официальные guidance документы.",
+  },
+  {
+    emoji: "🔬",
+    label: "Тех. ресёрч",
+    prompt:
+      "Современное состояние scaling laws для Mixture-of-Experts моделей: какие эмпирические законы выведены за 2023–2025, в чём расходятся подходы DeepSeek, Mistral и Anthropic. Опирайся на arXiv и blog posts инженерных команд.",
+  },
+  {
+    emoji: "📰",
+    label: "Свежие новости",
+    prompt:
+      "Что произошло с OpenAI за последний месяц: запуски продуктов, корпоративные события, регуляторные инциденты. Источники: официальный блог openai.com, axios, the-information.",
+  },
+];
+
 const INITIAL_MESSAGE: ChatMessage = {
   id: "m0",
   role: "system",
@@ -1381,6 +1416,36 @@ export default function Workspace() {
           <div className="chat-scroll" ref={scrollRef}>
             <div className="chat-inner">{messages.map(renderMsg)}</div>
           </div>
+
+          {phase === PHASE.START && !sessionId && (
+            <div className="prompt-templates">
+              <div className="prompt-templates__label">Шаблоны для быстрого старта:</div>
+              <div className="prompt-templates__row">
+                {PROMPT_TEMPLATES.map((t) => (
+                  <button
+                    key={t.label}
+                    type="button"
+                    className="prompt-template-chip"
+                    onClick={() => {
+                      setInput(t.prompt);
+                      setTimeout(() => {
+                        textareaRef.current?.focus();
+                        const ta = textareaRef.current;
+                        if (ta) {
+                          ta.style.height = "auto";
+                          ta.style.height = Math.min(180, Math.max(44, ta.scrollHeight)) + "px";
+                        }
+                      }, 30);
+                    }}
+                    title="Загрузить шаблон в строку — можно отредактировать перед отправкой"
+                  >
+                    <span className="prompt-template-chip__emoji">{t.emoji}</span>
+                    <span>{t.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="composer-wrap">
             <div className="composer">

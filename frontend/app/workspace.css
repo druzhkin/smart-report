@@ -879,6 +879,51 @@
   font-weight: 600;
 }
 
+/* === Prompt templates (Day 10) === */
+.ws-root .prompt-templates {
+  flex-shrink: 0;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 0 20px 8px 20px;
+  width: 100%;
+}
+.ws-root .prompt-templates__label {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-3);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+.ws-root .prompt-templates__row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.ws-root .prompt-template-chip {
+  background: var(--paper-2);
+  border: 1px solid var(--rule);
+  padding: 6px 12px;
+  font-family: var(--sans);
+  font-size: 12px;
+  color: var(--ink-2);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  letter-spacing: -0.005em;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.ws-root .prompt-template-chip:hover {
+  background: var(--paper);
+  border-color: var(--ink);
+  color: var(--ink);
+}
+.ws-root .prompt-template-chip__emoji {
+  font-size: 13px;
+  line-height: 1;
+}
+
 /* === Composer === */
 .ws-root .composer-wrap {
   position: sticky;

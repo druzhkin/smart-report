@@ -189,3 +189,13 @@ Error: `Block-scoped variable 'push' used before its declaration` (Workspace.tsx
 **Push notes:** also queued a `next.config.mjs` fix that exposes `/health/deep` (Day 4-5 deep healthcheck couldn't reach the backend through the Next.js rewrite layer because the existing rule only matched exact `/health`).
 
 **Live verification (post c8cf787 deploy):** cancel + DELETE + listSessions all work in prod. Day 1 (auto-dr) still solid. Pending verifications after next deploy: `/health/deep`, quality grade widget, full chat flow with picker.
+
+### 2026-04-26 (Day 10 — preset templates)
+
+Frontend-only. 5 template chips above the start-phase composer (RU developers, Tesla 10-K, EU AI Act, MoE scaling laws, OpenAI news). Click loads template into textarea; user can edit before sending. Auto-resizes textarea on insert. Hidden once a session starts.
+
+**Verification of latest deploy (88b8c86c):**
+- `/health/deep` → 200 with both DB + LLM components ok
+- `/api/v4/sessions/{notfound}/quality` → 404 "session not found" (route registered, just no session)
+- `/health` (cheap) still 200 — Railway healthcheck path unaffected
+- Day 1, 2, 4-5, 6-7, 8-9 all live in prod simultaneously
