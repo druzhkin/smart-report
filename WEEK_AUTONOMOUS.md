@@ -117,3 +117,22 @@ Hard guardrails: stop deploying to prod if last 3 deploys broken; halt all paid 
 - One note: `print()` showed `—` (em-dash) escaped in console, but content is correct UTF-8 — purely a Windows-cp1251 console encoding quirk, not a server bug.
 
 **Day 1 cost actual: $0.005 (one Tavily basic call, well under budget).**
+
+### 2026-04-26 (Day 2 — same evening)
+
+**Backend:**
+- `V4Status` literal: added `"cancelled"`
+- `V4SessionStore` + `PgV4SessionStore`: added `delete(session_id)` (idempotent, removes JSONB row)
+- `_owned_with_cap`: now 409s if session is cancelled (no further LLM spending)
+- `POST /api/v4/sessions/{id}/cancel` — flips status, emits status event, idempotent (re-cancel is no-op)
+- `DELETE /api/v4/sessions/{id}` — owner-gated, removes from store + clears events + wakes long-pollers, returns 204; missing session → 404
+- 5 new tests: cancel-marks+blocks, cancel-idempotent, delete-204, delete-404-on-missing, delete-403-on-not-owner. Full suite 73/73 green.
+
+**Frontend:**
+- `apiV4.ts`: `cancelSession(id)`, `deleteSession(id)` helpers
+- `Workspace.tsx`:
+  - Live events polling: `useEffect` long-polls `/events` while `pending && sessionId`, surfaces each backend event as a system message ("· …"). Stops on done/error/unmount.
+  - `onCancel`: calls cancelSession, removes any active "thinking" placeholder, posts a "сессия отменена" notice, clears pending.
+  - Composer button: when pending+sessionId, the "Отправить" button morphs into "Отменить" (warns the user that already-spent tokens are still billed).
+
+**Status:** ready to push, will roll into prod alongside Day 1 work. Live verification of cancel deferred to actual long-running synth call (cheaper than Sonnet for verification — will piggy-back on the next end-to-end test).

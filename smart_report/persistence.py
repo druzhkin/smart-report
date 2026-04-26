@@ -115,6 +115,14 @@ class PgV4SessionStore:
             ).fetchall()
         return [V4Session.model_validate(r[0]) for r in rows]
 
+    def delete(self, session_id: str) -> None:
+        """Hard-delete the session row. Idempotent — no error if missing."""
+        with self._pool.connection() as conn:
+            conn.execute(
+                "DELETE FROM v4_sessions WHERE session_id = %s",
+                (session_id,),
+            )
+
     # ------------------------------------------------------------------
     # internal
     # ------------------------------------------------------------------

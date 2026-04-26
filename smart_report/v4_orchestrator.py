@@ -93,6 +93,10 @@ class V4SessionStore:
     def all(self) -> list[V4Session]:
         return list(self._sessions.values())
 
+    def delete(self, session_id: str) -> None:
+        """Remove session if present. No-op if missing — idempotent."""
+        self._sessions.pop(session_id, None)
+
 
 class V4Orchestrator:
     """Three-step orchestrator; each step is an independent async call."""

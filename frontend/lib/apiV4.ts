@@ -392,6 +392,27 @@ export async function getEvents(
   );
 }
 
+// -- Cancel + Delete ------------------------------------------------------
+
+export async function cancelSession(id: string): Promise<{ session_id: string; status: string }> {
+  if (STUB) {
+    return { session_id: id, status: "cancelled" };
+  }
+  return jv4(`/api/v4/sessions/${encodeURIComponent(id)}/cancel`, {
+    method: "POST",
+  });
+}
+
+export async function deleteSession(id: string): Promise<void> {
+  if (STUB) return;
+  const res = await fetch(`${V4_BASE}/api/v4/sessions/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+  if (!res.ok && res.status !== 404) {
+    throw new Error(`${res.status} ${await res.text().catch(() => "")}`);
+  }
+}
+
 // -- Auto-DR (server-side Deep Research) ----------------------------------
 
 export type AutoDRService = "valyu" | "tavily" | "exa" | "perplexity";

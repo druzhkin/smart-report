@@ -239,8 +239,18 @@ def _enforce_cost_cap(email: str) -> None:
 
 
 def _owned_with_cap(session_id: str, request: Request):
-    """Combined ownership check + cost cap enforcement for LLM-spending endpoints."""
+    """Combined ownership check + cost cap enforcement for LLM-spending endpoints.
+
+    Also rejects cancelled sessions with 409 — once cancelled, no further
+    LLM-spending calls run on the session. The user can DELETE it or
+    create a new one.
+    """
     session = _get_owned(session_id, request)
+    if getattr(session, "status", None) == "cancelled":
+        raise HTTPException(
+            status_code=409,
+            detail="session was cancelled — create a new session to continue",
+        )
     owner = getattr(session, "user_email", None)
     if owner:  # only enforce cap for authenticated owners (legacy public sessions skip)
         _enforce_cost_cap(owner)
@@ -566,6 +576,42 @@ async def check_gaps(session_id: str) -> CheckGapsResponse:
         can_iterate_more=can_iterate_more,
         summary_for_analyst=summary,
     )
+
+
+@router.post("/sessions/{session_id}/cancel")
+async def cancel_session(session_id: str, request: Request) -> dict:
+    """Mark the session as cancelled and emit a cancel event.
+
+    Best-effort: an in-flight LLM call still completes server-side (we
+    pay for the in-flight tokens), but the session is flipped so any
+    follow-up endpoint call is rejected and the UI can stop showing
+    progress immediately. Idempotent — re-cancelling a cancelled session
+    returns the same shape.
+    """
+    session = _get_owned(session_id, request)
+    if session.status != "cancelled":
+        session.status = "cancelled"
+        _store.update(session)
+        emitter = _SessionEmitter(session_id)
+        emitter.emit("status", "Сессия отменена пользователем",
+                     data={"reason": "user_cancel"})
+    return {"session_id": session_id, "status": session.status}
+
+
+@router.delete("/sessions/{session_id}", status_code=204)
+async def delete_session(session_id: str, request: Request):
+    """Hard-delete a session and clear its in-memory event state.
+
+    Owner-gated. Idempotent: deleting a missing session returns 404 so
+    the user knows the call had no effect, instead of silently 204-ing.
+    """
+    _get_owned(session_id, request)
+    _store.delete(session_id)
+    _V4_EVENTS.pop(session_id, None)
+    sig = _V4_EVENT_SIGNALS.pop(session_id, None)
+    if sig is not None:
+        sig.set()  # wake any long-poller so it returns immediately
+    return None
 
 
 @router.get("/sessions/{session_id}")

@@ -408,6 +408,69 @@ def test_auto_dr_falls_back_to_session_question_when_prompt_empty(monkeypatch):
     assert captured["question"] == "what is the meaning of life"
 
 
+def test_cancel_marks_session_and_blocks_further_spend():
+    client = _authed_client()
+    sid = client.post(
+        "/api/v4/sessions", json={"question": "test research question"}
+    ).json()["session_id"]
+
+    r = client.post(f"/api/v4/sessions/{sid}/cancel")
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "cancelled"
+
+    sess = client.get(f"/api/v4/sessions/{sid}").json()
+    assert sess["status"] == "cancelled"
+
+    # Any LLM-spending endpoint now 409s.
+    r2 = client.post(f"/api/v4/sessions/{sid}/generate-prompt")
+    assert r2.status_code == 409, r2.text
+    assert "cancel" in r2.json()["detail"].lower()
+
+
+def test_cancel_is_idempotent():
+    client = _authed_client()
+    sid = client.post(
+        "/api/v4/sessions", json={"question": "test research question"}
+    ).json()["session_id"]
+    r1 = client.post(f"/api/v4/sessions/{sid}/cancel")
+    r2 = client.post(f"/api/v4/sessions/{sid}/cancel")
+    assert r1.status_code == 200 and r2.status_code == 200
+    assert r2.json()["status"] == "cancelled"
+
+
+def test_delete_removes_session_and_returns_204():
+    client = _authed_client()
+    sid = client.post(
+        "/api/v4/sessions", json={"question": "test research question"}
+    ).json()["session_id"]
+
+    r = client.delete(f"/api/v4/sessions/{sid}")
+    assert r.status_code == 204, r.text
+
+    # GET is now 404 (session gone).
+    r2 = client.get(f"/api/v4/sessions/{sid}")
+    assert r2.status_code == 404
+
+
+def test_delete_404s_when_session_missing():
+    client = _authed_client()
+    r = client.delete("/api/v4/sessions/doesnotexist00")
+    assert r.status_code == 404
+
+
+def test_delete_403s_when_not_owner():
+    """Owner of session A cannot DELETE session of user B."""
+    # User B creates a session
+    cb = TestClient(app)
+    rb = cb.post("/api/auth/signup", json={"email": "userb@example.com", "password": "test1234"})
+    assert rb.status_code == 201, rb.text
+    sid = cb.post("/api/v4/sessions", json={"question": "user b's question"}).json()["session_id"]
+    # User A tries to delete it
+    ca = _authed_client()
+    r = ca.delete(f"/api/v4/sessions/{sid}")
+    assert r.status_code == 403, r.text
+
+
 def test_track_b_endpoints_are_wired():
     """Track B has shipped — analyze/synthesize/upload routes exist (body behaviour
     is covered by test_v4_full_cycle / test_analyzer / test_synthesizer)."""

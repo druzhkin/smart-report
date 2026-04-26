@@ -20,6 +20,8 @@ import {
   synthesize,
   getSession,
   runAutoDR,
+  cancelSession,
+  getEvents,
 } from "@/lib/apiV4";
 import { DrPicker, type DrServiceKey } from "./DrPicker";
 import { ModelPicker, getPipelineModel } from "@/components/ModelPicker";
@@ -211,6 +213,68 @@ export default function Workspace() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [activeCite]);
+
+  // ===== Live events polling =====
+  // While a long-running call is in flight (analyze / synthesize can take
+  // 5-10 minutes for Sonnet), long-poll /events so the user sees real
+  // backend progress instead of staring at the static 4-trace placeholder.
+  // Stops on !pending, sessionId change, or component unmount.
+  useEffect(() => {
+    if (!pending || !sessionId) return;
+    let cancelled = false;
+    let cursor = 0;
+    let lastSeenSeq = -1;
+    (async () => {
+      while (!cancelled) {
+        try {
+          const r = await getEvents(sessionId, cursor, 25);
+          if (cancelled) return;
+          for (const ev of r.events) {
+            if (ev.seq <= lastSeenSeq) continue;
+            lastSeenSeq = ev.seq;
+            if (ev.message && ev.message.trim()) {
+              setMessages((ms) => [
+                ...ms,
+                {
+                  id: `ev-${sessionId}-${ev.seq}`,
+                  role: "system",
+                  kind: "text",
+                  content: `· ${ev.message}`,
+                },
+              ]);
+            }
+          }
+          cursor = r.cursor;
+          if (r.status === "done" || r.status === "error") return;
+        } catch {
+          // Long-poll error (e.g. session deleted, network blip): back off.
+          await new Promise((res) => setTimeout(res, 3000));
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [pending, sessionId]);
+
+  // ===== Cancel handler =====
+  const onCancel = useCallback(async () => {
+    if (!sessionId || !pending) return;
+    try {
+      await cancelSession(sessionId);
+    } catch (e) {
+      // best-effort — server-side flip might fail if session was just deleted
+    }
+    setMessages((ms) => ms.filter((m) => m.kind !== "thinking"));
+    push({
+      role: "system",
+      kind: "text",
+      content:
+        "Сессия отменена. Запущенный LLM-вызов завершится в фоне (за него уже списано), но эта сессия больше не примет команд. Создайте новую через ⌘N.",
+    });
+    setPending(false);
+    showToast("Сессия отменена");
+  }, [sessionId, pending, push]);
 
   // ===== Helpers =====
   const push = useCallback(
@@ -1170,13 +1234,25 @@ export default function Workspace() {
                 rows={1}
               />
               <div className="composer-actions">
-                <button
-                  className="composer-send"
-                  onClick={onSend}
-                  disabled={!input.trim() || pending}
-                >
-                  Отправить
-                </button>
+                {pending && sessionId ? (
+                  <button
+                    type="button"
+                    className="composer-send"
+                    onClick={onCancel}
+                    style={{ background: "var(--paper-2)", color: "var(--ink)", border: "1px solid var(--ink)" }}
+                    title="Прервать запущенный шаг (за уже потраченные токены спишется)"
+                  >
+                    Отменить
+                  </button>
+                ) : (
+                  <button
+                    className="composer-send"
+                    onClick={onSend}
+                    disabled={!input.trim() || pending}
+                  >
+                    Отправить
+                  </button>
+                )}
               </div>
             </div>
             <div className="composer-hint">

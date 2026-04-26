@@ -132,6 +132,7 @@ V4Status = Literal[
     "analyzed",
     "dobor_uploaded",
     "synthesized",
+    "cancelled",
 ]
 
 DetectedTool = Literal["perplexity", "openai_dr", "claude", "other"]
