@@ -199,3 +199,29 @@ Frontend-only. 5 template chips above the start-phase composer (RU developers, T
 - `/api/v4/sessions/{notfound}/quality` → 404 "session not found" (route registered, just no session)
 - `/health` (cheap) still 200 — Railway healthcheck path unaffected
 - Day 1, 2, 4-5, 6-7, 8-9 all live in prod simultaneously
+
+### 2026-04-26 (Day 11-12 — polish)
+
+Frontend-only:
+- Report-artifact head: new "скопировать md" button — fetches `/export?format=md` and writes to clipboard. One-click full report copy for Notion/Slack paste-in.
+- Cost-cap pre-warning: when `cost ≥ 60₽` (80% of $1/30d cap at 75₽/$ rate), shows a one-per-day toast warning. Suppresses repeats via `localStorage[sr-cost-warn-day]` keyed on today's date.
+
+**Decisions deferred** (non-blocking, kept out of autonomous scope):
+- Notion / Google Docs / Drive sync — needs per-user OAuth, too heavy without user input.
+- Email verification + password reset — needs an email provider configured.
+- Per-claim explanation drill-down — needs Source.quality_reason field added to the source-quality classifier output (not just tier).
+- Dead-code removal of `/api/v4/reports` + `/app/dashboard.html` — still wired from `landing_a_sales.jsx → goDashboard()`. Half-migrated landing → don't touch unattended.
+
+### 2026-04-26 (User-driven UX hotfix — chat message clarity)
+
+User pinged mid-session: «он разместил запрос в валю или нет? написано так что нихера не понятно». Screenshot showed the auto-DR success message reading like a server log, not a confirmation. The integration was working — Valyu DID run the research, returned 10 sources, $0.0150, file persisted — but the wording made it look ambiguous.
+
+**Fix (in progress, included in next push):**
+- Replace `valyu: 10 источник(ов), $0.0150. Файл «auto_dr_valyu.md» добавлен в источники сессии.` with `✓ Valyu провёл исследование и вернул 10 источник(ов).\n\nСтоимость: $0.0150 (≈ ₽ 1.13). Результат сохранён как «auto_dr_valyu.md» — это готовый отчёт, его можно сразу анализировать.`
+- Use display names (`Valyu`/`Tavily`/`Exa`/`Perplexity Sonar Pro`) instead of internal slugs
+- Show ₽ alongside $ so user reads in their own currency
+- CTA «Перейти к анализу →» → «Запустить анализ этого отчёта →» (action-oriented)
+- Thinking traces also rewritten to plain language
+- Error path: distinguishes upstream failure from our own; suggests next step
+
+Saved feedback memory: `feedback_chat_messaging_clarity.md` — pattern for any future chat system message (✓/✗ + verb + human units + next step).

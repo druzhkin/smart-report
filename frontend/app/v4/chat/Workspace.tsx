@@ -256,6 +256,25 @@ export default function Workspace() {
     return () => window.removeEventListener("keydown", onKey);
   }, [activeCite]);
 
+  // ===== Cost-cap pre-warning =====
+  // Backend cap is $1/user/30d (USER_MONTHLY_CAP_USD). At ~75₽/$ that is
+  // ~75₽ → warn at 60₽ (80%). One warning per day per browser.
+  const COST_WARN_THRESHOLD_RUB = 60;
+  const COST_CAP_RUB = 75;
+  useEffect(() => {
+    if (!cost || cost < COST_WARN_THRESHOLD_RUB) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const key = "sr-cost-warn-day";
+    if (typeof window === "undefined") return;
+    if (localStorage.getItem(key) === today) return;
+    localStorage.setItem(key, today);
+    showToast(
+      `Внимание: потрачено ₽ ${Math.round(cost)} из ₽ ${COST_CAP_RUB} месячного лимита. После лимита /generate /analyze /synth ответят 402.`,
+      undefined,
+      9000
+    );
+  }, [cost]);
+
   // ===== Quality grade =====
   // Fetch only when we have a final report — pre-synth there's nothing
   // to grade. Re-fetch on sessionId change so saved-session loads pull
@@ -569,18 +588,23 @@ export default function Workspace() {
       }
       if (drBusy) return;
       setDrBusy(service);
+      const serviceLabel =
+        service === "valyu" ? "Valyu" :
+        service === "tavily" ? "Tavily" :
+        service === "exa" ? "Exa" :
+        service === "perplexity" ? "Perplexity Sonar Pro" : service;
       push({
         role: "user",
         kind: "text",
-        content: `Запустить Deep Research через ${service}`,
+        content: `Заказать исследование у ${serviceLabel}`,
       });
       push({
         role: "system",
         kind: "thinking",
         traces: [
-          `${service}: формирую запрос`,
-          "опрашиваю источники",
-          "собираю результаты",
+          `Отправляю запрос в ${serviceLabel}…`,
+          `${serviceLabel} ищет источники по вашему промпту…`,
+          "Получаю ответ и упаковываю в отчёт…",
         ],
         onDone: () => {},
       });
@@ -591,36 +615,41 @@ export default function Workspace() {
         setMessages((ms) => ms.filter((m) => m.kind !== "thinking"));
         const s = await getSession(sessionId);
         setCost(s.total_cost_rub || 0);
+        const costRub = (res.cost_usd * 75.4).toFixed(2);
         push({
           role: "system",
           kind: "text",
-          content: `${service}: ${res.source_count} источник(ов), $${res.cost_usd.toFixed(4)}. Файл «${res.filename}» добавлен в источники сессии.`,
+          content:
+            `✓ ${serviceLabel} провёл исследование и вернул ${res.source_count} источник(ов).\n\n` +
+            `Стоимость: $${res.cost_usd.toFixed(4)} (≈ ₽ ${costRub}). Результат сохранён как «${res.filename}» — это готовый отчёт, его можно сразу анализировать.`,
         });
         push({
           role: "system",
           kind: "ref",
           refKind: "upload",
-          title: res.filename,
-          subtitle: `${res.source_count} источник(ов) · ${res.word_count} слов`,
+          title: `${serviceLabel}: готовый отчёт`,
+          subtitle: `${res.source_count} источник(ов) · ${res.word_count} слов · готов к анализу`,
           accent: true,
         });
         push({
           role: "system",
           kind: "cta",
-          primary: "Перейти к анализу →",
+          primary: "Запустить анализ этого отчёта →",
           action: "go-upload-stage",
-          secondary: "Загрузить ещё отчёт",
+          secondary: "Заказать ещё одно исследование",
           secondaryAction: "go-upload-stage",
         });
         setPhase(PHASE.UPLOAD);
       } catch (e) {
         setMessages((ms) => ms.filter((m) => m.kind !== "thinking"));
         const msg = e instanceof Error ? e.message : String(e);
-        showToast(`${service}: ${msg}`);
+        showToast(`${serviceLabel}: ${msg}`);
         push({
           role: "system",
           kind: "text",
-          content: `${service} не сработал: ${msg}\n\nВыберите другой сервис ниже или загрузите .md вручную.`,
+          content:
+            `✗ ${serviceLabel} не смог выполнить исследование.\n\nПричина: ${msg}\n\n` +
+            `Это могла быть временная проблема со стороны ${serviceLabel}. Выберите другой сервис из списка выше или загрузите .md-отчёт вручную.`,
         });
       } finally {
         setDrBusy(null);
@@ -1114,6 +1143,25 @@ export default function Workspace() {
         title: (finalData as FinalReport | null)?.executive_summary?.main_answer?.slice(0, 60) || "Финальный отчёт",
         actions: (
           <>
+            <button
+              className="icon-btn"
+              onClick={async () => {
+                if (!sessionId) return;
+                try {
+                  const url = `/api/v4/sessions/${encodeURIComponent(sessionId)}/export?format=md`;
+                  const r = await fetch(url);
+                  if (!r.ok) throw new Error(`${r.status}`);
+                  const text = await r.text();
+                  await navigator.clipboard.writeText(text);
+                  showToast(`Markdown скопирован — ${text.length.toLocaleString("ru-RU")} символов`);
+                } catch (e) {
+                  showToast(`Не удалось: ${e instanceof Error ? e.message : String(e)}`);
+                }
+              }}
+              title="Скопировать весь отчёт как markdown в буфер"
+            >
+              скопировать md
+            </button>
             <button className="icon-btn" onClick={() => setExportOpen(true)}>
               <svg
                 width="11"
