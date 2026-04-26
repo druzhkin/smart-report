@@ -1,23 +1,73 @@
 "use client";
 
-import { useState, FormEvent, Suspense } from "react";
+import { useState, FormEvent, Suspense, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
+// Coerce Pydantic 422 response (`detail` may be array of error objects) into
+// a readable single string so React doesn't crash trying to render objects.
+function formatError(data: any, fallback: string): string {
+  if (!data) return fallback;
+  const d = data.detail;
+  if (typeof d === "string") return d;
+  if (Array.isArray(d)) {
+    return d
+      .map((e: any) => {
+        const where = Array.isArray(e?.loc) ? e.loc.join(".") : "";
+        const msg = e?.msg || e?.type || JSON.stringify(e);
+        return where ? `${where}: ${msg}` : msg;
+      })
+      .join("; ");
+  }
+  if (d && typeof d === "object") return JSON.stringify(d);
+  return fallback;
+}
+
 function LoginPageInner() {
   const router = useRouter();
   const params = useSearchParams();
   const next = params.get("next") || "/v4/chat";
-  const [email, setEmail] = useState("demo@smartreport.dev");
+  const [mode, setMode] = useState<"login" | "signup">("login");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  // If already authenticated, bounce straight to next.
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d?.authenticated) router.replace(next);
+      })
+      .catch(() => {});
+  }, [next, router]);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!email || submitting) return;
+    if (!email || !password || submitting) return;
     setSubmitting(true);
-    router.push(next);
+    setError("");
+    try {
+      const endpoint = mode === "signup" ? "/api/auth/signup" : "/api/auth/login";
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      if (res.ok) {
+        router.replace(next);
+        return;
+      }
+      const data = await res.json().catch(() => ({}));
+      setError(formatError(data, `HTTP ${res.status}`));
+    } catch (err: any) {
+      setError(String(err?.message || err));
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -39,12 +89,21 @@ function LoginPageInner() {
       <main className="flex-1 flex items-center justify-center px-6 relative z-10">
         <div className="w-full max-w-md">
           <div className="bg-white/80 backdrop-blur-xl border border-slate-200 rounded-2xl p-8 shadow-sm">
-            <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Вход</h1>
+            <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
+              {mode === "signup" ? "Регистрация" : "Вход"}
+            </h1>
             <p className="mt-2 text-sm text-slate-500">
-              Введите email — пришлём 6-значный код. Без пароля и без карты.
+              {mode === "signup"
+                ? "Email и пароль (минимум 6 символов). Беплатный доступ к demo-режиму, без подтверждения email."
+                : "Email и пароль, которые использовали при регистрации."}
             </p>
 
             <form onSubmit={onSubmit} className="mt-6 space-y-4">
+              {error && (
+                <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
+                  {error}
+                </div>
+              )}
               <label className="block">
                 <span className="text-xs font-medium text-slate-600 uppercase tracking-wide">Email</span>
                 <input
@@ -58,32 +117,54 @@ function LoginPageInner() {
                   className="mt-1.5 w-full px-3 py-2.5 rounded-lg border border-slate-200 bg-white text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900"
                 />
               </label>
+              <label className="block">
+                <span className="text-xs font-medium text-slate-600 uppercase tracking-wide">Пароль</span>
+                <input
+                  type="password"
+                  required
+                  minLength={6}
+                  autoComplete={mode === "signup" ? "new-password" : "current-password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="mt-1.5 w-full px-3 py-2.5 rounded-lg border border-slate-200 bg-white text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900"
+                />
+              </label>
               <button
                 type="submit"
-                disabled={!email || submitting}
+                disabled={!email || !password || submitting}
                 className="w-full px-4 py-2.5 text-sm font-medium text-white bg-slate-900 rounded-lg hover:bg-slate-800 transition-all shadow-sm active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                {submitting ? "Входим…" : "Войти"}
+                {submitting
+                  ? mode === "signup"
+                    ? "Создаём…"
+                    : "Входим…"
+                  : mode === "signup"
+                  ? "Зарегистрироваться"
+                  : "Войти"}
               </button>
             </form>
 
             <div className="mt-5 flex items-center gap-3 text-xs text-slate-400">
               <div className="flex-1 h-px bg-slate-200" />
-              <span>или</span>
+              <span>{mode === "signup" ? "Уже есть аккаунт?" : "Нет аккаунта?"}</span>
               <div className="flex-1 h-px bg-slate-200" />
             </div>
 
-            <a
-              href="/api/auth/google/start"
-              className="mt-5 flex items-center justify-center gap-2 w-full px-4 py-2.5 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-all shadow-sm active:scale-[0.98]"
+            <button
+              type="button"
+              onClick={() => {
+                setError("");
+                setMode(mode === "signup" ? "login" : "signup");
+              }}
+              className="mt-5 w-full px-4 py-2.5 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-all shadow-sm active:scale-[0.98]"
             >
-              <svg width="16" height="16" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
-              Войти через Google
-            </a>
+              {mode === "signup" ? "Войти" : "Зарегистрироваться"}
+            </button>
           </div>
 
           <p className="mt-6 text-center text-xs text-slate-400">
-            Нажимая «Получить код», вы соглашаетесь с{" "}
+            Нажимая «Войти» / «Зарегистрироваться», вы соглашаетесь с{" "}
             <a href="/terms" className="underline hover:text-slate-600">условиями</a>{" "}и{" "}
             <a href="/privacy" className="underline hover:text-slate-600">политикой конфиденциальности</a>.
           </p>
