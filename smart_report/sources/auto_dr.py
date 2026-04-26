@@ -79,25 +79,29 @@ async def run_auto_dr(
             model="perplexity/sonar-pro",
             detected_tool="perplexity",
         )
+    # OpenAI / Claude / Gemini: use OpenRouter's `:online` variants which
+    # enable a built-in web-search plugin before the model answers. This
+    # lifts these from "chat-only" (training data) closer to "deep research"
+    # (real-time citations). Adds ~$0.004 per response per OpenRouter docs.
     if service == "openai":
         return await _run_llm_research(
             question,
             service="openai",
-            model="openai/gpt-4o",
+            model="openai/gpt-4o:online",
             detected_tool="openai_dr",
         )
     if service == "claude":
         return await _run_llm_research(
             question,
             service="claude",
-            model="anthropic/claude-sonnet-4.5",
+            model="anthropic/claude-sonnet-4.5:online",
             detected_tool="claude",
         )
     if service == "gemini":
         return await _run_llm_research(
             question,
             service="gemini",
-            model="google/gemini-2.5-pro",
+            model="google/gemini-2.5-pro:online",
             detected_tool="other",
         )
     raise AutoDRError(f"unreachable: service {service!r}")
