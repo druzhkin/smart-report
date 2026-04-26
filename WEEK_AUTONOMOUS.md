@@ -200,6 +200,59 @@ Frontend-only. 5 template chips above the start-phase composer (RU developers, T
 - `/health` (cheap) still 200 — Railway healthcheck path unaffected
 - Day 1, 2, 4-5, 6-7, 8-9 all live in prod simultaneously
 
+### 2026-04-27 (DR architecture overhaul — pushed back-to-back over ~3 hours of user-driven feedback)
+
+User came back online after Day 1 deploy and went deep on DR quality. Six major changes shipped, each in response to direct feedback:
+
+**1. Switched from instant search to true async DR (`f92f424`, `c41bafc`)**
+   - User: «валю не может сразу отдавать данные, нужно хотя бы пять минут»
+   - I had wired `valyu.search()` (instant, $0.001-0.005/result) thinking it was DR. Switched to `valyu.deepresearch.create/status/get_assets/cancel` — true 5-180 min async with 4 fixed-price modes (Fast $0.10 / Standard $0.50 / Heavy $2.50 / Max $15).
+   - Bug found post-deploy: SDK returns `deepresearch_id`, not `task_id`. Fixed in c41bafc.
+   - Architecture: `V4Session.pending_dr_jobs[]` for tracking, in-process polling + idempotent persistence.
+
+**2. Tavily + Exa Research async (`bbb4954`, `735ccfd`, `dedb01f`)**
+   - User: «tavily и exa тоже нужен deep research»
+   - Built `tavily_research.py` + `exa_research.py` mirroring the Valyu wrapper.
+   - Tavily: mini ($0.05) / pro ($0.30) / auto. Exa: fast ($0.10) / standard ($0.50) / pro ($2.00).
+   - Tavily blocked by paid-plan requirement on our env key — picker copy now warns about this.
+   - Build break (TS strict ValyuResearchMode → string) caught and fixed in 735ccfd.
+
+**3. Cost cap bump $1 → $50 (`63982f5`)**
+   - User: «402 monthly cap reached: $1.47 of $1.00»
+   - Original $1 cap was for early SaaS abuse-protection. Way too tight for $0.50-$3 DR testing.
+   - Bumped default; operators can override via env var.
+
+**4. OpenAI/Claude/Gemini integrated (also `63982f5`, then `4385e77`)**
+   - User: «почему я не могу заказать опенаи клод и гемини из чата?»
+   - Were copy-launch (open new tab, copy prompt). Refactored perplexity-only LLM helper into generic `_run_llm_research(service, model, detected_tool)`. Wired all three through OpenRouter.
+   - User: «нет, мне нужен настоящий deep research опенаи клод и гемини»
+   - Switched to `:online` variants for actual web search. Honest copy: Claude/Gemini Deep Research are app-only, not API.
+
+**5. Real OpenAI Deep Research (`c29d408`, `939883b`, `f396130`)**
+   - User insisted on real DR for OpenAI. Built `llm_deepresearch.py` — async via in-process `asyncio.create_task` + UUID registry. Fronts OpenRouter's `openai/o3-deep-research` and `openai/o4-mini-deep-research`.
+   - Bug 1: 400 «Unsupported parameter: 'temperature'» — reasoning models reject it. Fixed by detecting model name and stripping. (`939883b`)
+   - Bug 2: citation count regex matched only «## Sources» — OpenAI uses inline footnotes. Added URL-counting fallback. (`f396130`)
+   - **End-to-end live verified**: o4-mini-DR submission `ce6a1851`, 3 min wall, $0.71 actual cost, real markdown with Wikipedia citations.
+
+**6. Persistence hardening (`adb008d`)**
+   - In-memory task registry → result lost if container restarts mid-poll. Threaded `session_id + store` into background task; now writes to PostgreSQL `source_reports` immediately on completion. Restart AFTER OpenAI call returns no longer loses paid-for work. Restart DURING is still lossy (would need OpenAI direct API).
+
+**Final state of integrated DR backends:**
+
+| Service | Verified live | DR mode | Architecture |
+|---|---|---|---|
+| Valyu Research | ✅ submit + poll | fast / standard / heavy / max | true async, SDK polling |
+| Exa Research | ✅ submit + poll | fast / standard / pro | true async, SDK polling |
+| OpenAI Deep Research | ✅ full e2e | o4-mini / o3 | async, in-process registry + PG persistence |
+| Tavily Research | ⚠ paid plan blocks | mini / pro / auto | true async (ready when plan upgraded) |
+| Perplexity sonar-pro | ✅ | n/a (sync LLM with web) | OpenRouter chat completion |
+| Claude Sonnet 4.5 :online | ✅ | n/a (sync LLM with web) | OpenRouter chat completion |
+| Gemini 2.5 Pro :online | ✅ | n/a (sync LLM with web) | OpenRouter chat completion |
+
+**Cost spent today (smoke + verifications):** ~$3-4 across Valyu fast (3x), Exa fast (3x), OpenAI o4-mini-DR (2x full, 1x cancelled), perplexity/openai/claude/gemini sync probes. Within budget.
+
+**Memory updates:** added `reference_dr_async_apis.md` with SDK field names, pricing, gotchas. Plus updated `feedback_chat_messaging_clarity.md` rule based on user's «нихера не понятно» feedback on the auto-DR success message.
+
 ### 2026-04-26 (Day 11-12 — polish)
 
 Frontend-only:
