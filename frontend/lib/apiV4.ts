@@ -392,6 +392,22 @@ export async function getEvents(
   );
 }
 
+// -- Session list ---------------------------------------------------------
+
+export type SessionListItem = {
+  session_id: string;
+  raw_question: string;
+  status: V4SessionStatus | "cancelled";
+  created_at: string;
+  total_cost_rub: number;
+  has_final_report: boolean;
+};
+
+export async function listSessions(): Promise<SessionListItem[]> {
+  if (STUB) return [];
+  return jv4<SessionListItem[]>("/api/v4/sessions");
+}
+
 // -- Cancel + Delete ------------------------------------------------------
 
 export async function cancelSession(id: string): Promise<{ session_id: string; status: string }> {

@@ -378,6 +378,60 @@
 }
 .ws-root .sb-session.current .sb-session-cost { color: var(--ink-3); font-weight: 500; }
 
+/* Saved-sessions list (Day 6-7): row = main click area + tiny delete btn */
+.ws-root .sb-session {
+  /* Override: was a button, now a div container — reset cursor/border. */
+  cursor: default;
+  padding: 0;
+}
+.ws-root .sb-session-main {
+  flex: 1;
+  display: flex; align-items: center; gap: 8px;
+  background: none; border: none;
+  padding: 6px 4px 6px 22px;
+  cursor: pointer;
+  font-family: var(--sans);
+  font-size: 11.5px;
+  color: var(--ink-2);
+  text-align: left;
+  min-width: 0;
+  letter-spacing: -0.003em;
+}
+.ws-root .sb-session-main:hover { color: var(--ink); }
+.ws-root .sb-session.current .sb-session-main { color: var(--ink); font-weight: 500; }
+.ws-root .sb-session-meta {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--ink-4);
+  flex-shrink: 0;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.ws-root .sb-session.current .sb-session-meta { color: var(--ink-3); }
+.ws-root .sb-session-del {
+  background: none; border: none;
+  padding: 4px 8px;
+  cursor: pointer;
+  color: var(--ink-5);
+  font-size: 11px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.ws-root .sb-session:hover .sb-session-del { opacity: 1; }
+.ws-root .sb-session-del:hover { color: var(--bad, #c75); }
+.ws-root .sb-session-dot {
+  width: 14px; height: 14px;
+  background: transparent;
+  border-radius: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-4);
+}
+.ws-root .sb-session-dot.active { color: var(--accent); background: transparent; }
+
 .ws-root .sb-foot {
   flex-shrink: 0;
   padding: 8px 10px 10px 10px;

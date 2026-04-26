@@ -21,7 +21,10 @@ import {
   getSession,
   runAutoDR,
   cancelSession,
+  deleteSession,
   getEvents,
+  listSessions,
+  type SessionListItem,
 } from "@/lib/apiV4";
 import { DrPicker, type DrServiceKey } from "./DrPicker";
 import { ModelPicker, getPipelineModel } from "@/components/ModelPicker";
@@ -106,6 +109,7 @@ export default function Workspace() {
   const [toast, setToast] = useState<ToastState | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
   const [drBusy, setDrBusy] = useState<DrServiceKey | null>(null);
+  const [savedSessions, setSavedSessions] = useState<SessionListItem[]>([]);
 
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     if (typeof window === "undefined") return "light";
@@ -214,6 +218,25 @@ export default function Workspace() {
     return () => window.removeEventListener("keydown", onKey);
   }, [activeCite]);
 
+  // ===== Saved sessions list =====
+  // Refresh on mount, after cost changes (signals new server-side activity),
+  // and after sessionId changes (login → reload list, new session created).
+  useEffect(() => {
+    let cancelled = false;
+    listSessions()
+      .then((rows) => {
+        if (!cancelled) setSavedSessions(rows);
+      })
+      .catch(() => {
+        // 401 → not signed in; sidebar shows empty state. No toast.
+      });
+    return () => { cancelled = true; };
+  }, [sessionId, cost]);
+
+  const reloadSessions = useCallback(() => {
+    listSessions().then(setSavedSessions).catch(() => {});
+  }, []);
+
   // ===== Live events polling =====
   // While a long-running call is in flight (analyze / synthesize can take
   // 5-10 minutes for Sonnet), long-poll /events so the user sees real
@@ -256,6 +279,73 @@ export default function Workspace() {
       cancelled = true;
     };
   }, [pending, sessionId]);
+
+  // ===== Saved-session load / delete =====
+  const loadSavedSession = useCallback(
+    async (sid: string, title?: string) => {
+      if (pending) {
+        showToast("Дождитесь завершения текущего шага");
+        return;
+      }
+      try {
+        const s = await getSession(sid);
+        setSessionId(sid);
+        setSessionTitle(title || s.raw_question.slice(0, 40) || "Сессия");
+        setPromptData(s.research_prompt);
+        setAnalysisData(s.analysis);
+        setFinalData(s.final_report);
+        setCost(s.total_cost_rub || 0);
+        // Phase based on what's already done.
+        let nextPhase: Phase = PHASE.START;
+        if (s.final_report) nextPhase = PHASE.DONE;
+        else if (s.analysis) nextPhase = PHASE.CRITIQUE;
+        else if (s.source_reports?.length) nextPhase = PHASE.UPLOAD;
+        else if (s.research_prompt) nextPhase = PHASE.PROMPT;
+        setPhase(nextPhase);
+        // Replace chat with a single welcome message — chat history wasn't
+        // persisted server-side, so we render a "session restored" line + a
+        // ref to the most useful artifact.
+        const restored: ChatMessage = {
+          id: `restored-${Date.now()}`,
+          role: "system",
+          kind: "text",
+          content: `Сессия восстановлена. Вопрос: «${s.raw_question}». Статус: ${s.status}. ${s.final_report ? "Отчёт готов — справа." : s.analysis ? "Анализ есть — можно запустить синтез." : s.source_reports?.length ? "Загружены отчёты — можно анализировать." : s.research_prompt ? "Промт готов — выберите DR-сервис ниже." : "Начните с вопроса."}`,
+        };
+        setMessages([restored]);
+        if (s.final_report) setArtifact({ kind: "report", data: s.final_report });
+        else if (s.analysis) setArtifact({ kind: "critique", data: s.analysis });
+        else if (s.research_prompt) setArtifact({ kind: "prompt", data: s.research_prompt });
+        else setArtifact(null);
+        showToast(`Сессия загружена: ${(title || s.raw_question).slice(0, 40)}`);
+      } catch (e) {
+        showToast(`Не удалось загрузить: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    },
+    [pending]
+  );
+
+  const deleteSavedSession = useCallback(
+    async (sid: string) => {
+      try {
+        await deleteSession(sid);
+        setSavedSessions((rows) => rows.filter((r) => r.session_id !== sid));
+        if (sid === sessionId) {
+          // The active session was deleted — clear local state.
+          localStorage.removeItem("sr-session-id-v2");
+          localStorage.removeItem("sr-msgs-v2");
+          setSessionId(null);
+          setMessages([INITIAL_MESSAGE]);
+          setPhase(PHASE.START);
+          setPromptData(null); setAnalysisData(null); setFinalData(null);
+          setArtifact(null);
+        }
+        showToast("Сессия удалена");
+      } catch (e) {
+        showToast(`Не удалось удалить: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    },
+    [sessionId]
+  );
 
   // ===== Cancel handler =====
   const onCancel = useCallback(async () => {
@@ -1177,18 +1267,70 @@ export default function Workspace() {
           </div>
 
           <div className="sb-scroll">
-            {sessionId ? (
-              <button
-                className="sb-session current"
-                title={sessionTitle}
-              >
-                <span className="sb-session-dot active"></span>
-                <span className="sb-session-title">{sessionTitle}</span>
-                <span className="sb-session-cost">₽ {Math.round(cost)}</span>
-              </button>
-            ) : (
-              <div className="sb-empty">Нет сессий</div>
-            )}
+            {(() => {
+              const q = sidebarQuery.trim().toLowerCase();
+              const filtered = q
+                ? savedSessions.filter(
+                    (r) => r.raw_question.toLowerCase().includes(q)
+                  )
+                : savedSessions;
+              if (!filtered.length) {
+                return (
+                  <div className="sb-empty">
+                    {q ? "Ничего не найдено" : "Нет сессий"}
+                  </div>
+                );
+              }
+              return filtered.map((r) => {
+                const isCurrent = r.session_id === sessionId;
+                const dateLabel = r.created_at
+                  ? new Date(r.created_at).toLocaleDateString("ru-RU", {
+                      day: "2-digit", month: "short",
+                    })
+                  : "";
+                const previewTitle =
+                  r.raw_question.length > 50
+                    ? r.raw_question.slice(0, 47) + "…"
+                    : r.raw_question;
+                const statusBadge =
+                  r.status === "cancelled" ? "✕" :
+                  r.has_final_report ? "✓" :
+                  r.status === "analyzed" ? "·" :
+                  "○";
+                return (
+                  <div
+                    key={r.session_id}
+                    className={"sb-session" + (isCurrent ? " current" : "")}
+                  >
+                    <button
+                      className="sb-session-main"
+                      title={r.raw_question}
+                      onClick={() => loadSavedSession(r.session_id, previewTitle)}
+                    >
+                      <span className={"sb-session-dot" + (isCurrent ? " active" : "")}>
+                        {statusBadge}
+                      </span>
+                      <span className="sb-session-title">{previewTitle}</span>
+                      <span className="sb-session-meta">
+                        {dateLabel} · ₽ {Math.round(r.total_cost_rub || 0)}
+                      </span>
+                    </button>
+                    <button
+                      className="sb-session-del"
+                      title="Удалить сессию"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (confirm(`Удалить сессию «${previewTitle}»?`)) {
+                          deleteSavedSession(r.session_id);
+                        }
+                      }}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                );
+              });
+            })()}
           </div>
         </aside>
 

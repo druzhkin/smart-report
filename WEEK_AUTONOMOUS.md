@@ -148,3 +148,16 @@ Hard guardrails: stop deploying to prod if last 3 deploys broken; halt all paid 
 - Will run against Railway PG once token + env access confirmed.
 
 **Day 2 deploy status:** still building when we wrote this. Day 1 routes (auto-dr) confirmed live; Day 2 routes (cancel/DELETE) not yet — Railway Docker build pending.
+
+### 2026-04-26 (Day 6-7 — pulled forward, still same evening)
+
+**Saved sessions sidebar (frontend):**
+- `lib/apiV4.ts`: `listSessions()` + `SessionListItem` type
+- `Workspace.tsx`:
+  - state `savedSessions: SessionListItem[]`, fetched on mount + on `sessionId|cost` change
+  - `loadSavedSession(sid)` — hydrates promptData/analysisData/finalData from `getSession`, sets phase based on what's done, replaces chat with a single "Сессия восстановлена" line + reopens the most useful artifact (final → critique → prompt → none)
+  - `deleteSavedSession(sid)` — confirm dialog → DELETE → optimistic list filter → if deleting current, clear local state and back to start
+  - Sidebar render: rebuilt from "current-only stub" → real list with status badge (✓ done · · analyzed · ○ in progress · ✕ cancelled), date, cost, hover-revealed delete button, search-by-question filter
+- `workspace.css`: split `.sb-session` into div container + `.sb-session-main` (click-to-load) + `.sb-session-del` (hover ✕). Added `.sb-session-meta` for date+cost.
+
+**Trade-off note:** chat history is not persisted server-side, so loading a saved session shows a one-line "session restored" message instead of replaying every CTA/upload. The artifacts (prompt, analysis, final report) ARE restored from the JSONB payload — that's where the actual product value lives. Session-restore-with-full-chat-replay would require new backend storage; deferred.
