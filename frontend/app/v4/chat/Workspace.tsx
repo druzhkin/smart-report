@@ -155,7 +155,7 @@ export default function Workspace() {
   const [qualityGrade, setQualityGrade] = useState<QualityGrade | null>(null);
   const [sourceContent, setSourceContent] = useState<{ filename: string; content: string } | null>(null);
   const [activeResearchTask, setActiveResearchTask] = useState<{
-    taskId: string; service: string; mode: ValyuResearchMode;
+    taskId: string; service: string; mode: string;
   } | null>(null);
 
   const [theme, setTheme] = useState<"light" | "dark">(() => {
@@ -327,6 +327,10 @@ export default function Workspace() {
   useEffect(() => {
     if (!sessionId || !activeResearchTask) return;
     const { taskId, service, mode } = activeResearchTask;
+    const svcLabel =
+      service === "valyu" ? "Valyu Research" :
+      service === "tavily" ? "Tavily Research" :
+      service === "exa" ? "Exa Research" : service;
     let cancelled = false;
     let pollCount = 0;
     let lastState = "";
@@ -348,7 +352,7 @@ export default function Workspace() {
               role: "system",
               kind: "text",
               content:
-                `✓ Valyu Research (${mode}) завершён!\n\n` +
+                `✓ ${svcLabel} (${mode}) завершён!\n\n` +
                 `Получено ${st.source_count ?? "?"} источник(ов), отчёт сохранён как «${st.filename}». ` +
                 `Стоимость: $${(st.cost_usd ?? 0).toFixed(2)} (≈ ₽ ${costRub}). Можно запускать анализ.`,
             },
@@ -357,7 +361,7 @@ export default function Workspace() {
               role: "system",
               kind: "ref",
               refKind: "upload",
-              title: `Valyu Research (${mode}): отчёт`,
+              title: `${svcLabel} (${mode}): отчёт`,
               subtitle: `${st.source_count ?? 0} источник(ов) · ${st.word_count ?? 0} слов · открыть содержимое →`,
               accent: true,
               sourceFilename: st.filename || undefined,
@@ -388,8 +392,8 @@ export default function Workspace() {
               kind: "text",
               content:
                 st.state === "cancelled"
-                  ? `Valyu Research (${mode}) отменён.`
-                  : `✗ Valyu Research (${mode}) не справился. ${st.error || st.message || ""}`,
+                  ? `${svcLabel} (${mode}) отменён.`
+                  : `✗ ${svcLabel} (${mode}) не справился. ${st.error || st.message || ""}`,
             },
           ]);
           setActiveResearchTask(null);
@@ -710,7 +714,7 @@ export default function Workspace() {
 
   // ===== DR picker handlers =====
   const runIntegratedDr = useCallback(
-    async (service: AutoDRService, opts?: { mode?: ValyuResearchMode }) => {
+    async (service: AutoDRService, opts?: { mode?: string }) => {
       if (!sessionId) {
         showToast("Сессия не найдена — начните новый вопрос");
         return;
@@ -718,13 +722,13 @@ export default function Workspace() {
       if (drBusy) return;
       setDrBusy(service);
       const serviceLabel =
-        service === "valyu" ? "Valyu" :
-        service === "tavily" ? "Tavily" :
-        service === "exa" ? "Exa" :
+        service === "valyu" ? "Valyu Research" :
+        service === "tavily" ? "Tavily Research" :
+        service === "exa" ? "Exa Research" :
         service === "perplexity" ? "Perplexity Sonar Pro" : service;
-      const isAsync = service === "valyu" && !!opts?.mode;
+      const isAsync = !!opts?.mode && service !== "perplexity";
       const askLabel = isAsync
-        ? `Заказать Valyu Research (${opts!.mode})`
+        ? `Заказать ${serviceLabel} (${opts!.mode})`
         : `Заказать исследование у ${serviceLabel}`;
       push({ role: "user", kind: "text", content: askLabel });
       push({
@@ -755,7 +759,7 @@ export default function Workspace() {
             role: "system",
             kind: "text",
             content:
-              `✓ Valyu Research (${res.mode}) запущен.\n\n` +
+              `✓ ${serviceLabel} (${res.mode}) запущен.\n\n` +
               `${res.message}\n\n` +
               `Можете закрыть вкладку — результат появится в этой сессии, когда задача завершится. ` +
               `Я буду периодически опрашивать статус и обновлю чат, как только отчёт будет готов.`,
@@ -764,12 +768,12 @@ export default function Workspace() {
             role: "system",
             kind: "ref",
             refKind: "upload",
-            title: `Valyu Research (${res.mode})`,
+            title: `${serviceLabel} (${res.mode})`,
             subtitle: `задача ${res.task_id.slice(0, 8)}… · ETA ${res.eta_min_low}–${res.eta_min_high} мин · ₽ ${costRub}`,
             accent: true,
           });
           // Track this task_id; the polling effect below will pick it up.
-          setActiveResearchTask({ taskId: res.task_id, service: "valyu", mode: res.mode });
+          setActiveResearchTask({ taskId: res.task_id, service: res.service, mode: res.mode });
         } else {
           // Sync result — already in source_reports.
           const costRub = (res.cost_usd * 75.4).toFixed(2);

@@ -268,44 +268,97 @@ async def submit_async_research(
     *,
     mode: str = "standard",
 ) -> AsyncResearchSubmission:
-    """Submit a long-running research job. Currently only Valyu supports this.
+    """Submit a long-running research job to Valyu / Tavily / Exa.
 
-    Returns immediately (sub-second). Frontend should then poll
-    `try_collect_async_research(task_id)` until it returns an AutoDRResult.
+    Returns immediately (sub-second). Frontend then polls
+    `try_collect_async_research(task_id, service=...)` until it returns
+    an AutoDRResult.
+
+    Service-specific mode → SDK params:
+      valyu:  fast/standard/heavy/max → Valyu Research mode
+      tavily: mini/pro → Tavily Research model
+      exa:    fast/standard/pro       → Exa Research model
+              (mapped to exa-research-fast / exa-research / exa-research-pro)
     """
-    if service != "valyu":
-        raise AutoDRError(
-            f"async research only available for valyu (got {service!r}); "
-            "use run_auto_dr() for tavily/exa/perplexity"
-        )
     if not question or not question.strip():
         raise AutoDRError("async research requires a non-empty question")
 
-    from .valyu_deepresearch import (
-        ValyuResearchClient,
-        ValyuResearchError,
-        RESEARCH_MODE_PRICE_USD,
-    )
-    if mode not in RESEARCH_MODE_PRICE_USD:
-        raise AutoDRError(f"unknown valyu mode: {mode!r}")
-
     import os
-    api_key = os.environ.get("VALYU_API_KEY")
-    if not api_key:
-        raise AutoDRError("VALYU_API_KEY not set")
-    client = ValyuResearchClient(api_key=api_key)
 
-    try:
-        sub = await client.submit(question, mode=mode)  # type: ignore[arg-type]
-    except ValyuResearchError as e:
-        raise AutoDRError(f"valyu research submit failed: {e}") from e
-    return AsyncResearchSubmission(
-        task_id=sub.task_id,
-        service="valyu",
-        mode=sub.mode,
-        cost_usd=sub.cost_usd,
-        eta_min_low=sub.eta_min_low,
-        eta_min_high=sub.eta_min_high,
+    if service == "valyu":
+        from .valyu_deepresearch import (
+            ValyuResearchClient, ValyuResearchError, RESEARCH_MODE_PRICE_USD,
+        )
+        if mode not in RESEARCH_MODE_PRICE_USD:
+            raise AutoDRError(f"unknown valyu mode: {mode!r}")
+        api_key = os.environ.get("VALYU_API_KEY")
+        if not api_key:
+            raise AutoDRError("VALYU_API_KEY not set")
+        try:
+            sub = await ValyuResearchClient(api_key=api_key).submit(
+                question, mode=mode  # type: ignore[arg-type]
+            )
+        except ValyuResearchError as e:
+            raise AutoDRError(f"valyu research submit failed: {e}") from e
+        return AsyncResearchSubmission(
+            task_id=sub.task_id, service="valyu", mode=sub.mode,
+            cost_usd=sub.cost_usd, eta_min_low=sub.eta_min_low, eta_min_high=sub.eta_min_high,
+        )
+
+    if service == "tavily":
+        from .tavily_research import (
+            TavilyResearchClient, TavilyResearchError, RESEARCH_MODEL_PRICE_USD,
+        )
+        if mode not in RESEARCH_MODEL_PRICE_USD:
+            raise AutoDRError(f"unknown tavily research model: {mode!r}")
+        api_key = os.environ.get("TAVILY_API_KEY")
+        if not api_key:
+            raise AutoDRError("TAVILY_API_KEY not set")
+        try:
+            sub = await TavilyResearchClient(api_key=api_key).submit(
+                question, model=mode  # type: ignore[arg-type]
+            )
+        except TavilyResearchError as e:
+            raise AutoDRError(f"tavily research submit failed: {e}") from e
+        return AsyncResearchSubmission(
+            task_id=sub.request_id, service="tavily", mode=sub.model,
+            cost_usd=sub.cost_usd, eta_min_low=sub.eta_min_low, eta_min_high=sub.eta_min_high,
+        )
+
+    if service == "exa":
+        from .exa_research import (
+            ExaResearchClient, ExaResearchError, RESEARCH_MODEL_PRICE_USD as EXA_PRICE,
+        )
+        # Friendly mode aliases → SDK model names.
+        exa_mode_map = {
+            "fast":     "exa-research-fast",
+            "standard": "exa-research",
+            "pro":      "exa-research-pro",
+            # also accept the SDK names directly:
+            "exa-research-fast": "exa-research-fast",
+            "exa-research":      "exa-research",
+            "exa-research-pro":  "exa-research-pro",
+        }
+        sdk_model = exa_mode_map.get(mode)
+        if sdk_model is None:
+            raise AutoDRError(f"unknown exa research model: {mode!r}")
+        api_key = os.environ.get("EXA_API_KEY")
+        if not api_key:
+            raise AutoDRError("EXA_API_KEY not set")
+        try:
+            sub = await ExaResearchClient(api_key=api_key).submit(
+                question, model=sdk_model  # type: ignore[arg-type]
+            )
+        except ExaResearchError as e:
+            raise AutoDRError(f"exa research submit failed: {e}") from e
+        return AsyncResearchSubmission(
+            task_id=sub.research_id, service="exa", mode=mode,
+            cost_usd=sub.cost_usd, eta_min_low=sub.eta_min_low, eta_min_high=sub.eta_min_high,
+        )
+
+    raise AutoDRError(
+        f"async research not available for service {service!r}; "
+        "supported: valyu, tavily, exa"
     )
 
 
@@ -330,54 +383,121 @@ async def try_collect_async_research(
     service: str = "valyu",
     mode: str = "standard",
 ) -> AsyncResearchPoll:
-    """Single-poll the job. Caller (frontend) is responsible for backoff."""
-    if service != "valyu":
-        return AsyncResearchPoll(state="failed", error=f"unknown service {service!r}")
-    from .valyu_deepresearch import (
-        ValyuResearchClient,
-        ValyuResearchError,
-        RESEARCH_MODE_PRICE_USD,
-    )
+    """Single-poll the job for any supported service."""
     import os
-    api_key = os.environ.get("VALYU_API_KEY")
-    if not api_key:
-        return AsyncResearchPoll(state="failed", error="VALYU_API_KEY not set")
-    client = ValyuResearchClient(api_key=api_key)
 
-    try:
-        st = await client.status(task_id)
-    except ValyuResearchError as e:
-        return AsyncResearchPoll(state="failed", error=str(e))
-
-    if st.state != "completed":
+    if service == "valyu":
+        from .valyu_deepresearch import (
+            ValyuResearchClient, ValyuResearchError, RESEARCH_MODE_PRICE_USD,
+        )
+        api_key = os.environ.get("VALYU_API_KEY")
+        if not api_key:
+            return AsyncResearchPoll(state="failed", error="VALYU_API_KEY not set")
+        client = ValyuResearchClient(api_key=api_key)
+        try:
+            st = await client.status(task_id)
+        except ValyuResearchError as e:
+            return AsyncResearchPoll(state="failed", error=str(e))
+        if st.state != "completed":
+            return AsyncResearchPoll(
+                state=st.state, progress_pct=st.progress_pct, message=st.message,
+            )
+        try:
+            rr = await client.fetch_result(task_id)
+        except ValyuResearchError as e:
+            return AsyncResearchPoll(state="failed", error=f"asset fetch failed: {e}")
+        cost_usd = RESEARCH_MODE_PRICE_USD.get(mode, 0.50)
+        upload = UploadedMarkdown(
+            filename=f"valyu_research_{mode}_{task_id[:8]}.md",
+            content=rr.markdown, detected_tool="other", word_count=rr.word_count,
+        )
         return AsyncResearchPoll(
-            state=st.state,
-            progress_pct=st.progress_pct,
-            message=st.message,
+            state="completed",
+            result=AutoDRResult(
+                upload=upload, service="valyu", cost_usd=cost_usd,
+                cost_rub=round(cost_usd * _USD_RUB_RATE, 4),
+                source_count=rr.sources_count,
+                notes=f"backend=valyu_research mode={mode} task_id={task_id}",
+            ),
         )
 
-    # Completed → fetch the markdown asset and wrap as AutoDRResult.
-    try:
-        rr = await client.fetch_result(task_id)
-    except ValyuResearchError as e:
-        return AsyncResearchPoll(state="failed", error=f"asset fetch failed: {e}")
+    if service == "tavily":
+        from .tavily_research import (
+            TavilyResearchClient, TavilyResearchError, RESEARCH_MODEL_PRICE_USD,
+        )
+        api_key = os.environ.get("TAVILY_API_KEY")
+        if not api_key:
+            return AsyncResearchPoll(state="failed", error="TAVILY_API_KEY not set")
+        client = TavilyResearchClient(api_key=api_key)
+        try:
+            st = await client.status(task_id)
+        except TavilyResearchError as e:
+            return AsyncResearchPoll(state="failed", error=str(e))
+        if st.state != "completed":
+            return AsyncResearchPoll(
+                state=st.state, progress_pct=st.progress_pct, message=st.message,
+            )
+        try:
+            rr = await client.fetch_result(task_id)
+        except TavilyResearchError as e:
+            return AsyncResearchPoll(state="failed", error=f"result fetch failed: {e}")
+        cost_usd = RESEARCH_MODEL_PRICE_USD.get(mode, 0.30)
+        upload = UploadedMarkdown(
+            filename=f"tavily_research_{mode}_{task_id[:8]}.md",
+            content=rr.markdown, detected_tool="other", word_count=rr.word_count,
+        )
+        return AsyncResearchPoll(
+            state="completed",
+            result=AutoDRResult(
+                upload=upload, service="tavily", cost_usd=cost_usd,
+                cost_rub=round(cost_usd * _USD_RUB_RATE, 4),
+                source_count=rr.sources_count,
+                notes=f"backend=tavily_research model={mode} request_id={task_id}",
+            ),
+        )
 
-    cost_usd = RESEARCH_MODE_PRICE_USD.get(mode, 0.50)
-    upload = UploadedMarkdown(
-        filename=f"valyu_research_{mode}_{task_id[:8]}.md",
-        content=rr.markdown,
-        detected_tool="other",
-        word_count=rr.word_count,
-    )
-    result = AutoDRResult(
-        upload=upload,
-        service="valyu",
-        cost_usd=cost_usd,
-        cost_rub=round(cost_usd * _USD_RUB_RATE, 4),
-        source_count=rr.sources_count,
-        notes=f"backend=valyu_research mode={mode} task_id={task_id}",
-    )
-    return AsyncResearchPoll(state="completed", result=result)
+    if service == "exa":
+        from .exa_research import (
+            ExaResearchClient, ExaResearchError, RESEARCH_MODEL_PRICE_USD as EXA_PRICE,
+        )
+        api_key = os.environ.get("EXA_API_KEY")
+        if not api_key:
+            return AsyncResearchPoll(state="failed", error="EXA_API_KEY not set")
+        client = ExaResearchClient(api_key=api_key)
+        try:
+            st = await client.status(task_id)
+        except ExaResearchError as e:
+            return AsyncResearchPoll(state="failed", error=str(e))
+        if st.state != "completed":
+            return AsyncResearchPoll(
+                state=st.state, progress_pct=st.progress_pct, message=st.message,
+            )
+        try:
+            rr = await client.fetch_result(task_id)
+        except ExaResearchError as e:
+            return AsyncResearchPoll(state="failed", error=f"result fetch failed: {e}")
+        # Same alias as in submit
+        sdk_mode = {
+            "fast": "exa-research-fast",
+            "standard": "exa-research",
+            "pro": "exa-research-pro",
+        }.get(mode, mode)
+        cost_usd = EXA_PRICE.get(sdk_mode, 0.50)
+        upload = UploadedMarkdown(
+            filename=f"exa_research_{mode}_{task_id[:8]}.md",
+            content=rr.markdown, detected_tool="other", word_count=rr.word_count,
+        )
+        return AsyncResearchPoll(
+            state="completed",
+            result=AutoDRResult(
+                upload=upload, service="exa", cost_usd=cost_usd,
+                cost_rub=round(cost_usd * _USD_RUB_RATE, 4),
+                source_count=rr.sources_count,
+                notes=f"backend=exa_research model={mode} research_id={task_id}",
+            ),
+        )
+
+    return AsyncResearchPoll(state="failed", error=f"unknown service {service!r}")
 
 
 async def cancel_async_research(task_id: str, *, service: str = "valyu") -> None:

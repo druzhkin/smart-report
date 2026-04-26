@@ -363,10 +363,12 @@ class AutoDRIn(BaseModel):
         description="Optional override; defaults to the session's research_prompt.full_prompt or raw_question.",
     )
     domain_hint: str | None = Field(default=None, max_length=64)
-    # Valyu only: which Research mode. None = use legacy fast-search path
-    # (instant per-result $0.005-0.02). "fast"|"standard"|"heavy"|"max" =
-    # use Research API (fixed price, async, 5-180 min).
-    mode: Literal["fast", "standard", "heavy", "max"] | None = Field(default=None)
+    # When set, routes through the service's async Research API:
+    #   valyu:  fast/standard/heavy/max (Valyu Research, fixed $0.10-$15)
+    #   tavily: mini/pro/auto (Tavily Research)
+    #   exa:    fast/standard/pro (Exa research-fast/research/research-pro)
+    # When None, falls back to instant search (legacy per-result pricing).
+    mode: str | None = Field(default=None, max_length=64)
 
 
 class AutoDROut(BaseModel):
@@ -443,27 +445,31 @@ async def auto_dr(session_id: str, request: Request, payload: AutoDRIn):
 
     emitter = _SessionEmitter(session_id)
 
-    # --- Async path: Valyu Research API ---
-    if payload.service == "valyu" and payload.mode is not None:
+    # --- Async path: Valyu / Tavily / Exa Research APIs ---
+    if payload.mode is not None and payload.service in {"valyu", "tavily", "exa"}:
         mode = payload.mode
+        svc_label = {
+            "valyu": "Valyu Research",
+            "tavily": "Tavily Research",
+            "exa": "Exa Research",
+        }[payload.service]
         emitter.emit(
             "status",
-            f"Отправляю задачу в Valyu Research ({mode})…",
-            data={"service": "valyu", "mode": mode},
+            f"Отправляю задачу в {svc_label} ({mode})…",
+            data={"service": payload.service, "mode": mode},
         )
         try:
-            sub = await submit_async_research("valyu", question, mode=mode)
+            sub = await submit_async_research(payload.service, question, mode=mode)
         except AutoDRError as e:
-            emitter.emit("error", f"valyu research: {e}", data={"service": "valyu", "mode": mode})
+            emitter.emit("error", f"{svc_label}: {e}", data={"service": payload.service, "mode": mode})
             raise HTTPException(status_code=502, detail=str(e)) from e
 
         # Charge cost upfront — fixed-price job, billed regardless of completion.
         cost_rub = round(sub.cost_usd * _USD_RUB_RATE, 4)
         session.total_cost_rub = float(session.total_cost_rub or 0.0) + cost_rub
-        # Track the in-flight job so /auto-dr-status can find it later.
         session.pending_dr_jobs = list(session.pending_dr_jobs or []) + [{
             "task_id": sub.task_id,
-            "service": "valyu",
+            "service": payload.service,
             "mode": mode,
             "cost_usd": sub.cost_usd,
             "cost_rub": cost_rub,
@@ -473,12 +479,12 @@ async def auto_dr(session_id: str, request: Request, payload: AutoDRIn):
 
         emitter.emit(
             "status",
-            f"Valyu Research запущен: задача {sub.task_id[:8]}…, режим {mode}, ETA {sub.eta_min_low}-{sub.eta_min_high} мин",
-            data={"service": "valyu", "mode": mode, "task_id": sub.task_id},
+            f"{svc_label} запущен: задача {sub.task_id[:8]}…, режим {mode}, ETA {sub.eta_min_low}-{sub.eta_min_high} мин",
+            data={"service": payload.service, "mode": mode, "task_id": sub.task_id},
         )
 
         return AutoDRAsyncOut(
-            service="valyu",
+            service=payload.service,
             mode=mode,
             task_id=sub.task_id,
             cost_usd=sub.cost_usd,
@@ -486,7 +492,7 @@ async def auto_dr(session_id: str, request: Request, payload: AutoDRIn):
             eta_min_low=sub.eta_min_low,
             eta_min_high=sub.eta_min_high,
             message=(
-                f"Valyu Research ({mode}) запущен. Ожидаемое время: "
+                f"{svc_label} ({mode}) запущен. Ожидаемое время: "
                 f"{sub.eta_min_low}–{sub.eta_min_high} минут. Стоимость: "
                 f"${sub.cost_usd:.2f} (≈ ₽ {cost_rub:.2f}) — уже списана."
             ),
