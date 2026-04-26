@@ -462,7 +462,10 @@ async def auto_dr(session_id: str, request: Request, payload: AutoDRIn):
             data={"service": payload.service, "mode": mode},
         )
         try:
-            sub = await submit_async_research(payload.service, question, mode=mode)
+            sub = await submit_async_research(
+                payload.service, question, mode=mode,
+                session_id=session_id, store=_store,
+            )
         except AutoDRError as e:
             emitter.emit("error", f"{svc_label}: {e}", data={"service": payload.service, "mode": mode})
             raise HTTPException(status_code=502, detail=str(e)) from e

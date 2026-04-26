@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from smart_report.models import UploadedMarkdown
 
@@ -309,6 +309,8 @@ async def submit_async_research(
     question: str,
     *,
     mode: str = "standard",
+    session_id: Optional[str] = None,
+    store: Optional[Any] = None,
 ) -> AsyncResearchSubmission:
     """Submit a long-running research job to Valyu / Tavily / Exa.
 
@@ -407,7 +409,10 @@ async def submit_async_research(
                 f"unknown openai DR mode: {mode!r}; allowed: {list(OPENAI_DR_MODELS)}"
             )
         try:
-            info = submit_openai_deep_research(question, mode=mode)
+            info = submit_openai_deep_research(
+                question, mode=mode,
+                session_id=session_id, store=store,
+            )
         except Exception as e:
             raise AutoDRError(f"openai DR submit failed: {type(e).__name__}: {e}") from e
         return AsyncResearchSubmission(

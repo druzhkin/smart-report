@@ -477,7 +477,7 @@ def test_auto_dr_async_path_returns_task_id_and_charges_upfront(monkeypatch):
 
     submitted: dict = {}
 
-    async def _fake_submit(service, question, *, mode="standard"):
+    async def _fake_submit(service, question, *, mode="standard", session_id=None, store=None):
         submitted["service"] = service
         submitted["question"] = question
         submitted["mode"] = mode
@@ -519,7 +519,7 @@ def test_auto_dr_async_path_returns_task_id_and_charges_upfront(monkeypatch):
 def test_auto_dr_status_running_returns_state(monkeypatch):
     from smart_report.sources import auto_dr as auto_dr_mod
 
-    async def _fake_submit(service, question, *, mode="standard"):
+    async def _fake_submit(service, question, *, mode="standard", session_id=None, store=None):
         return auto_dr_mod.AsyncResearchSubmission(
             task_id="t1", service="valyu", mode=mode,
             cost_usd=0.50, eta_min_low=10, eta_min_high=20,
@@ -550,7 +550,7 @@ def test_auto_dr_status_completed_appends_to_source_reports(monkeypatch):
     from smart_report.models import UploadedMarkdown
     from smart_report.sources import auto_dr as auto_dr_mod
 
-    async def _fake_submit(service, question, *, mode="standard"):
+    async def _fake_submit(service, question, *, mode="standard", session_id=None, store=None):
         return auto_dr_mod.AsyncResearchSubmission(
             task_id="t2", service="valyu", mode=mode,
             cost_usd=0.50, eta_min_low=10, eta_min_high=20,

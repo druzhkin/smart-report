@@ -52,11 +52,25 @@ class LLMResearchTaskInfo:
     eta_min_high: int
 
 
-def submit_openai_deep_research(question: str, *, mode: str = "mini") -> LLMResearchTaskInfo:
+def submit_openai_deep_research(
+    question: str,
+    *,
+    mode: str = "mini",
+    session_id: Optional[str] = None,
+    store: Optional[Any] = None,
+) -> LLMResearchTaskInfo:
     """Kick off OpenAI Deep Research as a background asyncio task.
 
     Returns a synthetic task_id immediately. The frontend polls
     `get_llm_research_task(task_id)` until state is completed/failed.
+
+    `session_id` + `store`: when both passed, the background task will
+    persist the completed AutoDRResult directly to the session's
+    `source_reports` (and remove the entry from `pending_dr_jobs`) on
+    completion — so a container restart AFTER the OpenAI API call
+    returned doesn't lose the user's paid-for result. Restart DURING
+    the API call is still lossy (would need OpenAI direct API + a
+    persistent response_id to fully recover).
     """
     if mode not in OPENAI_DR_MODELS:
         raise ValueError(f"unknown openai DR mode: {mode!r} (allowed: {list(OPENAI_DR_MODELS)})")
@@ -75,7 +89,7 @@ def submit_openai_deep_research(question: str, *, mode: str = "mini") -> LLMRese
         "error": None,
     }
     # Fire-and-forget. Errors are caught inside the task and stored on the registry.
-    asyncio.create_task(_run_openai_dr(task_id, question, model_id))
+    asyncio.create_task(_run_openai_dr(task_id, question, model_id, session_id, store))
     return LLMResearchTaskInfo(
         task_id=task_id,
         service="openai",
@@ -86,7 +100,13 @@ def submit_openai_deep_research(question: str, *, mode: str = "mini") -> LLMRese
     )
 
 
-async def _run_openai_dr(task_id: str, question: str, model_id: str) -> None:
+async def _run_openai_dr(
+    task_id: str,
+    question: str,
+    model_id: str,
+    session_id: Optional[str],
+    store: Optional[Any],
+) -> None:
     """Background runner — calls OpenRouter, writes result to registry."""
     from smart_report.llm import call_json
     from smart_report.models import UploadedMarkdown
@@ -174,6 +194,35 @@ async def _run_openai_dr(task_id: str, question: str, model_id: str) -> None:
         "openai DR task %s completed in %ds (cost $%.2f)",
         task_id, int(time.time()-started), cost_usd,
     )
+
+    # Persistence shortcut: if caller passed session_id+store, write the
+    # upload to the session immediately. This means a container restart
+    # AFTER the OpenAI call returned but BEFORE the user polls won't lose
+    # the result — it's already in PostgreSQL. Idempotent: status endpoint
+    # also adds it on poll if not yet there, so double-write is harmless.
+    if session_id and store is not None:
+        try:
+            session = store.get(session_id)
+            already = any(
+                u.filename == upload.filename for u in (session.source_reports or [])
+            )
+            if not already:
+                session.source_reports = list(session.source_reports or []) + [upload]
+                if session.status in {"created", "prompt_generated"}:
+                    session.status = "reports_uploaded"
+                session.pending_dr_jobs = [
+                    j for j in (session.pending_dr_jobs or [])
+                    if j.get("task_id") != task_id
+                ]
+                store.update(session)
+                _logger.info(
+                    "openai DR task %s persisted to session %s", task_id, session_id,
+                )
+        except Exception as e:
+            _logger.warning(
+                "openai DR task %s: failed to persist to session %s: %s",
+                task_id, session_id, e,
+            )
 
 
 def get_llm_research_task(task_id: str) -> Optional[dict[str, Any]]:
