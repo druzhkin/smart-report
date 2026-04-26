@@ -33,14 +33,33 @@ _STUB = {
 
 
 @pytest.fixture(autouse=True)
-def _reset_state():
+def _reset_state(tmp_path, monkeypatch):
     v4._V4_SESSIONS.clear()
     v4._V4_EVENTS.clear()
     v4._V4_EVENT_SIGNALS.clear()
+    # Per-user isolation + cost cap require an authenticated user. Isolate
+    # the auth user store to a temp file per test and clear the in-memory
+    # signup rate-limit so repeated tests don't 429 each other.
+    from smart_report.api import auth as auth_module
+    monkeypatch.setattr(auth_module, "_DATA_DIR", tmp_path / "auth")
+    monkeypatch.setattr(auth_module, "_USERS_PATH", tmp_path / "auth" / "users.json")
+    auth_module._SIGNUP_RATE.clear()
     yield
     v4._V4_SESSIONS.clear()
     v4._V4_EVENTS.clear()
     v4._V4_EVENT_SIGNALS.clear()
+
+
+def _authed_client():
+    """TestClient with a fresh signed-up user — sets the session cookie so
+    POST /api/v4/sessions and the per-user-gated endpoints accept calls."""
+    c = TestClient(app)
+    r = c.post(
+        "/api/auth/signup",
+        json={"email": "tester@example.com", "password": "test1234"},
+    )
+    assert r.status_code == 201, r.text
+    return c
 
 
 @pytest.fixture
@@ -54,7 +73,7 @@ def mock_llm(monkeypatch):
 
 
 def test_create_session_returns_session_id():
-    client = TestClient(app)
+    client = _authed_client()
     r = client.post("/api/v4/sessions", json={"question": "what drives developer success"})
     assert r.status_code == 200, r.text
     body = r.json()
@@ -63,13 +82,13 @@ def test_create_session_returns_session_id():
 
 
 def test_create_session_rejects_short_question():
-    client = TestClient(app)
+    client = _authed_client()
     r = client.post("/api/v4/sessions", json={"question": "hi"})
     assert r.status_code == 422
 
 
 def test_generate_prompt_end_to_end(mock_llm):
-    client = TestClient(app)
+    client = _authed_client()
     r = client.post("/api/v4/sessions", json={"question": "market analysis please"})
     sid = r.json()["session_id"]
 
@@ -83,13 +102,13 @@ def test_generate_prompt_end_to_end(mock_llm):
 
 
 def test_generate_prompt_404_on_unknown_session():
-    client = TestClient(app)
+    client = _authed_client()
     r = client.post("/api/v4/sessions/no-such-id/generate-prompt")
     assert r.status_code == 404
 
 
 def test_get_session_after_prompt_generation(mock_llm):
-    client = TestClient(app)
+    client = _authed_client()
     sid = client.post("/api/v4/sessions", json={"question": "what drives it"}).json()["session_id"]
     client.post(f"/api/v4/sessions/{sid}/generate-prompt")
     r = client.get(f"/api/v4/sessions/{sid}")
@@ -101,7 +120,7 @@ def test_get_session_after_prompt_generation(mock_llm):
 
 
 def test_events_route_returns_prompt_master_events(mock_llm):
-    client = TestClient(app)
+    client = _authed_client()
     sid = client.post("/api/v4/sessions", json={"question": "what drives it"}).json()["session_id"]
     client.post(f"/api/v4/sessions/{sid}/generate-prompt")
     r = client.get(f"/api/v4/sessions/{sid}/events", params={"since": 0, "timeout": 0})
@@ -217,7 +236,7 @@ def test_v4_full_cycle(monkeypatch, tmp_path):
     monkeypatch.setattr(intake_module, "call_json", _intake_stub)
     monkeypatch.setattr(critic_module, "call_json", _critic_stub)
 
-    client = TestClient(app)
+    client = _authed_client()
     sid = client.post(
         "/api/v4/sessions", json={"question": "what drives success"}
     ).json()["session_id"]
@@ -280,7 +299,7 @@ def test_v4_full_cycle(monkeypatch, tmp_path):
 def test_track_b_endpoints_are_wired():
     """Track B has shipped — analyze/synthesize/upload routes exist (body behaviour
     is covered by test_v4_full_cycle / test_analyzer / test_synthesizer)."""
-    client = TestClient(app)
+    client = _authed_client()
     sid = client.post("/api/v4/sessions", json={"question": "what drives it"}).json()["session_id"]
     # analyze with no uploads → 400 (not 501)
     r = client.post(f"/api/v4/sessions/{sid}/analyze")

@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import mimetypes
+import os
 import re
 import time
 import uuid
@@ -137,7 +138,7 @@ class ModelPreferenceIn(BaseModel):
 # ---- endpoints ----
 
 
-# ----- per-user ownership helpers -----
+# ----- per-user ownership + cost cap helpers -----
 
 
 def _current_email(request: Request) -> str | None:
@@ -150,13 +151,27 @@ def _current_email(request: Request) -> str | None:
     return sess.get("user_email")
 
 
+def _require_email(request: Request) -> str:
+    """Require an authenticated session — raise 401 otherwise.
+
+    Used on POST /sessions so anonymous direct-API callers can't create
+    publicly-readable sessions that bypass per-user isolation.
+    """
+    email = _current_email(request)
+    if not email:
+        raise HTTPException(
+            status_code=401,
+            detail="not authenticated — sign in or sign up first",
+        )
+    return email
+
+
 def _ensure_owner(session, email: str | None) -> None:
     """Raise 403 if session is owner-tagged and the request's user doesn't match.
 
-    Anonymous sessions (user_email=None) remain public — backwards-compat
-    with frontend's fake-passwordless login. Once user signs in via
-    /api/auth/signup or /api/auth/login, their cookie email is stored on the
-    session and subsequent calls are gated.
+    Anonymous sessions (user_email=None) — only legacy rows from before
+    SaaS auth landed. Treated as public for backwards-compat; new sessions
+    always carry user_email because POST /sessions now requires auth.
     """
     owner = getattr(session, "user_email", None)
     if owner is None:
@@ -179,18 +194,76 @@ def _get_owned(session_id: str, request: Request):
     return session
 
 
+# Cost cap — prevent abuse where a signed-up user spends unbounded LLM money.
+# Read from env so ops can adjust without redeploy. Default $1.00/user/30d
+# = ~2 reports — generous demo allowance, not real product pricing.
+_USER_MONTHLY_CAP_USD: float = float(os.environ.get("USER_MONTHLY_CAP_USD", "1.0"))
+_USD_RUB_RATE: float = 75.4
+
+
+def _user_monthly_spend_usd(email: str) -> float:
+    """Sum total_cost_rub across the user's sessions in the last 30 days,
+    convert to USD. Uses store.all() — fine for demo scale (sub-1k sessions).
+    For real scale move this to a SQL aggregate."""
+    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+    cutoff = _dt.now(_tz.utc) - _td(days=30)
+    total_rub = 0.0
+    for s in _store.all():
+        if getattr(s, "user_email", None) != email:
+            continue
+        created = s.created_at
+        # store may give a tz-naive datetime depending on backend
+        if hasattr(created, "tzinfo") and created.tzinfo is None:
+            created = created.replace(tzinfo=_tz.utc)
+        if created < cutoff:
+            continue
+        total_rub += float(s.total_cost_rub or 0.0)
+    return total_rub / _USD_RUB_RATE
+
+
+def _enforce_cost_cap(email: str) -> None:
+    """Raise 402 if the user is over their 30-day spend cap.
+
+    Called pre-flight on /generate-prompt, /analyze, /synthesize — the three
+    LLM-spending entry points. Lightweight cheap reads (whoami) stay free.
+    """
+    spent = _user_monthly_spend_usd(email)
+    if spent >= _USER_MONTHLY_CAP_USD:
+        raise HTTPException(
+            status_code=402,
+            detail=(
+                f"monthly spend cap reached: ${spent:.2f} of "
+                f"${_USER_MONTHLY_CAP_USD:.2f}. Contact support for a higher tier."
+            ),
+        )
+
+
+def _owned_with_cap(session_id: str, request: Request):
+    """Combined ownership check + cost cap enforcement for LLM-spending endpoints."""
+    session = _get_owned(session_id, request)
+    owner = getattr(session, "user_email", None)
+    if owner:  # only enforce cap for authenticated owners (legacy public sessions skip)
+        _enforce_cost_cap(owner)
+    return session
+
+
 @router.post("/sessions", response_model=CreateSessionOut)
 async def create_session(payload: CreateSessionIn, request: Request) -> CreateSessionOut:
+    # Auth required — closes the anonymous-session bypass that let direct
+    # API callers create sessions readable by anyone with the session_id.
+    # Frontend already gates /v4/* behind /login (commit 8874c90), so this
+    # is the matching server-side enforcement.
+    email = _require_email(request)
+    # Cost cap pre-flight: even a fresh session counts because the next call
+    # will be generate-prompt → Sonnet $$$.
+    _enforce_cost_cap(email)
     session_id = uuid.uuid4().hex[:12]
     session = _store.create(session_id=session_id, raw_question=payload.question)
-    # Tag with current user (if signed in) so subsequent calls can verify.
-    email = _current_email(request)
-    if email:
-        session.user_email = email
-        _store.update(session)
+    session.user_email = email
+    _store.update(session)
     _V4_EVENTS[session_id] = []
     _V4_EVENT_SIGNALS[session_id] = asyncio.Event()
-    log.info("v4 session %s created (owner=%s)", session_id, email or "anonymous")
+    log.info("v4 session %s created (owner=%s)", session_id, email)
     return CreateSessionOut(session_id=session_id)
 
 
@@ -218,29 +291,16 @@ async def list_my_sessions(request: Request) -> list[dict]:
     return out
 
 
-@router.post("/admin/restore-session")
-async def admin_restore_session(payload: dict) -> dict:
-    """Restore a full V4Session from a JSON dump (recovery after backend restart).
-
-    Body: full session JSON as returned by GET /api/v4/sessions/{id}.
-    Returns: {"session_id": "<id>", "restored": True}.
-    Dangerous; intended for local debugging only.
-    """
-    from ..models import V4Session
-    try:
-        session = V4Session.model_validate(payload)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"invalid session payload: {e!r}") from e
-    _V4_SESSIONS[session.session_id] = session
-    _V4_EVENTS.setdefault(session.session_id, [])
-    _V4_EVENT_SIGNALS.setdefault(session.session_id, asyncio.Event())
-    log.info("v4 session %s RESTORED (status=%s, cost=%s)", session.session_id, session.status, session.total_cost_rub)
-    return {"session_id": session.session_id, "restored": True, "status": session.status}
+# /admin/restore-session was an open POST that let any caller inject a
+# V4Session JSON into the in-memory store. With Postgres persistence
+# (commit d527551) the original recovery use-case (backend restart wipes
+# RAM) no longer applies. Removed to close the injection surface — if
+# manual ops recovery is ever needed, do it via direct DB access.
 
 
 @router.post("/sessions/{session_id}/generate-prompt", response_model=ResearchPrompt)
 async def generate_prompt(session_id: str, request: Request, payload: ModelPreferenceIn | None = None) -> ResearchPrompt:
-    _get_owned(session_id, request)
+    _owned_with_cap(session_id, request)
     orch = V4Orchestrator(_store, emitter=_SessionEmitter(session_id))
     model_preference = payload.model_preference if payload else None
     try:
@@ -273,7 +333,7 @@ async def upload_followup(
 
 @router.post("/sessions/{session_id}/analyze", response_model=AnalysisOutput)
 async def analyze(session_id: str, request: Request, payload: ModelPreferenceIn | None = None) -> AnalysisOutput:
-    _get_owned(session_id, request)
+    _owned_with_cap(session_id, request)
     orch = V4Orchestrator(_store, emitter=_SessionEmitter(session_id))
     model_preference = payload.model_preference if payload else None
     try:
@@ -287,7 +347,7 @@ async def analyze(session_id: str, request: Request, payload: ModelPreferenceIn 
 
 @router.post("/sessions/{session_id}/synthesize", response_model=FinalReport)
 async def synthesize(session_id: str, request: Request, payload: ModelPreferenceIn | None = None) -> FinalReport:
-    _get_owned(session_id, request)
+    _owned_with_cap(session_id, request)
     orch = V4Orchestrator(_store, emitter=_SessionEmitter(session_id))
     model_preference = payload.model_preference if payload else None
     try:

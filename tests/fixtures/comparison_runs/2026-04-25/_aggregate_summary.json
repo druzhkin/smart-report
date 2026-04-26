@@ -1,0 +1,197 @@
+{
+  "ran_at_utc": "2026-04-25T19:25:26.713762+00:00",
+  "total_cost_usd": 7.834,
+  "queries": [
+    {
+      "query_id": "q1_ev",
+      "question": "Сравните перспективы трёх лидеров электромобильного рынка в России (Москвич, АВТОВАЗ, Evolute) на горизонте 3 лет в условиях конкуренции с китайскими брендами BYD, Geely, Chery",
+      "uploads": [
+        {
+          "filename": "Перспективы-российских-производителей-электромобилей-в-условиях-китайской-конкуренции-прогноз-на-2026–2029-годы.md",
+          "tool": "openai_dr"
+        },
+        {
+          "filename": "«Сравните перспективы трёх лидеров электромобильно.md",
+          "tool": "perplexity"
+        }
+      ],
+      "cost_usd_total": 3.5847,
+      "cost_rub_total": 270.29,
+      "decomposition_method": "llm_planner",
+      "expected_route": "llm_planner",
+      "route_matches_expectation": true,
+      "sub_questions_count": 5,
+      "evidence_quality": "LOW_EVIDENCE_QUALITY",
+      "gap_count_by_severity": {
+        "critical": 4,
+        "moderate": 1,
+        "minor": 0
+      },
+      "source_count_in_final": 48,
+      "main_synthesis_chars": 10767,
+      "evidence_grade_distribution": {
+        "STRONG": 0,
+        "MODERATE": 6,
+        "WEAK": 19,
+        "SPECULATIVE": 9
+      },
+      "check_gaps": {
+        "iteration_number": 1,
+        "can_iterate_more": true,
+        "gap_count_by_severity": {
+          "critical": 4,
+          "moderate": 1,
+          "minor": 0
+        },
+        "gaps": [
+          {
+            "sub_question_id": "sq1",
+            "sub_question_text": "Какова текущая рыночная доля, производственные мощности и планы расширения производства для Москвича, АВТОВАЗа и Evolute на российском рынке электромобилей?",
+            "severity": "critical",
+            "reason": "Не найдено ни одного источника, покрывающего этот под-вопрос. Аналитику стоит прогнать целевой DR-запрос по этой теме.",
+            "suggested_search_directions": [
+              "market_data",
+              "industry_report",
+              "vendor_docs"
+            ]
+          },
+          {
+            "sub_question_id": "sq3",
+            "sub_question_text": "Какие государственные поддержки, налоговые льготы и регуляторные требования действуют для российских и иностранных производителей электромобилей, и как они могут измениться в течение 3 лет?",
+            "severity": "critical",
+            "reason": "Не найдено ни одного источника, покрывающего этот под-вопрос. Аналитику стоит прогнать целевой DR-запрос по этой теме.",
+            "suggested_search_directions": [
+              "regulatory",
+              "industry_report",
+              "news"
+            ]
+          },
+          {
+            "sub_question_id": "sq4",
+            "sub_question_text": "Какова доступность критических компонентов (батареи, полупроводники, редкоземельные элементы) для российских и китайских производителей в условиях санкций и глобальных цепочек поставок?",
+            "severity": "critical",
+            "reason": "Не найдено ни одного источника, покрывающего этот под-вопрос. Аналитику стоит прогнать целевой DR-запрос по этой теме.",
+            "suggested_search_directions": [
+              "market_data",
+              "industry_report",
+              "regulatory"
+            ]
+          },
+          {
+            "sub_question_id": "sq5",
+            "sub_question_text": "Какие инвестиции в НИОКР, технологические партнёрства и планы локализации компонентов заявили Москвич, АВТОВАЗ и Evolute для повышения конкурентоспособности в 3-летнем периоде?",
+            "severity": "critical",
+            "reason": "Не найдено ни одного источника, покрывающего этот под-вопрос. Аналитику стоит прогнать целевой DR-запрос по этой теме.",
+            "suggested_search_directions": [
+              "vendor_docs",
+              "industry_report",
+              "case_study"
+            ]
+          },
+          {
+            "sub_question_id": "sq2",
+            "sub_question_text": "Какие модели электромобилей предлагают китайские бренды (BYD, Geely, Chery) на российском рынке, их ценовые диапазоны, технические характеристики и темпы роста продаж?",
+            "severity": "moderate",
+            "reason": "Найдено 4 источников, но ни один не из авторитетного реестра (Росстат, Минстрой, ДОМ.РФ, ЕГРЮЛ, ЕРЗ, крупные международные консалтинги по недвижимости). Выводы по этому под-вопросу опираются только на вторичные источники.",
+            "suggested_search_directions": [
+              "market_data",
+              "industry_report",
+              "news"
+            ]
+          }
+        ],
+        "follow_up_prompts": [
+          {
+            "sub_question_id": "sq1",
+            "prompt_text": "Какова текущая рыночная доля, производственные мощности (в единицах в год) и официальные планы расширения производства для Москвича, АВТОВАЗа и Evolute на российском рынке электромобилей в 2024-2025 годах?",
+            "suggested_dr_tool": "perplexity_dr",
+            "rationale": "Требуется поиск актуальных данных о российских производителях ЭМ, включая официальные заявления и статистику. Perplexity лучше всего работает с русскоязычными источниками и отечественной статистикой."
+          },
+          {
+            "sub_question_id": "sq3",
+            "prompt_text": "Какие государственные субсидии, налоговые льготы, таможенные пошлины и регуляторные требования действуют для производителей электромобилей в России в 2024 году, и какие изменения планируются до 2027 года?",
+            "suggested_dr_tool": "perplexity_dr",
+            "rationale": "Необходимо получить информацию о российской нормативно-правовой базе и государственной политике в отношении ЭМ. Perplexity специализируется на русских регуляторных документах и официальной статистике."
+          },
+          {
+            "sub_question_id": "sq4",
+            "prompt_text": "Какова доступность и цены на критические компоненты (литий-ионные батареи, полупроводники, редкоземельные элементы) для российских и китайских производителей ЭМ в условиях санкций и глобальных цепочек поставок в 2024-2025 годах?",
+            "suggested_dr_tool": "claude_research",
+            "rationale": "Вопрос требует синтеза информации о глобальных цепочках поставок, санкционных ограничениях и альтернативных источниках компонентов. Claude лучше справляется с многоуровневым анализом взаимосвязанных факторов."
+          },
+          {
+            "sub_question_id": "sq5",
+            "prompt_text": "Какие объёмы инвестиций в НИОКР, технологические партнёрства (в т.ч. с иностранными компаниями) и планы локализации компонентов объявили Москвич, АВТОВАЗ и Evolute на период 2024-2027 годов?",
+            "suggested_dr_tool": "perplexity_dr",
+            "rationale": "Требуется поиск официальных заявлений и пресс-релизов российских производителей ЭМ. Perplexity лучше всего индексирует русскоязычные источники и корпоративные документы."
+          },
+          {
+            "sub_question_id": "sq2",
+            "prompt_text": "Какие модели электромобилей предлагают BYD, Geely и Chery на российском рынке в 2024 году: ценовые диапазоны (в рублях), технические характеристики (запас хода, мощность, батарея) и официальные данные о продажах и темпах роста?",
+            "suggested_dr_tool": "perplexity_dr",
+            "rationale": "Необходимо получить актуальные данные о китайских брендах на российском рынке из авторитетных источников. Perplexity имеет доступ к русскоязычным источникам и может найти официальную статистику продаж."
+          }
+        ],
+        "summary_for_analyst": "Итерация 1 из 2: найдено 5 пробелов (критичных: 4, умеренных: 1, незначительных: 0). Прогоните прилагаемые промпты в выбранных DR-инструментах и загрузите результаты через /upload-reports + повторный /analyze + /synthesize."
+      }
+    },
+    {
+      "query_id": "q2_moscow_re",
+      "question": "Какие тренды повлияют на девелоперов бизнес-сегмента жилья в Москве в 2026-2027?",
+      "uploads": [
+        {
+          "filename": "Тренды,-влияющие-на-московских-девелоперов-жилого-сегмента-в-2026-2027-годах.md",
+          "tool": "openai_dr"
+        },
+        {
+          "filename": "«Какие тренды повлияют на девелоперов бизнес-сегме.md",
+          "tool": "perplexity"
+        }
+      ],
+      "cost_usd_total": 2.0031,
+      "cost_rub_total": 151.03,
+      "decomposition_method": "domain_template_ru_re",
+      "expected_route": "domain_template_ru_re",
+      "route_matches_expectation": true,
+      "sub_questions_count": 0,
+      "evidence_quality": "LOW_EVIDENCE_QUALITY",
+      "gap_count_by_severity": null,
+      "source_count_in_final": 44,
+      "main_synthesis_chars": 9436,
+      "evidence_grade_distribution": {
+        "STRONG": 0,
+        "MODERATE": 1,
+        "WEAK": 35,
+        "SPECULATIVE": 6
+      },
+      "check_gaps": null
+    },
+    {
+      "query_id": "q3_eu_dac",
+      "question": "How is Direct Air Capture regulated in the EU and what subsidies are available in 2026?",
+      "uploads": [
+        {
+          "filename": "EU-Direct-Air-Capture-Regulation-and-2026-Subsidies-Comprehensive-Framework-and-Funding-Landscape.md",
+          "tool": "openai_dr"
+        }
+      ],
+      "cost_usd_total": 2.2462,
+      "cost_rub_total": 169.36,
+      "decomposition_method": "none",
+      "expected_route": "llm_planner",
+      "route_matches_expectation": false,
+      "sub_questions_count": 0,
+      "evidence_quality": "LOW_EVIDENCE_QUALITY",
+      "gap_count_by_severity": null,
+      "source_count_in_final": 30,
+      "main_synthesis_chars": 12208,
+      "evidence_grade_distribution": {
+        "STRONG": 23,
+        "MODERATE": 13,
+        "WEAK": 4,
+        "SPECULATIVE": 3
+      },
+      "check_gaps": null
+    }
+  ]
+}

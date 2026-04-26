@@ -29,6 +29,34 @@ log = logging.getLogger("smart_report.api.auth")
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
+# In-memory signup rate limit: bucket signups by client IP per hour.
+# Defends against bot mass-signup that would burn LLM budget under
+# the per-user cost cap. Process-local — fine for single-container
+# Railway deploy; if we go multi-instance, swap to Redis or DB.
+import time as _time
+
+_SIGNUP_RATE_LOCK = threading.Lock()
+_SIGNUP_RATE: dict[str, list[float]] = {}
+_SIGNUP_RATE_WINDOW_SEC = 3600
+_SIGNUP_RATE_MAX = 5  # max signups per IP per hour
+
+
+def _signup_rate_check(ip: str) -> None:
+    if not ip:
+        return
+    now = _time.time()
+    with _SIGNUP_RATE_LOCK:
+        bucket = _SIGNUP_RATE.setdefault(ip, [])
+        # prune old timestamps
+        cutoff = now - _SIGNUP_RATE_WINDOW_SEC
+        bucket[:] = [t for t in bucket if t >= cutoff]
+        if len(bucket) >= _SIGNUP_RATE_MAX:
+            raise HTTPException(
+                status_code=429,
+                detail=f"too many signups from this IP (limit {_SIGNUP_RATE_MAX}/hour)",
+            )
+        bucket.append(now)
+
 _DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
 _USERS_PATH = _DATA_DIR / "users.json"
 _USERS_LOCK = threading.Lock()
@@ -138,6 +166,13 @@ def require_user(request: Request) -> dict:
 
 @router.post("/signup", response_model=AuthOut, status_code=201)
 async def signup(creds: _Credentials, request: Request) -> AuthOut:
+    # Rate-limit by client IP — closes the bot-signup budget hole described
+    # in the critical-gap audit. Limit: 5 per IP per hour. Caller IP comes
+    # from request.client (Railway / Next.js proxy populates this from the
+    # connecting socket; for stricter spoofing protection check
+    # X-Forwarded-For, but Railway already strips/normalises that header).
+    client_ip = (request.client.host if request.client else "") or ""
+    _signup_rate_check(client_ip)
     email = _normalize_email(creds.email)
     with _USERS_LOCK:
         users = _load_users()

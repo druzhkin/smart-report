@@ -25,6 +25,8 @@ def isolate_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(reports_module, "_REPORTS_ROOT", tmp_path / "reports")
     # Stub _kick_background so tests don't actually run the v4 cycle
     monkeypatch.setattr(reports_module, "_kick_background", lambda *a, **kw: None)
+    # Reset signup rate-limit so multiple sequential test signups don't 429.
+    auth_module._SIGNUP_RATE.clear()
 
 
 def _signup(client: TestClient, email: str = "u@x.com", pw: str = "secret123") -> None:

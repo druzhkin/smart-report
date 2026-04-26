@@ -18,10 +18,11 @@ def client() -> TestClient:
 
 @pytest.fixture(autouse=True)
 def isolate_users(tmp_path, monkeypatch):
-    """Per-test users.json so signups don't bleed across tests."""
+    """Per-test users.json + rate-limit reset so signups don't bleed across tests."""
     fake = tmp_path / "users.json"
     monkeypatch.setattr(auth_module, "_DATA_DIR", tmp_path)
     monkeypatch.setattr(auth_module, "_USERS_PATH", fake)
+    auth_module._SIGNUP_RATE.clear()
     return fake
 
 
