@@ -462,7 +462,7 @@ export async function deleteSession(id: string): Promise<void> {
 
 // -- Auto-DR (server-side Deep Research) ----------------------------------
 
-export type AutoDRService = "valyu" | "tavily" | "exa" | "perplexity";
+export type AutoDRService = "valyu" | "tavily" | "exa" | "perplexity" | "openai" | "claude" | "gemini";
 export type ValyuResearchMode = "fast" | "standard" | "heavy" | "max";
 
 export type AutoDROut = {

@@ -25,9 +25,9 @@ from smart_report.models import UploadedMarkdown
 _logger = logging.getLogger(__name__)
 
 
-AutoDRService = Literal["valyu", "tavily", "exa", "perplexity"]
+AutoDRService = Literal["valyu", "tavily", "exa", "perplexity", "openai", "claude", "gemini"]
 SUPPORTED_SERVICES: tuple[AutoDRService, ...] = (
-    "valyu", "tavily", "exa", "perplexity",
+    "valyu", "tavily", "exa", "perplexity", "openai", "claude", "gemini",
 )
 
 
@@ -73,7 +73,33 @@ async def run_auto_dr(
     if service == "exa":
         return await _run_search_backend(service, question, domain_hint, max_results)
     if service == "perplexity":
-        return await _run_perplexity_llm(question)
+        return await _run_llm_research(
+            question,
+            service="perplexity",
+            model="perplexity/sonar-pro",
+            detected_tool="perplexity",
+        )
+    if service == "openai":
+        return await _run_llm_research(
+            question,
+            service="openai",
+            model="openai/gpt-4o",
+            detected_tool="openai_dr",
+        )
+    if service == "claude":
+        return await _run_llm_research(
+            question,
+            service="claude",
+            model="anthropic/claude-sonnet-4.5",
+            detected_tool="claude",
+        )
+    if service == "gemini":
+        return await _run_llm_research(
+            question,
+            service="gemini",
+            model="google/gemini-2.5-pro",
+            detected_tool="other",
+        )
     raise AutoDRError(f"unreachable: service {service!r}")
 
 
@@ -176,12 +202,18 @@ def _search_result_to_markdown(
 
 
 # ---------------------------------------------------------------------------
-# Perplexity sonar-pro via OpenRouter (LLM-style DR)
+# LLM-style research via OpenRouter
 # ---------------------------------------------------------------------------
+# Single chat-completion call asking the model to play "senior analyst" and
+# produce a structured markdown report with citations. Distinct from the
+# Valyu/Exa async deep-research APIs above (which are agentic and run for
+# minutes); this is one synchronous call returning whatever the LLM can
+# assemble from training data + reasoning.
+#
+# Used for: perplexity/sonar-pro (which DOES have web search), OpenAI gpt-4o,
+# Anthropic Claude, Google Gemini. The latter three rely on training data.
 
-
-_PERPLEXITY_MODEL = "perplexity/sonar-pro"
-_PERPLEXITY_SYSTEM = (
+_LLM_RESEARCH_SYSTEM = (
     "You are a senior research analyst. The user will give you a research "
     "question. Produce a thorough, well-structured Markdown report with: "
     "(1) Executive summary; (2) Key findings (with inline [N] citations); "
@@ -190,45 +222,51 @@ _PERPLEXITY_SYSTEM = (
     "(regulators, filings, peer-reviewed papers, official press releases). "
     "Be specific with numbers and dates. The downstream pipeline will "
     "treat your Markdown as authoritative source material — do not invent "
-    "data or URLs."
+    "data or URLs. If you cannot verify a fact, say so explicitly."
 )
 
 
-async def _run_perplexity_llm(question: str) -> AutoDRResult:
-    """Call perplexity/sonar-pro via OpenRouter and wrap the markdown."""
+async def _run_llm_research(
+    question: str,
+    *,
+    service: str,
+    model: str,
+    detected_tool: str,
+) -> AutoDRResult:
+    """Single OpenRouter chat-completion call wrapped as auto-DR result."""
     from smart_report.llm import call_json
     try:
         result = await call_json(
-            role="auto_dr_perplexity",
+            role=f"auto_dr_{service}",
             messages=[
-                {"role": "system", "content": _PERPLEXITY_SYSTEM},
+                {"role": "system", "content": _LLM_RESEARCH_SYSTEM},
                 {"role": "user", "content": question},
             ],
-            model=_PERPLEXITY_MODEL,
+            model=model,
             temperature=0.2,
         )
     except Exception as e:
-        raise AutoDRError(f"perplexity sonar-pro failed: {type(e).__name__}: {e}") from e
+        raise AutoDRError(f"{service} ({model}) failed: {type(e).__name__}: {e}") from e
 
     md = result.text.strip()
     if not md:
-        raise AutoDRError("perplexity sonar-pro returned empty response")
+        raise AutoDRError(f"{service} ({model}) returned empty response")
 
     cost_rub = float(result.cost_rub or 0.0)
     cost_usd = cost_rub / _USD_RUB_RATE
     upload = UploadedMarkdown(
-        filename="auto_dr_perplexity.md",
+        filename=f"auto_dr_{service}.md",
         content=md,
-        detected_tool="perplexity",
+        detected_tool=detected_tool,  # type: ignore[arg-type]
         word_count=len(md.split()),
     )
     return AutoDRResult(
         upload=upload,
-        service="perplexity",
+        service=service,
         cost_usd=cost_usd,
         cost_rub=cost_rub,
         source_count=_count_citations(md),
-        notes=f"backend=perplexity model={_PERPLEXITY_MODEL}",
+        notes=f"backend={service} model={model}",
     )
 
 

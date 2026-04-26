@@ -197,7 +197,9 @@ def _get_owned(session_id: str, request: Request):
 # Cost cap — prevent abuse where a signed-up user spends unbounded LLM money.
 # Read from env so ops can adjust without redeploy. Default $1.00/user/30d
 # = ~2 reports — generous demo allowance, not real product pricing.
-_USER_MONTHLY_CAP_USD: float = float(os.environ.get("USER_MONTHLY_CAP_USD", "1.0"))
+# $50/30d default — enough for ~25 Standard Valyu Research runs ($0.50 each)
+# or ~3 Heavy ($2.50). Override via env var for stricter prod policy.
+_USER_MONTHLY_CAP_USD: float = float(os.environ.get("USER_MONTHLY_CAP_USD", "50.0"))
 _USD_RUB_RATE: float = 75.4
 
 
@@ -356,7 +358,7 @@ async def analyze(session_id: str, request: Request, payload: ModelPreferenceIn 
 
 
 class AutoDRIn(BaseModel):
-    service: Literal["valyu", "tavily", "exa", "perplexity"]
+    service: Literal["valyu", "tavily", "exa", "perplexity", "openai", "claude", "gemini"]
     prompt: str | None = Field(
         default=None,
         max_length=20000,
