@@ -1,0 +1,15 @@
+# Railway deploy config for v4.5 backend.
+# Builder uses the Dockerfile at repo root (backend-only, smart_report/).
+# Frontend is deployed separately from its own repo/worktree.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5
+# Path matches smart_report/api/main.py:health endpoint (NOT /api/health
+# from the old root-layout main branch — that route doesn't exist in v4.5).
+healthcheckPath = "/health"
+healthcheckTimeout = 60

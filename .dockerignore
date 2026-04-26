@@ -1,0 +1,54 @@
+# Keep the image small and the build cache stable: exclude everything
+# the runtime backend doesn't need.
+
+# Local dev / scratch
+.env
+.env.local
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Tests + dev tooling — runtime doesn't need them
+tests/
+scripts/
+docs/run2_baseline/
+runs/
+eval/
+reference/
+
+# Large research artefacts
+daily/
+milestones/
+configs/
+PROJECT_STATUS_AUDIT.md
+ONEPAGER.md
+*.pdf
+
+# OS noise
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+.github/
+
+# Other repo metadata not needed at runtime
+HANDOFF*.md
+SCRATCHPAD*.md
+WEEK_BRIEF*.md
+WEEK_REPORT*.md
+V45_BRIEF.md
+BLOCKERS.md
+BUDGET.md
