@@ -39,6 +39,11 @@ ONEPAGER.md
 .DS_Store
 Thumbs.db
 
+# Frontend build artefacts — Dockerfile rebuilds these
+frontend/node_modules/
+frontend/.next/
+frontend/tsconfig.tsbuildinfo
+
 # Git
 .git/
 .gitignore

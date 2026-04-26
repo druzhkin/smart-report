@@ -1,0 +1,444 @@
+<html lang="en"><head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deep Research Studio</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://code.iconify.design/iconify-icon/1.0.7/iconify-icon.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&amp;display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            --font-serif: 'Newsreader', ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+        }
+        body {
+            font-family: var(--font-sans);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        .font-serif {
+            font-family: var(--font-serif);
+        }
+        /* Custom Scrollbar for ToC */
+        .toc-scroll::-webkit-scrollbar {
+            width: 4px;
+        }
+        .toc-scroll::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .toc-scroll::-webkit-scrollbar-thumb {
+            background-color: #e4e4e7;
+            border-radius: 10px;
+        }
+        
+        /* Floating Animation for Tooltip */
+        @keyframes float {
+            0%, 100% { transform: translate(-50%, 0); }
+            50% { transform: translate(-50%, -4px); }
+        }
+        .animate-float {
+            animation: float 3s ease-in-out infinite;
+        }
+
+        /* Subtle Shimmer Effect */
+        @keyframes shimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+        .animate-shimmer {
+            animation: shimmer 2s infinite;
+        }
+    </style>
+</head>
+<body class="bg-zinc-50 text-zinc-900 min-h-screen flex flex-col md:flex-row overflow-x-hidden selection:bg-blue-100 selection:text-blue-900 relative">
+
+    <!-- Ambient WOW Background Glows -->
+    <div class="fixed top-[-20%] left-[-10%] w-[50%] h-[50%] rounded-full bg-blue-300/10 blur-[120px] pointer-events-none z-0"></div>
+    <div class="fixed bottom-[-20%] right-[-10%] w-[50%] h-[50%] rounded-full bg-indigo-300/10 blur-[120px] pointer-events-none z-0"></div>
+
+    <!-- Sidebar Navigation -->
+    <aside class="w-full md:w-64 bg-white/80 backdrop-blur-xl border-r border-zinc-200/80 flex-shrink-0 flex flex-col h-auto md:h-screen sticky top-0 z-20">
+        <div class="p-6 pb-2">
+            <h1 class="text-sm font-semibold tracking-tighter uppercase text-zinc-900 flex items-center gap-2">
+                <iconify-icon icon="solar:globus-linear" class="text-lg"></iconify-icon>
+                Synthesize
+            </h1>
+        </div>
+        
+        <nav class="flex-1 px-4 py-4 space-y-1">
+            <a href="#" class="flex items-center gap-3 px-3 py-2 text-sm font-medium text-zinc-900 bg-zinc-100/80 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 transition-shadow">
+                <iconify-icon icon="solar:pen-new-square-linear" class="text-lg text-zinc-500"></iconify-icon>
+                New Research
+            </a>
+            <a href="#" class="flex items-center gap-3 px-3 py-2 text-sm font-medium text-zinc-600 hover:text-zinc-900 hover:bg-zinc-50 rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50">
+                <iconify-icon icon="solar:folder-with-files-linear" class="text-lg text-zinc-500"></iconify-icon>
+                Library
+            </a>
+            <a href="#" class="flex items-center gap-3 px-3 py-2 text-sm font-medium text-zinc-600 hover:text-zinc-900 hover:bg-zinc-50 rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50">
+                <iconify-icon icon="solar:settings-linear" class="text-lg text-zinc-500"></iconify-icon>
+                Configuration
+            </a>
+        </nav>
+
+        <!-- Active Jobs Mini-Tracker -->
+        <div class="px-4 py-6 border-t border-zinc-200/80">
+            <h3 class="px-3 text-xs font-medium text-zinc-500 uppercase tracking-widest mb-3">Active Pipeline</h3>
+            <div class="bg-white border border-zinc-200/80 rounded-md p-3 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden group cursor-pointer active:scale-[0.98]">
+                <div class="flex items-start justify-between mb-2">
+                    <span class="text-xs font-medium text-zinc-900 line-clamp-1 group-hover:text-blue-600 transition-colors">CRISPR applications 2025</span>
+                    <span class="flex h-2 w-2 relative mt-1">
+                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                        <span class="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
+                    </span>
+                </div>
+                <div class="flex items-center gap-2 text-xs text-zinc-600">
+                    <iconify-icon icon="solar:refresh-linear" class="animate-spin text-blue-500"></iconify-icon>
+                    Parallel Scouts (12/20)
+                </div>
+                <div class="w-full bg-zinc-100 rounded-full h-1 mt-3 relative overflow-hidden">
+                    <div class="bg-zinc-800 h-1 rounded-full relative z-10 transition-all duration-1000 ease-in-out" style="width: 60%">
+                        <!-- Shimmer on progress bar -->
+                        <div class="absolute top-0 left-0 w-full h-full bg-gradient-to-r from-transparent via-white/40 to-transparent animate-shimmer"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 flex flex-col min-w-0 relative z-10">
+        
+        <!-- Top Bar -->
+        <header class="bg-white/80 backdrop-blur-md border-b border-zinc-200/80 px-8 py-4 flex items-center justify-between sticky top-0 z-40 relative">
+            <!-- Simulated Reading Progress Bar -->
+            <div class="absolute bottom-0 left-0 h-[2px] w-[45%] bg-gradient-to-r from-blue-500 to-indigo-500 rounded-r-full z-50 transition-all duration-300"></div>
+
+            <div class="flex items-center gap-2 text-sm text-zinc-500">
+                <span class="hover:text-zinc-900 cursor-pointer transition-colors focus-visible:outline-none focus-visible:underline">Library</span>
+                <iconify-icon icon="solar:alt-arrow-right-linear" class="text-xs"></iconify-icon>
+                <span class="text-zinc-900 font-medium truncate max-w-[200px] md:max-w-md">How AI will change personal medicine in 5 years</span>
+            </div>
+            <div class="flex items-center gap-3">
+                
+                <!-- Export Dropdown Group -->
+                <div class="relative group">
+                    <button class="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-zinc-600 bg-white border border-zinc-200 rounded hover:bg-zinc-50 hover:border-zinc-300 active:scale-[0.98] transition-all shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50">
+                        <iconify-icon icon="solar:document-text-linear" class="text-sm"></iconify-icon>
+                        Export
+                        <iconify-icon icon="solar:alt-arrow-down-linear" class="transition-transform duration-300 group-hover:rotate-180"></iconify-icon>
+                    </button>
+                    <!-- Dropdown Menu -->
+                    <div class="absolute right-0 mt-2 w-56 bg-white/95 backdrop-blur-xl border border-zinc-200 rounded-lg shadow-[0_8px_30px_rgb(0,0,0,0.08)] opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 overflow-hidden transform origin-top-right scale-95 group-hover:scale-100">
+                        <div class="p-1.5 space-y-0.5">
+                            <button class="flex items-center gap-3 w-full px-2.5 py-2 text-xs font-medium text-zinc-600 hover:text-blue-700 hover:bg-blue-50 rounded-md transition-colors text-left focus-visible:outline-none focus-visible:bg-blue-50 focus-visible:text-blue-700">
+                                <iconify-icon icon="solar:file-word-linear" class="text-base text-blue-600"></iconify-icon> 
+                                Word Document (.docx)
+                            </button>
+                            <button class="flex items-center gap-3 w-full px-2.5 py-2 text-xs font-medium text-zinc-600 hover:text-orange-700 hover:bg-orange-50 rounded-md transition-colors text-left focus-visible:outline-none focus-visible:bg-orange-50 focus-visible:text-orange-700">
+                                <iconify-icon icon="solar:projector-linear" class="text-base text-orange-600"></iconify-icon> 
+                                Presentation (.pptx)
+                            </button>
+                            <button class="flex items-center gap-3 w-full px-2.5 py-2 text-xs font-medium text-zinc-600 hover:text-purple-700 hover:bg-purple-50 rounded-md transition-colors text-left focus-visible:outline-none focus-visible:bg-purple-50 focus-visible:text-purple-700">
+                                <iconify-icon icon="solar:chart-square-linear" class="text-base text-purple-600"></iconify-icon> 
+                                Infographic (.pdf)
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <button class="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-white bg-zinc-900 border border-zinc-900 rounded hover:bg-zinc-800 active:scale-[0.98] transition-all shadow-sm hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-zinc-900">
+                    Share
+                </button>
+            </div>
+        </header>
+
+        <div class="p-8 max-w-7xl mx-auto w-full space-y-16">
+
+            <!-- SCREEN 1: NEW RESEARCH INTAKE FORM -->
+            <section class="bg-white/90 backdrop-blur-xl p-8 rounded-xl border border-zinc-200 shadow-[0_8px_30px_rgb(0,0,0,0.04)] relative overflow-hidden group">
+                <!-- Subtle Gradient Header Bar -->
+                <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-400 via-indigo-500 to-purple-400 opacity-40"></div>
+                
+                <h2 class="text-xl font-semibold tracking-tight text-transparent bg-clip-text bg-gradient-to-br from-zinc-900 to-zinc-600 mb-6 font-serif">Start New Research</h2>
+                
+                <div class="space-y-6">
+                    <div class="relative">
+                        <label for="query" class="sr-only">Research Objective</label>
+                        <textarea id="query" rows="3" class="w-full bg-zinc-50/50 border border-zinc-200 text-zinc-900 text-base rounded-lg focus:ring-1 focus:ring-blue-500 focus:border-blue-500 block p-4 pb-10 placeholder-zinc-400 transition-all resize-none shadow-sm outline-none" placeholder="e.g., How will AI alter the landscape of personalized medicine over the next 5 years? Include regulatory hurdles."></textarea>
+                        
+                        <!-- Added: Character count and shortcut hint -->
+                        <div class="absolute bottom-3 right-3 flex items-center gap-3 text-xs text-zinc-400 pointer-events-none select-none">
+                            <span>0 / 500</span>
+                            <div class="flex items-center gap-1 opacity-70">
+                                <kbd class="font-sans px-1.5 py-0.5 rounded-md bg-zinc-200/60 border border-zinc-300/50 text-zinc-500 font-medium text-[10px]">⌘</kbd>
+                                <kbd class="font-sans px-1.5 py-0.5 rounded-md bg-zinc-200/60 border border-zinc-300/50 text-zinc-500 font-medium text-[10px]">Enter</kbd>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="space-y-3">
+                        <span class="text-sm font-medium text-zinc-900">Research Depth</span>
+                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                            <label class="relative flex cursor-pointer rounded-lg border bg-white p-4 shadow-sm focus-within:ring-2 focus-within:ring-blue-500/50 focus-within:border-transparent border-zinc-200 hover:border-zinc-300 hover:shadow-md transition-all active:scale-[0.98]">
+                                <input type="radio" name="depth" value="light" class="sr-only">
+                                <span class="flex flex-1">
+                                    <span class="flex flex-col">
+                                        <span class="block text-sm font-medium text-zinc-900">Light</span>
+                                        <span class="mt-1 flex items-center text-xs text-zinc-500">Quick summary • 2 mins</span>
+                                    </span>
+                                </span>
+                            </label>
+                            <label class="relative flex cursor-pointer rounded-lg border bg-white p-4 shadow-sm focus-within:ring-2 focus-within:ring-blue-500/50 focus-within:border-transparent border-zinc-900 ring-1 ring-zinc-900 transition-all active:scale-[0.98]">
+                                <input type="radio" name="depth" value="standard" checked="" class="sr-only">
+                                <span class="flex flex-1">
+                                    <span class="flex flex-col">
+                                        <span class="block text-sm font-medium text-zinc-900">Standard</span>
+                                        <span class="mt-1 flex items-center text-xs text-zinc-500">Broad sources • 5 mins</span>
+                                    </span>
+                                </span>
+                                <iconify-icon icon="solar:check-circle-linear" class="text-zinc-900 text-lg absolute top-4 right-4"></iconify-icon>
+                            </label>
+                            <label class="relative flex cursor-pointer rounded-lg border bg-white p-4 shadow-sm focus-within:ring-2 focus-within:ring-blue-500/50 focus-within:border-transparent border-zinc-200 hover:border-zinc-300 hover:shadow-md transition-all active:scale-[0.98]">
+                                <input type="radio" name="depth" value="deep" class="sr-only">
+                                <span class="flex flex-1">
+                                    <span class="flex flex-col">
+                                        <span class="block text-sm font-medium text-zinc-900">Deep</span>
+                                        <span class="mt-1 flex items-center text-xs text-zinc-500">Academic focus • 12 mins</span>
+                                    </span>
+                                </span>
+                            </label>
+                            <label class="relative flex cursor-pointer rounded-lg border bg-white p-4 shadow-sm focus-within:ring-2 focus-within:ring-blue-500/50 focus-within:border-transparent border-zinc-200 hover:border-zinc-300 hover:shadow-md transition-all active:scale-[0.98]">
+                                <input type="radio" name="depth" value="exhaustive" class="sr-only">
+                                <span class="flex flex-1">
+                                    <span class="flex flex-col">
+                                        <span class="block text-sm font-medium text-zinc-900">Exhaustive</span>
+                                        <span class="mt-1 flex items-center text-xs text-zinc-500">Full synthesis • 20+ mins</span>
+                                    </span>
+                                </span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center justify-between pt-4 border-t border-zinc-100">
+                        <button type="button" class="flex items-center gap-2 text-sm text-zinc-500 hover:text-zinc-900 transition-colors focus-visible:outline-none focus-visible:underline rounded">
+                            <iconify-icon icon="solar:paperclip-linear" class="text-lg"></iconify-icon>
+                            Attach context (PDF/TXT)
+                        </button>
+                        <div class="relative group/btn">
+                            <!-- Subtle button glow behind -->
+                            <div class="absolute -inset-0.5 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-lg blur opacity-30 group-hover/btn:opacity-60 transition duration-500"></div>
+                            <button class="relative flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-white bg-zinc-900 rounded-md hover:bg-zinc-800 active:scale-[0.98] transition-all shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-500">
+                                <iconify-icon icon="solar:play-linear"></iconify-icon>
+                                Synthesize Report
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Divider -->
+            <div class="flex items-center justify-center opacity-40 select-none">
+                <div class="w-full h-px bg-gradient-to-r from-transparent via-zinc-300 to-transparent"></div>
+                <div class="px-4 flex items-center gap-2 text-zinc-400 whitespace-nowrap">
+                    <iconify-icon icon="solar:star-fall-linear" class="text-xl"></iconify-icon>
+                    <span class="text-xs font-medium uppercase tracking-widest">Report Generated</span>
+                </div>
+                <div class="w-full h-px bg-gradient-to-r from-transparent via-zinc-300 to-transparent"></div>
+            </div>
+
+            <!-- SCREEN 3: FINISHED REPORT VIEWER -->
+            <div class="flex flex-col lg:flex-row gap-12 relative items-start">
+                
+                <!-- Main Document Area -->
+                <article class="flex-1 min-w-0 bg-white/95 backdrop-blur-md p-8 md:p-12 rounded-xl border border-zinc-200/80 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
+                    
+                    <!-- Document Header -->
+                    <header class="mb-12 border-b border-zinc-100 pb-8">
+                        <div class="flex flex-wrap items-center gap-3 mb-5">
+                            <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-green-50/80 text-green-700 text-xs font-medium border border-green-200/60 shadow-sm">
+                                <iconify-icon icon="solar:check-circle-linear"></iconify-icon>
+                                Completed
+                            </span>
+                            <span class="text-xs text-zinc-500 flex items-center gap-1">
+                                <iconify-icon icon="solar:clock-circle-linear"></iconify-icon>
+                                14m 32s
+                            </span>
+                            <span class="text-xs text-zinc-500 flex items-center gap-1">
+                                <iconify-icon icon="solar:book-linear"></iconify-icon>
+                                42 Sources
+                            </span>
+                            <!-- Added: Topic Tags -->
+                            <div class="ml-auto flex items-center gap-2">
+                                <span class="px-2 py-1 bg-zinc-100/80 text-zinc-600 border border-zinc-200/50 rounded text-xs font-medium">Genomics</span>
+                                <span class="px-2 py-1 bg-zinc-100/80 text-zinc-600 border border-zinc-200/50 rounded text-xs font-medium">AI Models</span>
+                            </div>
+                        </div>
+                        <h1 class="text-3xl md:text-4xl font-semibold tracking-tight text-zinc-900 mb-6 font-serif leading-tight">
+                            The Evolution of Personalized Medicine via Artificial Intelligence (2024-2029)
+                        </h1>
+                        <p class="text-lg text-zinc-600 leading-relaxed font-serif">
+                            A comprehensive synthesis of how generative AI, predictive modeling, and multi-omics integration are fundamentally restructuring therapeutic pipelines and clinical decision support systems.
+                        </p>
+                    </header>
+
+                    <!-- Document Body (Editorial Style) -->
+                    <div class="prose prose-zinc max-w-none text-base text-zinc-800 leading-relaxed font-serif space-y-6 relative">
+                        
+                        <p class="font-sans text-sm tracking-wide text-zinc-500 uppercase font-medium mb-2 mt-8" id="sec-abstract">01. Executive Abstract</p>
+                        <p>
+                            The next five years will mark a definitive shift from reactive treatment paradigms to predictive, hyper-personalized interventions driven by Artificial Intelligence (AI). This transition is primarily catalyzed by advancements in deep learning models capable of synthesizing vast datasets—ranging from individual genomic sequences to real-time wearable biomonitoring
+                            <span class="inline-flex items-center justify-center w-5 h-5 ml-1 text-xs font-sans font-medium text-blue-700 bg-blue-50 border border-blue-100 rounded cursor-pointer hover:bg-blue-100 active:scale-95 transition-all">1</span>. 
+                            The synthesis of these domains allows for the creation of "digital twins" of patients, enabling high-fidelity simulations of drug efficacy before clinical application.
+                        </p>
+
+                        <p class="font-sans text-sm tracking-wide text-zinc-500 uppercase font-medium mb-2 mt-10" id="sec-genomics">02. AI in Genomics and Drug Discovery</p>
+                        <h2 class="text-2xl font-semibold text-zinc-900 tracking-tight mt-2 mb-4">Accelerating Target Identification</h2>
+                        <p>
+                            Traditional drug discovery is characterized by a high attrition rate and prolonged timelines. AI interventions, 
+                            
+                            <!-- FEATURE: Text Selection WOW effect mock -->
+                            <span class="relative inline-block group/highlight cursor-text">
+                                <!-- Floating Tooltip -->
+                                <button class="absolute bottom-[calc(100%+8px)] left-1/2 -translate-x-1/2 flex items-center gap-1.5 bg-zinc-900/95 backdrop-blur-md text-white px-3 py-1.5 rounded-lg shadow-xl shadow-zinc-900/10 text-xs font-medium whitespace-nowrap animate-float z-30 hover:bg-zinc-800 active:scale-95 transition-all border border-zinc-700/50 group/tooltip font-sans">
+                                    <iconify-icon icon="solar:magic-stick-3-linear" class="text-blue-400 group-hover/tooltip:rotate-12 transition-transform"></iconify-icon>
+                                    Expand Research
+                                    <span class="absolute top-full left-1/2 -translate-x-1/2 -mt-px border-4 border-transparent border-t-zinc-900/95"></span>
+                                </button>
+                                <!-- Highlighted Text -->
+                                <span class="bg-blue-100/60 text-blue-900 border-b border-blue-300 pb-0.5 rounded-sm selection:bg-blue-200 transition-colors group-hover/highlight:bg-blue-200/60">specifically transformer-based architectures adapted for biological sequences</span>
+                            </span>
+                            
+                            , have dramatically reduced the time required for target identification. Models similar to AlphaFold have expanded beyond static protein structures to predict dynamic conformational changes under physiological conditions
+                            <span class="inline-flex items-center justify-center w-5 h-5 ml-1 text-xs font-sans font-medium text-blue-700 bg-blue-50 border border-blue-100 rounded cursor-pointer hover:bg-blue-100 active:scale-95 transition-all">2</span>
+                            <span class="inline-flex items-center justify-center w-5 h-5 ml-1 text-xs font-sans font-medium text-blue-700 bg-blue-50 border border-blue-100 rounded cursor-pointer hover:bg-blue-100 active:scale-95 transition-all">3</span>.
+                        </p>
+                        
+                        <!-- Callout / Blockquote -->
+                        <blockquote class="pl-4 border-l-4 border-zinc-300/80 italic text-zinc-600 bg-zinc-50/50 py-3 pr-4 my-6 rounded-r-md text-base">
+                            "By 2027, it is projected that over 30% of novel therapeutics entering phase 1 clinical trials will have been entirely discovered and optimized by autonomous AI pipelines." 
+                            <span class="block mt-2 text-sm not-italic font-medium text-zinc-900 font-sans">— Nature Biotechnology Review, 2024</span>
+                        </blockquote>
+
+                        <p>
+                            Furthermore, federated learning frameworks are enabling collaborative model training across disparate healthcare institutions without compromising patient data privacy. This allows for the construction of more robust predictive models for rare genetic disorders, which previously suffered from data sparsity
+                            <span class="inline-flex items-center justify-center w-5 h-5 ml-1 text-xs font-sans font-medium text-blue-700 bg-blue-50 border border-blue-100 rounded cursor-pointer hover:bg-blue-100 active:scale-95 transition-all">4</span>.
+                        </p>
+
+                        <p class="font-sans text-sm tracking-wide text-zinc-500 uppercase font-medium mb-2 mt-10" id="sec-clinical">03. Clinical Decision Support</p>
+                        <h2 class="text-2xl font-semibold text-zinc-900 tracking-tight mt-2 mb-4">From Diagnostic to Prognostic</h2>
+                        <p>
+                            In the clinical setting, AI is transitioning from mere diagnostic assistance (e.g., radiological image analysis) to comprehensive prognostic orchestration. Large Language Models (LLMs) fine-tuned on medical literature and localized Electronic Health Records (EHRs) act as collaborative agents for oncologists, suggesting personalized treatment regimens based on real-time synthesis of the latest clinical trial data and the patient's unique biomarker profile
+                            <span class="inline-flex items-center justify-center w-5 h-5 ml-1 text-xs font-sans font-medium text-blue-700 bg-blue-50 border border-blue-100 rounded cursor-pointer hover:bg-blue-100 active:scale-95 transition-all">5</span>.
+                        </p>
+
+                    </div>
+
+                    <!-- Sources Table / Cards Section -->
+                    <div class="mt-16 pt-12 border-t border-zinc-200/80 font-sans">
+                        <h3 class="text-lg font-semibold text-zinc-900 mb-6 flex items-center gap-2">
+                            <iconify-icon icon="solar:library-linear"></iconify-icon>
+                            Synthesized Sources
+                        </h3>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            
+                            <a href="#" class="group block p-4 rounded-lg border border-zinc-200/80 bg-zinc-50/50 hover:bg-white hover:border-zinc-300 hover:shadow-md transition-all active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50">
+                                <div class="flex items-start gap-3">
+                                    <div class="flex-shrink-0 w-6 h-6 rounded bg-zinc-200/80 flex items-center justify-center text-xs font-medium text-zinc-600 mt-0.5 group-hover:bg-blue-100 group-hover:text-blue-700 transition-colors">1</div>
+                                    <div>
+                                        <h4 class="text-sm font-medium text-zinc-900 line-clamp-2 leading-snug group-hover:text-blue-600 transition-colors">The integration of wearable sensor data in predictive health modeling.</h4>
+                                        <div class="mt-2 flex items-center gap-2 text-xs text-zinc-500">
+                                            <span class="px-1.5 py-0.5 rounded bg-white border border-zinc-200/80 font-medium text-zinc-700">nature.com</span>
+                                            <span>•</span>
+                                            <span>Oct 2023</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </a>
+
+                            <a href="#" class="group block p-4 rounded-lg border border-zinc-200/80 bg-zinc-50/50 hover:bg-white hover:border-zinc-300 hover:shadow-md transition-all active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50">
+                                <div class="flex items-start gap-3">
+                                    <div class="flex-shrink-0 w-6 h-6 rounded bg-zinc-200/80 flex items-center justify-center text-xs font-medium text-zinc-600 mt-0.5 group-hover:bg-blue-100 group-hover:text-blue-700 transition-colors">2</div>
+                                    <div>
+                                        <h4 class="text-sm font-medium text-zinc-900 line-clamp-2 leading-snug group-hover:text-blue-600 transition-colors">Dynamic conformational prediction using transformer architectures.</h4>
+                                        <div class="mt-2 flex items-center gap-2 text-xs text-zinc-500">
+                                            <span class="px-1.5 py-0.5 rounded bg-white border border-zinc-200/80 font-medium text-zinc-700">biorxiv.org</span>
+                                            <span>•</span>
+                                            <span>Jan 2024</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </a>
+
+                             <a href="#" class="group block p-4 rounded-lg border border-zinc-200/80 bg-zinc-50/50 hover:bg-white hover:border-zinc-300 hover:shadow-md transition-all active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50">
+                                <div class="flex items-start gap-3">
+                                    <div class="flex-shrink-0 w-6 h-6 rounded bg-zinc-200/80 flex items-center justify-center text-xs font-medium text-zinc-600 mt-0.5 group-hover:bg-blue-100 group-hover:text-blue-700 transition-colors">3</div>
+                                    <div>
+                                        <h4 class="text-sm font-medium text-zinc-900 line-clamp-2 leading-snug group-hover:text-blue-600 transition-colors">AlphaFold advancements and therapeutic target viability.</h4>
+                                        <div class="mt-2 flex items-center gap-2 text-xs text-zinc-500">
+                                            <span class="px-1.5 py-0.5 rounded bg-white border border-zinc-200/80 font-medium text-zinc-700">deepmind.google</span>
+                                            <span>•</span>
+                                            <span>Mar 2024</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </a>
+
+                            <a href="#" class="group block p-4 rounded-lg border border-zinc-200/80 bg-zinc-50/50 hover:bg-white hover:border-zinc-300 hover:shadow-md transition-all active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 flex items-center justify-center">
+                                <span class="text-sm font-medium text-zinc-500 group-hover:text-zinc-900 transition-colors flex items-center gap-2">
+                                    View all 42 sources
+                                    <iconify-icon icon="solar:arrow-right-linear" class="group-hover:translate-x-1 transition-transform"></iconify-icon>
+                                </span>
+                            </a>
+
+                        </div>
+                    </div>
+                </article>
+
+                <!-- Right Sidebar: Table of Contents (Sticky) -->
+                <aside class="hidden lg:block w-64 flex-shrink-0 sticky top-24 self-start">
+                    <div class="bg-white/80 backdrop-blur-md p-5 rounded-xl border border-zinc-200/80 shadow-[0_8px_30px_rgb(0,0,0,0.04)] toc-scroll max-h-[calc(100vh-8rem)] overflow-y-auto">
+                        <h4 class="text-xs font-semibold text-zinc-900 uppercase tracking-widest mb-4 flex items-center gap-2">
+                            <iconify-icon icon="solar:list-linear"></iconify-icon>
+                            Contents
+                        </h4>
+                        <nav class="space-y-1 relative before:absolute before:inset-y-0 before:left-1.5 before:w-px before:bg-zinc-200/80">
+                            <!-- ToC Item 1 -->
+                            <a href="#sec-abstract" class="relative flex items-center gap-3 py-1.5 pl-5 text-sm font-medium text-blue-600 hover:text-blue-700 transition-colors focus-visible:outline-none focus-visible:underline">
+                                <span class="absolute left-0 w-3 h-3 bg-white border-2 border-blue-500 rounded-full z-10 shadow-sm shadow-blue-500/20"></span>
+                                Executive Abstract
+                            </a>
+                            <!-- ToC Item 2 -->
+                            <a href="#sec-genomics" class="relative flex items-center gap-3 py-1.5 pl-5 text-sm font-medium text-zinc-500 hover:text-zinc-900 transition-colors focus-visible:outline-none focus-visible:underline">
+                                <span class="absolute left-1 w-1.5 h-1.5 bg-zinc-300 rounded-full z-10"></span>
+                                AI in Genomics
+                            </a>
+                            <div class="pl-8 space-y-1 my-1">
+                                <a href="#" class="block py-1 text-xs text-zinc-500 hover:text-zinc-900 truncate transition-colors focus-visible:outline-none focus-visible:underline">Target Identification</a>
+                                <a href="#" class="block py-1 text-xs text-zinc-500 hover:text-zinc-900 truncate transition-colors focus-visible:outline-none focus-visible:underline">Federated Learning Models</a>
+                            </div>
+                            <!-- ToC Item 3 -->
+                            <a href="#sec-clinical" class="relative flex items-center gap-3 py-1.5 pl-5 text-sm font-medium text-zinc-500 hover:text-zinc-900 transition-colors focus-visible:outline-none focus-visible:underline">
+                                <span class="absolute left-1 w-1.5 h-1.5 bg-zinc-300 rounded-full z-10"></span>
+                                Clinical Support
+                            </a>
+                            <!-- ToC Item 4 -->
+                            <a href="#" class="relative flex items-center gap-3 py-1.5 pl-5 text-sm font-medium text-zinc-500 hover:text-zinc-900 transition-colors focus-visible:outline-none focus-visible:underline">
+                                <span class="absolute left-1 w-1.5 h-1.5 bg-zinc-300 rounded-full z-10"></span>
+                                Regulatory Hurdles
+                            </a>
+                            <!-- ToC Item 5 -->
+                            <a href="#" class="relative flex items-center gap-3 py-1.5 pl-5 text-sm font-medium text-zinc-500 hover:text-zinc-900 transition-colors focus-visible:outline-none focus-visible:underline">
+                                <span class="absolute left-1 w-1.5 h-1.5 bg-zinc-300 rounded-full z-10"></span>
+                                References
+                            </a>
+                        </nav>
+                    </div>
+                </aside>
+
+            </div>
+        </div>
+    </main>
+
+
+</body></html>
