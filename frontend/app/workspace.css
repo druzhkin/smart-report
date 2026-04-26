@@ -637,6 +637,135 @@
 .ws-root .inline-btn.primary:hover { background: var(--accent); border-color: var(--accent); }
 .ws-root .inline-btn .arrow { opacity: 0.6; font-size: 12px; }
 
+/* === DR service picker === */
+.ws-root .dr-picker {
+  margin-top: 12px;
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  padding: 18px;
+}
+.ws-root .dr-picker__header { margin-bottom: 14px; }
+.ws-root .dr-picker__title {
+  font-family: var(--sans);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: -0.005em;
+}
+.ws-root .dr-picker__hint {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-3);
+  margin-top: 4px;
+  line-height: 1.5;
+}
+.ws-root .dr-picker__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+}
+.ws-root .dr-card {
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ws-root .dr-card--integrated { background: var(--paper-2); border-color: var(--ink-4); }
+.ws-root .dr-card__top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+.ws-root .dr-card__name {
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ws-root .dr-card__badge {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--accent);
+  font-weight: 500;
+}
+.ws-root .dr-card__price {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+.ws-root .dr-card__when {
+  font-family: var(--sans);
+  font-size: 12px;
+  color: var(--ink-2);
+  line-height: 1.45;
+}
+.ws-root .dr-card__actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+.ws-root .dr-card__btn {
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  padding: 6px 10px;
+  font-family: var(--sans);
+  font-size: 11px;
+  color: var(--ink-2);
+  cursor: pointer;
+  letter-spacing: -0.005em;
+}
+.ws-root .dr-card__btn:hover:not(:disabled) {
+  background: var(--paper-2); color: var(--ink); border-color: var(--ink);
+}
+.ws-root .dr-card__btn:disabled { opacity: 0.5; cursor: wait; }
+.ws-root .dr-card__btn--primary {
+  background: var(--ink); color: var(--on-ink); border-color: var(--ink);
+}
+.ws-root .dr-card__btn--primary:hover:not(:disabled) {
+  background: var(--accent); border-color: var(--accent); color: var(--on-ink);
+}
+.ws-root .dr-card__btn--ghost {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-3);
+}
+.ws-root .dr-card__details {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-3);
+  line-height: 1.6;
+  border-top: 1px dashed var(--rule);
+  padding-top: 8px;
+  margin-top: 4px;
+}
+.ws-root .dr-card__details p { margin: 0 0 4px 0; }
+.ws-root .dr-picker__footer {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--rule);
+  text-align: center;
+}
+.ws-root .dr-picker__skip {
+  background: none;
+  border: none;
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: 11px;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.ws-root .dr-picker__skip:hover { color: var(--ink); }
+.ws-root .dr-picker__skip:disabled { opacity: 0.4; cursor: wait; }
+
 /* === Composer === */
 .ws-root .composer-wrap {
   position: sticky;

@@ -296,6 +296,118 @@ def test_v4_full_cycle(monkeypatch, tmp_path):
     assert body["total_cost_rub"] == pytest.approx(0.36, abs=1e-3)
 
 
+def test_auto_dr_appends_to_source_reports(monkeypatch):
+    """Mock auto_dr.run_auto_dr → returns a fake markdown; verify endpoint
+    appends to source_reports + bumps cost + flips status."""
+    from smart_report.models import UploadedMarkdown
+    from smart_report.sources import auto_dr as auto_dr_mod
+
+    async def _fake_run(service, question, *, domain_hint=None, max_results=10):
+        return auto_dr_mod.AutoDRResult(
+            upload=UploadedMarkdown(
+                filename=f"auto_dr_{service}.md",
+                content=f"# {service} stub\n\nfake markdown",
+                detected_tool="other",
+                word_count=4,
+            ),
+            service=service,
+            cost_usd=0.005,
+            cost_rub=0.377,
+            source_count=3,
+            notes="stub",
+        )
+
+    monkeypatch.setattr(auto_dr_mod, "run_auto_dr", _fake_run)
+
+    client = _authed_client()
+    sid = client.post(
+        "/api/v4/sessions", json={"question": "test research question"}
+    ).json()["session_id"]
+
+    r = client.post(
+        f"/api/v4/sessions/{sid}/auto-dr",
+        json={"service": "tavily", "prompt": "find me X"},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["service"] == "tavily"
+    assert body["source_count"] == 3
+    assert body["cost_usd"] == pytest.approx(0.005, abs=1e-6)
+
+    # Session state mutated: source_reports has the new upload, status flipped.
+    sess = client.get(f"/api/v4/sessions/{sid}").json()
+    assert len(sess["source_reports"]) == 1
+    assert sess["source_reports"][0]["filename"] == "auto_dr_tavily.md"
+    assert sess["status"] == "reports_uploaded"
+    assert sess["total_cost_rub"] == pytest.approx(0.377, abs=1e-3)
+
+
+def test_auto_dr_rejects_unknown_service():
+    client = _authed_client()
+    sid = client.post(
+        "/api/v4/sessions", json={"question": "test research question"}
+    ).json()["session_id"]
+    r = client.post(
+        f"/api/v4/sessions/{sid}/auto-dr",
+        json={"service": "google", "prompt": "x"},
+    )
+    # pydantic Literal validation rejects unknown service before reaching handler
+    assert r.status_code == 422, r.text
+
+
+def test_auto_dr_surfaces_backend_error_as_502(monkeypatch):
+    from smart_report.sources import auto_dr as auto_dr_mod
+
+    async def _fail(*args, **kwargs):
+        raise auto_dr_mod.AutoDRError("valyu returned empty/error: no results")
+
+    monkeypatch.setattr(auto_dr_mod, "run_auto_dr", _fail)
+
+    client = _authed_client()
+    sid = client.post(
+        "/api/v4/sessions", json={"question": "test research question"}
+    ).json()["session_id"]
+    r = client.post(
+        f"/api/v4/sessions/{sid}/auto-dr",
+        json={"service": "valyu", "prompt": "obscure thing"},
+    )
+    assert r.status_code == 502, r.text
+    assert "valyu" in r.json()["detail"].lower()
+
+
+def test_auto_dr_falls_back_to_session_question_when_prompt_empty(monkeypatch):
+    """If client omits `prompt`, the endpoint reuses the session's question
+    (or the generated research_prompt) — UX optimization for the picker
+    that fires before the user has manually edited the prompt."""
+    from smart_report.models import UploadedMarkdown
+    from smart_report.sources import auto_dr as auto_dr_mod
+
+    captured = {}
+
+    async def _capture(service, question, *, domain_hint=None, max_results=10):
+        captured["question"] = question
+        return auto_dr_mod.AutoDRResult(
+            upload=UploadedMarkdown(
+                filename="x.md", content="x", detected_tool="other", word_count=1,
+            ),
+            service=service,
+            cost_usd=0.0, cost_rub=0.0, source_count=0, notes="",
+        )
+
+    monkeypatch.setattr(auto_dr_mod, "run_auto_dr", _capture)
+
+    client = _authed_client()
+    sid = client.post(
+        "/api/v4/sessions", json={"question": "what is the meaning of life"}
+    ).json()["session_id"]
+    r = client.post(
+        f"/api/v4/sessions/{sid}/auto-dr",
+        json={"service": "tavily"},  # no prompt
+    )
+    assert r.status_code == 200, r.text
+    assert captured["question"] == "what is the meaning of life"
+
+
 def test_track_b_endpoints_are_wired():
     """Track B has shipped — analyze/synthesize/upload routes exist (body behaviour
     is covered by test_v4_full_cycle / test_analyzer / test_synthesizer)."""

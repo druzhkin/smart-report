@@ -10,7 +10,7 @@ import {
   useCallback,
 } from "react";
 import type { ChatMessage, Artifact, Phase, ToastState } from "./types";
-import type { AnalysisOutput, FinalReport, ResearchPrompt } from "@/lib/apiV4";
+import type { AnalysisOutput, AutoDRService, FinalReport, ResearchPrompt } from "@/lib/apiV4";
 import {
   createSession,
   generatePrompt,
@@ -19,7 +19,9 @@ import {
   uploadFollowup,
   synthesize,
   getSession,
+  runAutoDR,
 } from "@/lib/apiV4";
+import { DrPicker, type DrServiceKey } from "./DrPicker";
 import { ModelPicker, getPipelineModel } from "@/components/ModelPicker";
 import { Msg, Thinking, ArtifactRef } from "./primitives";
 import {
@@ -101,6 +103,7 @@ export default function Workspace() {
   const [confirmReset, setConfirmReset] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
+  const [drBusy, setDrBusy] = useState<DrServiceKey | null>(null);
 
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     if (typeof window === "undefined") return "light";
@@ -307,11 +310,7 @@ export default function Workspace() {
         });
         push({
           role: "system",
-          kind: "cta",
-          primary: "Скопировать промт →",
-          action: "copy-prompt",
-          secondary: "Уже запустил — загружу отчёт",
-          secondaryAction: "go-upload-stage",
+          kind: "dr-picker",
         });
         setArtifact({ kind: "prompt", data: prompt });
         setPhase(PHASE.PROMPT);
@@ -349,6 +348,95 @@ export default function Workspace() {
     setArtifact({ kind: "upload-stage" });
     setPhase(PHASE.UPLOAD);
   }, [push]);
+
+  // ===== DR picker handlers =====
+  const runIntegratedDr = useCallback(
+    async (service: AutoDRService) => {
+      if (!sessionId) {
+        showToast("Сессия не найдена — начните новый вопрос");
+        return;
+      }
+      if (drBusy) return;
+      setDrBusy(service);
+      push({
+        role: "user",
+        kind: "text",
+        content: `Запустить Deep Research через ${service}`,
+      });
+      push({
+        role: "system",
+        kind: "thinking",
+        traces: [
+          `${service}: формирую запрос`,
+          "опрашиваю источники",
+          "собираю результаты",
+        ],
+        onDone: () => {},
+      });
+      try {
+        const res = await runAutoDR(sessionId, service, {
+          prompt: promptData?.full_prompt,
+        });
+        setMessages((ms) => ms.filter((m) => m.kind !== "thinking"));
+        const s = await getSession(sessionId);
+        setCost(s.total_cost_rub || 0);
+        push({
+          role: "system",
+          kind: "text",
+          content: `${service}: ${res.source_count} источник(ов), $${res.cost_usd.toFixed(4)}. Файл «${res.filename}» добавлен в источники сессии.`,
+        });
+        push({
+          role: "system",
+          kind: "ref",
+          refKind: "upload",
+          title: res.filename,
+          subtitle: `${res.source_count} источник(ов) · ${res.word_count} слов`,
+          accent: true,
+        });
+        push({
+          role: "system",
+          kind: "cta",
+          primary: "Перейти к анализу →",
+          action: "go-upload-stage",
+          secondary: "Загрузить ещё отчёт",
+          secondaryAction: "go-upload-stage",
+        });
+        setPhase(PHASE.UPLOAD);
+      } catch (e) {
+        setMessages((ms) => ms.filter((m) => m.kind !== "thinking"));
+        const msg = e instanceof Error ? e.message : String(e);
+        showToast(`${service}: ${msg}`);
+        push({
+          role: "system",
+          kind: "text",
+          content: `${service} не сработал: ${msg}\n\nВыберите другой сервис ниже или загрузите .md вручную.`,
+        });
+      } finally {
+        setDrBusy(null);
+      }
+    },
+    [sessionId, drBusy, promptData, push]
+  );
+
+  const launchExternalDr = useCallback(
+    (key: DrServiceKey, url: string) => {
+      if (!promptData) {
+        showToast("Промт ещё не готов");
+        return;
+      }
+      try {
+        navigator.clipboard.writeText(promptData.full_prompt);
+      } catch (_) {}
+      if (url && typeof window !== "undefined") {
+        window.open(url, "_blank", "noopener,noreferrer");
+      }
+      showToast(
+        `Промт скопирован — открыл ${key} в новой вкладке. Когда отчёт будет готов, загрузите .md.`
+      );
+      goToUploadStage();
+    },
+    [promptData, goToUploadStage]
+  );
 
   const actUpload = useCallback(
     async (files: File[]) => {
@@ -727,6 +815,19 @@ export default function Workspace() {
               </button>
             )}
           </div>
+        </Msg>
+      );
+    }
+    if (m.kind === "dr-picker") {
+      return (
+        <Msg key={m.id} role="system">
+          <DrPicker
+            onIntegrated={runIntegratedDr}
+            onCopyLaunch={launchExternalDr}
+            onSkip={goToUploadStage}
+            disabled={pending}
+            busyKey={drBusy}
+          />
         </Msg>
       );
     }

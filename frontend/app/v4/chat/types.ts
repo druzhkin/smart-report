@@ -10,7 +10,7 @@ export type Phase =
   | "done";
 
 export type Role = "system" | "user";
-export type MsgKind = "text" | "thinking" | "ref" | "cta" | "divider";
+export type MsgKind = "text" | "thinking" | "ref" | "cta" | "divider" | "dr-picker";
 export type RefKind = "prompt" | "upload" | "critique" | "report" | "topup";
 
 export interface ChatMessage {

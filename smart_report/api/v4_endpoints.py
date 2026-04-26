@@ -345,6 +345,97 @@ async def analyze(session_id: str, request: Request, payload: ModelPreferenceIn 
         raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}") from e
 
 
+class AutoDRIn(BaseModel):
+    service: Literal["valyu", "tavily", "exa", "perplexity"]
+    prompt: str | None = Field(
+        default=None,
+        max_length=20000,
+        description="Optional override; defaults to the session's research_prompt.full_prompt or raw_question.",
+    )
+    domain_hint: str | None = Field(default=None, max_length=64)
+
+
+class AutoDROut(BaseModel):
+    service: str
+    filename: str
+    word_count: int
+    source_count: int
+    cost_usd: float
+    cost_rub: float
+    notes: str
+
+
+@router.post("/sessions/{session_id}/auto-dr", response_model=AutoDROut)
+async def auto_dr(session_id: str, request: Request, payload: AutoDRIn) -> AutoDROut:
+    """Run a Deep Research call on the user's behalf via the chosen service.
+
+    The result is appended to ``session.source_reports`` as if the user had
+    pasted a Perplexity export — the analyze/synthesize pipeline picks it
+    up unchanged. Cost is added to the user's monthly cap (so unbounded
+    auto-DR clicks can't bypass /enforce_cost_cap).
+    """
+    session = _owned_with_cap(session_id, request)
+    from ..sources.auto_dr import AutoDRError, run_auto_dr
+
+    question = (payload.prompt or "").strip()
+    if not question:
+        # Fall back to the generated research prompt, then raw question.
+        if session.research_prompt and session.research_prompt.full_prompt:
+            question = session.research_prompt.full_prompt
+        else:
+            question = session.raw_question
+
+    emitter = _SessionEmitter(session_id)
+    emitter.emit(
+        "status",
+        f"Запускаю Deep Research через {payload.service}…",
+        data={"service": payload.service},
+    )
+
+    try:
+        result = await run_auto_dr(
+            payload.service,
+            question,
+            domain_hint=payload.domain_hint,
+        )
+    except AutoDRError as e:
+        emitter.emit("error", f"{payload.service}: {e}", data={"service": payload.service})
+        raise HTTPException(status_code=502, detail=str(e)) from e
+    except Exception as e:
+        log.exception("auto_dr unexpected failure for %s/%s", session_id, payload.service)
+        emitter.emit("error", f"{payload.service} crashed: {e}", data={"service": payload.service})
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}") from e
+
+    # Append to source_reports so the existing /analyze flow consumes it.
+    session.source_reports = list(session.source_reports) + [result.upload]
+    if session.status in {"created", "prompt_generated"}:
+        session.status = "reports_uploaded"
+    # Charge user's monthly cap. Cost goes on session.total_cost_rub which
+    # is what _user_monthly_spend_usd sums.
+    session.total_cost_rub = float(session.total_cost_rub or 0.0) + result.cost_rub
+    _store.update(session)
+
+    emitter.emit(
+        "status",
+        f"{payload.service}: {result.source_count} источник(ов), ${result.cost_usd:.4f}",
+        data={
+            "service": payload.service,
+            "cost_usd": result.cost_usd,
+            "source_count": result.source_count,
+        },
+    )
+
+    return AutoDROut(
+        service=result.service,
+        filename=result.upload.filename,
+        word_count=result.upload.word_count,
+        source_count=result.source_count,
+        cost_usd=result.cost_usd,
+        cost_rub=result.cost_rub,
+        notes=result.notes,
+    )
+
+
 @router.post("/sessions/{session_id}/synthesize", response_model=FinalReport)
 async def synthesize(session_id: str, request: Request, payload: ModelPreferenceIn | None = None) -> FinalReport:
     _owned_with_cap(session_id, request)

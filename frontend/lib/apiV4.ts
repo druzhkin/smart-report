@@ -392,6 +392,47 @@ export async function getEvents(
   );
 }
 
+// -- Auto-DR (server-side Deep Research) ----------------------------------
+
+export type AutoDRService = "valyu" | "tavily" | "exa" | "perplexity";
+
+export type AutoDROut = {
+  service: string;
+  filename: string;
+  word_count: number;
+  source_count: number;
+  cost_usd: number;
+  cost_rub: number;
+  notes: string;
+};
+
+export async function runAutoDR(
+  id: string,
+  service: AutoDRService,
+  opts: { prompt?: string; domain_hint?: string } = {}
+): Promise<AutoDROut> {
+  if (STUB) {
+    await new Promise((r) => setTimeout(r, 1200));
+    return {
+      service,
+      filename: `auto_dr_${service}.md`,
+      word_count: 1234,
+      source_count: 7,
+      cost_usd: 0.012,
+      cost_rub: 0.9,
+      notes: "stub",
+    };
+  }
+  return jv4<AutoDROut>(`/api/v4/sessions/${encodeURIComponent(id)}/auto-dr`, {
+    method: "POST",
+    body: JSON.stringify({
+      service,
+      prompt: opts.prompt,
+      domain_hint: opts.domain_hint,
+    }),
+  });
+}
+
 export function exportUrl(id: string, format: string): string {
   return `${V4_BASE}/api/v4/sessions/${encodeURIComponent(id)}/export?format=${encodeURIComponent(format)}`;
 }
