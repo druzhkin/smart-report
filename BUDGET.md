@@ -185,6 +185,8 @@ Hard cap $61 across 14 days, soft $50.
 |---|---|---|---|---|---|
 | 2026-04-26 | M1 B1.1 — harness DOCX checkpoint sanity (Q1 EV, no Valyu) | $3.00 | TBD | ~$49 | validates checkpoint DOCX after first synth; closes A14 operationally |
 | 2026-04-26 | M1 B1.2 — Valyu adapter live smoke (Tesla 10-K) | $0.10 | $0.04 | ~$49 | 4.25s, ≥3 sec.gov sources confirmed; SearchBackend Protocol contract met |
+| 2026-04-26 | M1 B1.1 sanity Q1 EV (no Valyu, killed early after checkpoint) | $3.00 | ~$2.00 estimate | ~$47 | 38KB DOCX captured at 12:49 before coverage retry; B1.1 acceptance MET; killed before retry to save residual cost |
+| 2026-04-26 | M1 B2.2 — Q1 EV PRODUCTION with Valyu (financial_us forced) | $4.00 | TBD | ~$47 | augment fires sec.gov/fred sources; tests Opus gate criterion ≥3 sec.gov citations |
 
 **End-of-session totals:**
 

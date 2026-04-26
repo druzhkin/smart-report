@@ -53,6 +53,12 @@ load_dotenv(dotenv_path=REPO_ROOT / ".env")
 from smart_report.exporters import render_docx
 from smart_report.evidence_grades import evidence_grade_distribution
 from smart_report.models import ResearchPrompt, UploadedMarkdown, V4Session
+from smart_report.sources.pre_analyze_augment import (
+    ValyuPrimaryFailedError,
+    enabled_domains_from_env,
+    forced_domain_from_env,
+    maybe_run_valyu_augment,
+)
 from smart_report import v4_orchestrator as v4_module
 from smart_report.v4_orchestrator import V4Orchestrator, V4SessionStore
 
@@ -240,8 +246,53 @@ async def _run_one_query(qid: str, spec: dict, out_dir: Path) -> tuple[str, floa
     sid_holder["sid"] = sid
     store.create(session_id=sid, raw_question=spec["question"])
 
+    # M1 D2 B2.1 — feature-flagged Valyu augment.
+    # SMART_REPORT_VALYU_ENABLE_DOMAINS=financial_us (+optional FORCE_DOMAIN
+    # override) injects a Valyu DeepSearch result as an extra UploadedMarkdown
+    # PRE-prepended to the user's source reports. ValyuPrimaryFailedError
+    # surfaces if augment fired but Valyu came back empty/error.
+    valyu_augment_meta: dict = {
+        "enabled_domains": enabled_domains_from_env(),
+        "forced_domain": forced_domain_from_env(),
+        "augment_fired": False,
+        "augment_domain": None,
+        "augment_source_count": 0,
+        "augment_cost_usd": 0.0,
+    }
+    augment_upload = None
+    try:
+        augment_upload, augment_result, augment_domain = await maybe_run_valyu_augment(
+            spec["question"]
+        )
+        valyu_augment_meta["augment_domain"] = augment_domain
+        if augment_upload is not None and augment_result is not None:
+            valyu_augment_meta["augment_fired"] = True
+            valyu_augment_meta["augment_source_count"] = len(augment_result.sources)
+            valyu_augment_meta["augment_cost_usd"] = round(augment_result.cost_usd, 4)
+            print(
+                f"  [valyu-augment] domain={augment_domain} sources={len(augment_result.sources)} "
+                f"cost=${augment_result.cost_usd:.4f} latency_ms={augment_result.latency_ms}"
+            )
+        else:
+            print(
+                f"  [valyu-augment] skipped (domain={augment_domain}, "
+                f"enabled={valyu_augment_meta['enabled_domains']!r})"
+            )
+    except ValyuPrimaryFailedError as e:
+        # Per brief §3 B2.1: fail-fast on enabled-domain Valyu errors so the
+        # harness surfaces the failure rather than silent-degrading.
+        print(f"  [valyu-augment] PRIMARY FAILURE: {e}")
+        return ("blocked", 0.0)
+
     sess = store.get(sid)
-    sess.source_reports = uploads
+    # PRE-prepend augment so it lands first in source_reports — Step 3.3
+    # source-quality classifier still owns grading; this just ensures the
+    # Valyu data is processed before the user-uploaded Perplexity markdowns
+    # in any order-dependent normalisation.
+    if augment_upload is not None:
+        sess.source_reports = [augment_upload, *uploads]
+    else:
+        sess.source_reports = uploads
     sess.status = "reports_uploaded"
     store.update(sess)
 
@@ -311,6 +362,7 @@ async def _run_one_query(qid: str, spec: dict, out_dir: Path) -> tuple[str, floa
         "source_count_in_final": len(final.all_sources) if final else 0,
         "evidence_grade_distribution": evidence_grade_distribution(final) if final else None,
         "main_synthesis_chars": len(final.main_synthesis) if final else 0,
+        "valyu_augment": valyu_augment_meta,
     }
     (out_dir / "audit_summary.json").write_text(
         json.dumps(audit, ensure_ascii=False, indent=2, default=str), encoding="utf-8"
