@@ -221,9 +221,21 @@ class ValyuResearchClient:
 
     @staticmethod
     def _task_id_from_response(resp: Any) -> Optional[str]:
+        """SDK returns the job id under `deepresearch_id` (not `task_id` /
+        `id`). Tolerate all three names for forward-compat in case the SDK
+        renames it later.
+        """
         if isinstance(resp, dict):
-            return resp.get("task_id") or resp.get("id")
-        return getattr(resp, "task_id", None) or getattr(resp, "id", None)
+            return (
+                resp.get("deepresearch_id")
+                or resp.get("task_id")
+                or resp.get("id")
+            )
+        return (
+            getattr(resp, "deepresearch_id", None)
+            or getattr(resp, "task_id", None)
+            or getattr(resp, "id", None)
+        )
 
     @staticmethod
     def _to_dict(obj: Any) -> dict:
