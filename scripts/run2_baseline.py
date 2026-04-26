@@ -122,6 +122,22 @@ COMPARISON_QUERIES = [
             ),
         ],
     },
+    # M1 retry per Opus FAIL on Q1 EV (criterion 1 unmet — Russian automotive
+    # question doesn't structurally need SEC/FRED citations). This synthetic
+    # financial_us query is the brief-correct test: in-domain question that
+    # SHOULD pull from sec.gov / fred / bls / federalreserve.gov when Valyu
+    # augment is active. NO uploaded markdowns — synth runs purely on the
+    # Valyu augment + the question itself, so Valyu IS the only source pool.
+    {
+        "id": "q_fin_tesla_us",
+        "question": (
+            "Compare Q3-Q4 2024 financial performance and 2025 outlook of "
+            "Tesla, Rivian, and Lucid Motors as US public EV manufacturers, "
+            "citing their 10-K and 10-Q SEC filings, US auto industry data "
+            "from FRED, and BLS auto manufacturing employment statistics."
+        ),
+        "uploads": [],
+    },
 ]
 
 

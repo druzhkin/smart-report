@@ -19,6 +19,24 @@
 <script type="text/babel">
 const { useState, useEffect } = React;
 
+// Pydantic 422 returns `detail` as an array of {loc, msg, type, input, ctx}
+// objects, NOT a string. Setting that array directly as a React child
+// crashes with "Objects are not valid as a React child". Always coerce.
+function formatError(data, fallback) {
+  if (!data) return fallback || "Что-то пошло не так";
+  const d = data.detail;
+  if (typeof d === "string") return d;
+  if (Array.isArray(d)) {
+    return d.map(e => {
+      const where = Array.isArray(e.loc) ? e.loc.join(".") : "";
+      const msg = e.msg || e.type || JSON.stringify(e);
+      return where ? `${where}: ${msg}` : msg;
+    }).join("; ");
+  }
+  if (d && typeof d === "object") return JSON.stringify(d);
+  return fallback || "Что-то пошло не так";
+}
+
 function App() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -44,7 +62,7 @@ function App() {
       if (r.ok) { window.location.href = "/app/dashboard.html"; return; }
       const data = await r.json().catch(() => ({}));
       setStatus("error");
-      setError(data.detail || `HTTP ${r.status}`);
+      setError(formatError(data, `HTTP ${r.status}`));
     } catch (err) {
       setStatus("error"); setError(String(err));
     }

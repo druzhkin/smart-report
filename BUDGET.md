@@ -186,7 +186,10 @@ Hard cap $61 across 14 days, soft $50.
 | 2026-04-26 | M1 B1.1 — harness DOCX checkpoint sanity (Q1 EV, no Valyu) | $3.00 | TBD | ~$49 | validates checkpoint DOCX after first synth; closes A14 operationally |
 | 2026-04-26 | M1 B1.2 — Valyu adapter live smoke (Tesla 10-K) | $0.10 | $0.04 | ~$49 | 4.25s, ≥3 sec.gov sources confirmed; SearchBackend Protocol contract met |
 | 2026-04-26 | M1 B1.1 sanity Q1 EV (no Valyu, killed early after checkpoint) | $3.00 | ~$2.00 estimate | ~$47 | 38KB DOCX captured at 12:49 before coverage retry; B1.1 acceptance MET; killed before retry to save residual cost |
-| 2026-04-26 | M1 B2.2 — Q1 EV PRODUCTION with Valyu (financial_us forced) | $4.00 | TBD | ~$47 | augment fires sec.gov/fred sources; tests Opus gate criterion ≥3 sec.gov citations |
+| 2026-04-26 | M1 B2.2 attempt 1 — synth ConnectError mid-cycle (OpenRouter blip) | $4.00 | $0.34 | ~$47 | Valyu augment ✅ 10 sources $0.015; pipeline blocked at synth on transport error; OpenRouter recovered, retry next |
+| 2026-04-26 | M1 B2.2 attempt 2 — Q1 EV with Valyu | $4.00 | $1.17 | ~$47 | DONE 16:59; degraded (LOW evidence_quality), 56 sources, 12/5/16/8 grades, 0 sec.gov in DOCX |
+| 2026-04-26 | M1 D3 — Opus gate verdict on Q1 EV | $0.50 | $0.51 | ~$46 | FAIL — 5/6 PASS, criterion 1 unmet (0 sec.gov citations); Q1 EV is RU automotive, structurally doesn't need SEC |
+| 2026-04-26 | M1 retry — q_fin_tesla_us with Valyu (financial_us in-domain) | $2.50 | TBD | ~$46 | brief-correct test query; Valyu IS the only source pool (no uploads) |
 
 **End-of-session totals:**
 
