@@ -26,6 +26,7 @@ from .jobs import (
 from .models import JobSummary, ResearchIn, ResearchOut
 from .v4_endpoints import router as v4_router
 from .landing import router as landing_router
+from .lead import router as lead_router
 
 log = logging.getLogger("smart_report.api")
 
@@ -50,6 +51,7 @@ app.add_middleware(
 
 app.include_router(v4_router)
 app.include_router(landing_router)
+app.include_router(lead_router)
 
 
 # ---------- runtime ----------

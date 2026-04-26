@@ -24,7 +24,20 @@ function VariantSwitcher({ value, onChange }) {
   );
 }
 
-function Topbar({ ctaLabel = "Заказать отчёт", variant = "a" }) {
+function Topbar({ ctaLabel = "Заказать отчёт", variant = "a", onCtaClick }) {
+  // Smooth-scroll for in-page anchors. Falls back to native jump if the
+  // section id isn't on the current page.
+  const navJump = (e, id) => {
+    const el = document.getElementById(id);
+    if (el) { e.preventDefault(); el.scrollIntoView({ behavior: "smooth", block: "start" }); }
+  };
+
+  // Default CTA: open the global lead modal (LandingA exposes window.__openLeadModal).
+  const handleCta = () => {
+    if (typeof onCtaClick === "function") return onCtaClick();
+    if (typeof window.__openLeadModal === "function") return window.__openLeadModal("start");
+  };
+
   return (
     <header className="lp-topbar">
       <div className="lp-brand">
@@ -35,13 +48,13 @@ function Topbar({ ctaLabel = "Заказать отчёт", variant = "a" }) {
         </div>
       </div>
       <nav className="lp-nav">
-        <a href="#how">Как это работает</a>
-        <a href="#example">Пример отчёта</a>
-        <a href="#compare">Сравнение</a>
-        <a href="#price">Цены</a>
-        <a href="#faq">FAQ</a>
+        <a href="#how" onClick={(e) => navJump(e, "how")}>Как это работает</a>
+        <a href="#how" onClick={(e) => navJump(e, "how")}>Пример отчёта</a>
+        <a href="#compare" onClick={(e) => navJump(e, "compare")}>Сравнение</a>
+        <a href="#price" onClick={(e) => navJump(e, "price")}>Цены</a>
+        <a href="#faq" onClick={(e) => navJump(e, "faq")}>FAQ</a>
       </nav>
-      <button className="lp-cta-mini">{ctaLabel} →</button>
+      <button className="lp-cta-mini" onClick={handleCta}>{ctaLabel} →</button>
     </header>
   );
 }

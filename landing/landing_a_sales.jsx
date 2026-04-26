@@ -1,9 +1,147 @@
 // Variant A — Sales-heavy
-const { useState: useStateA } = React;
+const { useState: useStateA, useEffect: useEffectA, useRef: useRefA } = React;
+
+// ---------------------------------------------------------------------------
+// Lead modal — opens for every CTA. Posts to /api/lead. Auth on the landing
+// is admin/admin (HTTP Basic) so the form is only visible to authed users.
+// ---------------------------------------------------------------------------
+
+function LeadModal({ open, packageId, onClose }) {
+  const [name, setName] = useStateA("");
+  const [email, setEmail] = useStateA("");
+  const [message, setMessage] = useStateA("");
+  const [status, setStatus] = useStateA("idle"); // idle | sending | ok | error
+  const [errorText, setErrorText] = useStateA("");
+
+  useEffectA(() => {
+    if (!open) {
+      setStatus("idle"); setErrorText("");
+      setName(""); setEmail(""); setMessage("");
+    }
+  }, [open]);
+
+  // Esc to close
+  useEffectA(() => {
+    if (!open) return;
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  const PACKAGE_TITLES = {
+    start:        "Standard · ₽10 000 (разовый отчёт)",
+    single:       "Single · ₽10 000 (разовый отчёт)",
+    pack5:        "Pack 5 · ₽39 000 (5 отчётов)",
+    subscription: "Subscription · ₽2 500/мес (BYOK)",
+    generic:      "Запрос — Smart Report",
+  };
+  const subjectTitle = PACKAGE_TITLES[packageId] || PACKAGE_TITLES.generic;
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (status === "sending") return;
+    if (!email.trim()) { setStatus("error"); setErrorText("Укажите email"); return; }
+    setStatus("sending"); setErrorText("");
+    try {
+      const r = await fetch("/api/lead", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          package: packageId || "generic",
+          package_title: subjectTitle,
+          name: name.trim(),
+          email: email.trim(),
+          message: message.trim(),
+          source: "landing_a_sales",
+          ts_iso: new Date().toISOString(),
+        }),
+      });
+      if (!r.ok) {
+        const txt = await r.text();
+        setStatus("error"); setErrorText(`HTTP ${r.status}: ${txt.slice(0, 160)}`);
+        return;
+      }
+      setStatus("ok");
+    } catch (err) {
+      setStatus("error"); setErrorText(String(err).slice(0, 160));
+    }
+  };
+
+  return (
+    <div className="lead-modal-backdrop" onClick={onClose}>
+      <div className="lead-modal" onClick={(e) => e.stopPropagation()}>
+        <button className="lead-modal-close" onClick={onClose} aria-label="Закрыть">×</button>
+
+        {status === "ok" ? (
+          <div className="lead-modal-success">
+            <div className="lead-modal-eyebrow">Принято</div>
+            <h3>Свяжемся в течение рабочего дня.</h3>
+            <p>На <strong>{email}</strong> придёт подтверждение. Если что — напишите в Telegram, контакт в подвале.</p>
+            <button className="lp-btn" onClick={onClose}>Закрыть</button>
+          </div>
+        ) : (
+          <>
+            <div className="lead-modal-eyebrow">Заявка</div>
+            <h3>{subjectTitle}</h3>
+            <p className="lead-modal-sub">Оставьте контакт — пришлём счёт и стартовый бриф. Никакой рассылки, только по этой заявке.</p>
+            <form onSubmit={submit} className="lead-form">
+              <label>
+                <span>Имя</span>
+                <input type="text" value={name} onChange={(e) => setName(e.target.value)}
+                       placeholder="Как к вам обращаться" autoFocus />
+              </label>
+              <label>
+                <span>Email <em>*</em></span>
+                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+                       placeholder="you@company.ru" required />
+              </label>
+              <label>
+                <span>Что нужно (опционально)</span>
+                <textarea rows="4" value={message} onChange={(e) => setMessage(e.target.value)}
+                          placeholder="Опишите задачу одной-двумя фразами" />
+              </label>
+              {status === "error" && (
+                <div className="lead-modal-error">{errorText || "Что-то пошло не так"}</div>
+              )}
+              <div className="lead-modal-actions">
+                <button type="button" className="lp-btn lp-btn-ghost" onClick={onClose}>Отмена</button>
+                <button type="submit" className="lp-btn" disabled={status === "sending"}>
+                  {status === "sending" ? "Отправляем…" : "Отправить заявку →"}
+                </button>
+              </div>
+            </form>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Smooth scroll helper for in-page anchor buttons
+// ---------------------------------------------------------------------------
+
+function _scrollToId(id) {
+  const el = document.getElementById(id);
+  if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+}
 
 function LandingA() {
+  const [modalOpen, setModalOpen] = useStateA(false);
+  const [packageId, setPackageId] = useStateA("start");
+
+  const openLead = (pkg) => { setPackageId(pkg || "generic"); setModalOpen(true); };
+  const closeLead = () => setModalOpen(false);
+
+  // Expose openLead globally so the shared Topbar (defined in
+  // landing_shared.jsx) can call it without a prop chain.
+  useEffectA(() => { window.__openLeadModal = openLead; return () => { delete window.__openLeadModal; }; }, []);
+
   return (
     <>
+      <LeadModal open={modalOpen} packageId={packageId} onClose={closeLead} />
       <window.Topbar variant="a" />
 
       {/* HERO */}
@@ -24,8 +162,8 @@ function LandingA() {
                 Smart Report — это не «AI с веб-поиском». Это система, в промпты которой зашиты четыре проверенных временем аналитических протокола: <strong>ACH</strong>, <strong>Key Assumptions Check</strong>, <strong>MECE</strong> и <strong>Pyramid Principle</strong>. То же самое, что senior-аналитик делает руками — на каждом отчёте, без пропусков. На выходе — документ, где у каждого утверждения помечен уровень доказательности.
               </p>
               <div className="va-cta-row">
-                <button className="lp-btn">Заказать отчёт за ₽10 000 <span className="lp-btn-arrow">→</span></button>
-                <button className="lp-btn lp-btn-ghost">Посмотреть структуру отчёта</button>
+                <button className="lp-btn" onClick={() => openLead("start")}>Заказать отчёт за ₽10 000 <span className="lp-btn-arrow">→</span></button>
+                <button className="lp-btn lp-btn-ghost" onClick={() => _scrollToId("how")}>Посмотреть структуру отчёта</button>
                 <span className="va-cta-meta">12–20 минут · 5 DR · 4 протокола · ₽10 000</span>
               </div>
             </div>
@@ -44,7 +182,7 @@ function LandingA() {
                 <li>Честное «нет данных» вместо красивой выдумки</li>
                 <li>Отчёт + презентация · все основные форматы</li>
               </ul>
-              <button className="lp-btn">Оплатить и начать <span className="lp-btn-arrow">→</span></button>
+              <button className="lp-btn" onClick={() => openLead("start")}>Оплатить и начать <span className="lp-btn-arrow">→</span></button>
             </div>
           </div>
         </div>
@@ -288,7 +426,7 @@ function LandingA() {
                 <li>Калибровка уверенности у каждого тезиса</li>
                 <li>Отчёт + презентация · все основные форматы</li>
               </ul>
-              <button className="lp-btn lp-btn-ghost">Заказать отчёт</button>
+              <button className="lp-btn lp-btn-ghost" onClick={() => openLead("single")}>Заказать отчёт</button>
             </div>
 
             <div className="va-price-card va-featured">
@@ -304,7 +442,7 @@ function LandingA() {
                 <li>Архив отчётов с полнотекстовым поиском</li>
                 <li>Менеджер на связи в Telegram</li>
               </ul>
-              <button className="lp-btn">Купить пакет</button>
+              <button className="lp-btn" onClick={() => openLead("pack5")}>Купить пакет</button>
             </div>
 
             <div className="va-price-card">
@@ -319,7 +457,7 @@ function LandingA() {
                 <li>API и веб-хуки</li>
                 <li>Командные роли и SSO</li>
               </ul>
-              <button className="lp-btn lp-btn-ghost">Подключить</button>
+              <button className="lp-btn lp-btn-ghost" onClick={() => openLead("subscription")}>Подключить</button>
             </div>
           </div>
         </div>
@@ -403,8 +541,8 @@ function LandingA() {
           <h2>Закажите <em>метод</em>, не текст.</h2>
           <p>Опишите задачу. Через 12–20 минут получите документ, прошедший через MECE-декомпозицию, ACH, Key Assumptions Check и Pyramid Principle. Каждое утверждение помечено уровнем доказательности. ₽10 000 разово, без подписки.</p>
           <div className="va-cta-row">
-            <button className="lp-btn">Заказать отчёт <span className="lp-btn-arrow">→</span></button>
-            <button className="lp-btn lp-btn-ghost">Посмотреть структуру отчёта</button>
+            <button className="lp-btn" onClick={() => openLead("start")}>Заказать отчёт <span className="lp-btn-arrow">→</span></button>
+            <button className="lp-btn lp-btn-ghost" onClick={() => _scrollToId("how")}>Посмотреть структуру отчёта</button>
           </div>
         </div>
       </section>
