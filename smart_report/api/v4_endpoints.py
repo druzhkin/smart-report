@@ -556,14 +556,14 @@ async def auto_dr(session_id: str, request: Request, payload: AutoDRIn):
 async def auto_dr_cancel(session_id: str, request: Request, task_id: str) -> dict:
     """Cancel an in-flight async DR task.
 
-    Currently only supports OpenAI DR (where we control the asyncio task).
-    Valyu/Exa/Tavily Research run inside their respective SDKs — to cancel
-    them properly we'd call the SDK's own cancel method, which is not yet
-    wired. For now those services return 501.
-
-    IMPORTANT: cancellation does NOT refund the API spend. If the request
-    already reached the upstream provider, we paid for whatever tokens
-    were generated. The cap charge stays.
+    Per service:
+    - openai: hard cancel — we own the asyncio.Task and can .cancel() it.
+      The OpenAI tokens already generated are billed regardless.
+    - valyu: hard cancel via valyu.deepresearch.cancel(task_id). The
+      Valyu mode-flat fee is billed regardless of when we cancel.
+    - tavily / exa: soft cancel — their SDKs don't expose a cancel method
+      so the upstream task keeps running to completion. We just clean
+      local state so the UI no longer shows it. Cost is billed in full.
     """
     session = _get_owned(session_id, request)
     job = next(
@@ -573,36 +573,54 @@ async def auto_dr_cancel(session_id: str, request: Request, task_id: str) -> dic
     if job is None:
         raise HTTPException(status_code=404, detail=f"task_id {task_id} not found in this session")
     svc = job.get("service", "")
-    if svc != "openai":
-        raise HTTPException(
-            status_code=501,
-            detail=(
-                f"cancel for {svc} is not yet implemented; the underlying SDK's "
-                "cancel method needs to be wired. For OpenAI DR cancel works."
-            ),
-        )
-    from ..sources.llm_deepresearch import cancel_openai_dr_task
-    ok = cancel_openai_dr_task(task_id)
-    if not ok:
-        raise HTTPException(
-            status_code=410,
-            detail=(
-                "task not in in-process registry — likely the container "
-                "restarted; the API spend is forfeit and the task is lost."
-            ),
-        )
-    # Remove from pending_dr_jobs so the UI no longer shows it.
+    cancel_kind = "soft"  # default; flipped to "hard" below if SDK supports it
+
+    if svc == "openai":
+        from ..sources.llm_deepresearch import cancel_openai_dr_task
+        ok = cancel_openai_dr_task(task_id)
+        if not ok:
+            raise HTTPException(
+                status_code=410,
+                detail=(
+                    "task not in in-process registry — likely the container "
+                    "restarted; the API spend is forfeit and the task is lost."
+                ),
+            )
+        cancel_kind = "hard"
+    elif svc == "valyu":
+        # Valyu's SDK supports cancel(task_id). Best-effort — swallow errors.
+        import os
+        from ..sources.valyu_deepresearch import ValyuResearchClient
+        api_key = os.environ.get("VALYU_API_KEY")
+        if api_key:
+            try:
+                await ValyuResearchClient(api_key=api_key).cancel(task_id)
+                cancel_kind = "hard"
+            except Exception as e:
+                log.warning("valyu cancel %s failed: %s", task_id, e)
+                # fall through — soft cancel below
+    elif svc in {"tavily", "exa"}:
+        # SDK has no cancel method — soft cancel only.
+        pass
+    else:
+        raise HTTPException(status_code=501, detail=f"cancel not supported for service {svc!r}")
+
+    # Always remove the local job entry so the UI stops showing it.
     session.pending_dr_jobs = [
         j for j in (session.pending_dr_jobs or []) if j.get("task_id") != task_id
     ]
     _store.update(session)
     emitter = _SessionEmitter(session_id)
+    note = (
+        "отменён пользователем" if cancel_kind == "hard"
+        else "отменён локально (upstream продолжит работать; деньги списались)"
+    )
     emitter.emit(
         "status",
-        f"OpenAI Deep Research отменён пользователем (task {task_id[:8]}…)",
-        data={"service": "openai", "task_id": task_id, "reason": "user_cancel"},
+        f"{svc} DR {note} (task {task_id[:8]}…)",
+        data={"service": svc, "task_id": task_id, "reason": "user_cancel", "kind": cancel_kind},
     )
-    return {"task_id": task_id, "state": "cancelled"}
+    return {"task_id": task_id, "state": "cancelled", "kind": cancel_kind}
 
 
 @router.get("/sessions/{session_id}/auto-dr-status", response_model=AutoDRStatusOut)

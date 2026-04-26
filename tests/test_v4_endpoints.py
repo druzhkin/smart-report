@@ -634,7 +634,39 @@ def test_auto_dr_cancel_openai_marks_cancelled(monkeypatch):
     llm_dr_mod._TASKS.pop("oai-cancel-test", None)
 
 
-def test_auto_dr_cancel_unknown_service_returns_501(monkeypatch):
+def test_auto_dr_cancel_tavily_is_soft_cancel(monkeypatch):
+    """Tavily SDK has no cancel method — endpoint returns 200 with kind=soft."""
+    from smart_report.sources import auto_dr as auto_dr_mod
+
+    async def _fake_submit(service, question, *, mode="standard", session_id=None, store=None):
+        return auto_dr_mod.AsyncResearchSubmission(
+            task_id="tav-cancel-test", service="tavily", mode="mini",
+            cost_usd=0.05, eta_min_low=2, eta_min_high=5,
+        )
+
+    monkeypatch.setattr(auto_dr_mod, "submit_async_research", _fake_submit)
+
+    client = _authed_client()
+    sid = client.post(
+        "/api/v4/sessions", json={"question": "tavily soft cancel"}
+    ).json()["session_id"]
+    client.post(
+        f"/api/v4/sessions/{sid}/auto-dr",
+        json={"service": "tavily", "mode": "mini", "prompt": "x"},
+    )
+    r = client.post(f"/api/v4/sessions/{sid}/auto-dr-cancel?task_id=tav-cancel-test")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["state"] == "cancelled"
+    assert body["kind"] == "soft"
+    sess = client.get(f"/api/v4/sessions/{sid}").json()
+    assert all(j.get("task_id") != "tav-cancel-test" for j in (sess.get("pending_dr_jobs") or []))
+
+
+def test_auto_dr_cancel_valyu_attempts_hard_cancel(monkeypatch):
+    """Valyu wrapper attempts SDK cancel — falls back to soft if it raises.
+    Without VALYU_API_KEY in test env, the call is skipped and we get soft."""
+    import os
     from smart_report.sources import auto_dr as auto_dr_mod
 
     async def _fake_submit(service, question, *, mode="standard", session_id=None, store=None):
@@ -644,6 +676,7 @@ def test_auto_dr_cancel_unknown_service_returns_501(monkeypatch):
         )
 
     monkeypatch.setattr(auto_dr_mod, "submit_async_research", _fake_submit)
+    monkeypatch.delenv("VALYU_API_KEY", raising=False)  # force soft-cancel path
 
     client = _authed_client()
     sid = client.post(
@@ -654,7 +687,10 @@ def test_auto_dr_cancel_unknown_service_returns_501(monkeypatch):
         json={"service": "valyu", "mode": "standard", "prompt": "x"},
     )
     r = client.post(f"/api/v4/sessions/{sid}/auto-dr-cancel?task_id=valyu-cancel-test")
-    assert r.status_code == 501
+    assert r.status_code == 200, r.text
+    assert r.json()["state"] == "cancelled"
+    # Without API key, soft-cancel; with key it'd be hard.
+    assert r.json()["kind"] == "soft"
 
 
 def test_auto_dr_cancel_404_for_unknown_task():
