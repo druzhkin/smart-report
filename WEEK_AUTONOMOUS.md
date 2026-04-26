@@ -136,3 +136,15 @@ Hard guardrails: stop deploying to prod if last 3 deploys broken; halt all paid 
   - Composer button: when pending+sessionId, the "Отправить" button morphs into "Отменить" (warns the user that already-spent tokens are still billed).
 
 **Status:** ready to push, will roll into prod alongside Day 1 work. Live verification of cancel deferred to actual long-running synth call (cheaper than Sonnet for verification — will piggy-back on the next end-to-end test).
+
+### 2026-04-26 (Day 4-5 work — pulled forward)
+
+**Deeper healthcheck:**
+- `GET /health/deep` — probes DB connectivity (1 SELECT) + LLM gateway reachability (1 GET /models, free). Returns `{status: "ok"|"degraded", components: {database, llm_gateway}}`. Does NOT replace `/health` — Railway healthcheck still hits the cheap `/health`. Operators / external uptime monitors hit `/health/deep`.
+- Verified locally: 200 with both components ok. Fast (sub-second).
+
+**Legacy session cleanup:**
+- `scripts/cleanup_legacy_sessions.py` — finds rows in `v4_sessions` where `payload->>'user_email' IS NULL` (pre-isolation bypass surface), prints them, optionally deletes with `--apply`. Default is dry-run.
+- Will run against Railway PG once token + env access confirmed.
+
+**Day 2 deploy status:** still building when we wrote this. Day 1 routes (auto-dr) confirmed live; Day 2 routes (cancel/DELETE) not yet — Railway Docker build pending.

@@ -116,7 +116,59 @@ async def favicon() -> Response:
 
 @app.get("/health")
 async def health() -> dict[str, str]:
+    """Cheap liveness — used by Railway healthcheck. Always 200 if app booted."""
     return {"status": "ok"}
+
+
+@app.get("/health/deep")
+async def health_deep() -> dict[str, Any]:
+    """Deeper readiness probe — checks DB + LLM gateway connectivity.
+
+    Returns 200 with per-component status. Use sparingly (one DB roundtrip
+    + a 2-token OpenRouter ping per call). Suitable for an external uptime
+    monitor or as an on-demand operator check; do NOT wire it into the
+    Railway healthcheck loop or you'll burn $$ on idle pings.
+    """
+    import os
+    from ..config import OPENROUTER_API_KEY, OPENROUTER_BASE_URL
+    out: dict[str, Any] = {"status": "ok", "components": {}}
+
+    # DB check — only attempted if DATABASE_URL is set (Railway prod path).
+    db_url = os.environ.get("DATABASE_URL")
+    if db_url:
+        try:
+            import psycopg
+            with psycopg.connect(db_url, connect_timeout=3) as conn:
+                conn.execute("SELECT 1").fetchone()
+            out["components"]["database"] = {"ok": True}
+        except Exception as e:
+            out["status"] = "degraded"
+            out["components"]["database"] = {"ok": False, "error": f"{type(e).__name__}: {e}"[:200]}
+    else:
+        out["components"]["database"] = {"ok": True, "note": "in-memory store (no DATABASE_URL)"}
+
+    # LLM check — minimal 2-token ping to OpenRouter to verify auth + reachability.
+    if OPENROUTER_API_KEY:
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=8.0) as cl:
+                r = await cl.get(
+                    f"{OPENROUTER_BASE_URL}/models",
+                    headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
+                )
+                if r.status_code == 200:
+                    out["components"]["llm_gateway"] = {"ok": True, "provider": "openrouter"}
+                else:
+                    out["status"] = "degraded"
+                    out["components"]["llm_gateway"] = {"ok": False, "status_code": r.status_code}
+        except Exception as e:
+            out["status"] = "degraded"
+            out["components"]["llm_gateway"] = {"ok": False, "error": f"{type(e).__name__}: {e}"[:200]}
+    else:
+        out["status"] = "degraded"
+        out["components"]["llm_gateway"] = {"ok": False, "error": "OPENROUTER_API_KEY not set"}
+
+    return out
 
 
 @app.post("/api/research", response_model=ResearchOut)
