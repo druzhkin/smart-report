@@ -195,6 +195,12 @@ async def _run_one_query(qid: str, spec: dict, out_dir: Path) -> tuple[str, floa
 
     captured_events: list[dict] = []
 
+    docx_path = out_dir / "report.docx"
+    docx_first_pass_saved = {"done": False}
+
+    store = V4SessionStore()
+    sid_holder = {"sid": None}
+
     class _Emitter:
         def emit(self, phase, message, *, data=None):
             captured_events.append({
@@ -204,10 +210,34 @@ async def _run_one_query(qid: str, spec: dict, out_dir: Path) -> tuple[str, floa
                 "data": data,
             })
             print(f"  [{phase}] {message}")
+            # M1 D1 B1.1 — close A14: render DOCX immediately after the
+            # first synth+bibliography pass commits session.final_report
+            # (v4_orchestrator.synthesize line 215). If coverage retry
+            # subsequently hangs or is killed, we still have a usable DOCX
+            # from the first pass. After orch.synthesize() returns
+            # successfully, the final render below overwrites with the
+            # post-retry result.
+            if (
+                not docx_first_pass_saved["done"]
+                and phase == "bibliography"
+                and "generated" in (message or "").lower()
+                and sid_holder["sid"] is not None
+            ):
+                try:
+                    sess_now = store.get(sid_holder["sid"])
+                    if sess_now.final_report is not None:
+                        render_docx(sess_now.final_report, docx_path)
+                        docx_first_pass_saved["done"] = True
+                        print(
+                            f"  [checkpoint] first-pass DOCX saved before coverage retry: "
+                            f"{docx_path.name} ({docx_path.stat().st_size} bytes)"
+                        )
+                except Exception as exc:  # never let checkpoint failure mask the run
+                    print(f"  [checkpoint] first-pass DOCX render skipped: {type(exc).__name__}: {exc}")
 
-    store = V4SessionStore()
     orch = V4Orchestrator(store, mock=False, emitter=_Emitter())
     sid = uuid.uuid4().hex[:12]
+    sid_holder["sid"] = sid
     store.create(session_id=sid, raw_question=spec["question"])
 
     sess = store.get(sid)
@@ -239,8 +269,8 @@ async def _run_one_query(qid: str, spec: dict, out_dir: Path) -> tuple[str, floa
     final = session.final_report
     release_status = _derive_release_status(session, exception_during_run)
 
-    # Render DOCX (only if synth succeeded)
-    docx_path = out_dir / "report.docx"
+    # Final-pass DOCX render (overwrites the first-pass checkpoint above
+    # with the post-retry result if synthesize returned successfully).
     if final is not None:
         try:
             render_docx(final, docx_path)

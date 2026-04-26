@@ -174,6 +174,18 @@ first because it's load-bearing for all future A/B verification).
 | 2026-04-26 | Block A 2.2 — root cause found: max_tokens=32000 + slow Sonnet structured gen | $0 (analysis) | $0 | ~$52 | A13 logged; "hangs" were premature watchdog kills on legitimate slow gen |
 | 2026-04-26 | Block B — Q1 EV Sonnet baseline (30-min watchdog) | $2.69 | ~$2.50 estimate | ~$49 | first synth SUCCEEDED, killed during coverage-retry second synth (A14 logged); pipeline-completion verified, DOCX substance still provisional |
 
+---
+
+## Two-week brief: M1 production Valyu (2026-04-26 → ~2026-05-09)
+
+Two-week brief from `TWO_WEEK_BRIEF.md`. Opus gate-keeper protocol.
+Hard cap $61 across 14 days, soft $50.
+
+| Date | Task | Expected | Actual | OpenRouter left | Notes |
+|---|---|---|---|---|---|
+| 2026-04-26 | M1 B1.1 — harness DOCX checkpoint sanity (Q1 EV, no Valyu) | $3.00 | TBD | ~$49 | validates checkpoint DOCX after first synth; closes A14 operationally |
+| 2026-04-26 | M1 B1.2 — Valyu adapter live smoke (Tesla 10-K) | $0.10 | $0.04 | ~$49 | 4.25s, ≥3 sec.gov sources confirmed; SearchBackend Protocol contract met |
+
 **End-of-session totals:**
 
 | Category | Spent | Hard cap |
