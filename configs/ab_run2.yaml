@@ -1,0 +1,79 @@
+# A/B run 2 — Valyu hybrid vs Phase 3 baseline (week-7 brief §3.8 + §3.9)
+#
+# Config A is the Step 3.3 closed code, no orchestrator. We do NOT re-run
+# it — the Step 3.3 fixture saved on 2026-04-25 IS the baseline (same
+# code path as today's main, same Q1/Q2/Q3 prompts). Comparing live
+# config B against that fixture is honest: any delta is from the
+# orchestrator + Valyu input, NOT from non-deterministic LLM noise on
+# the baseline side.
+#
+# Config B routes every query through Day 3's SearchOrchestrator, takes
+# the resulting hits, packages them as an extra UploadedMarkdown, and
+# runs the v4 cycle on top. EU_REGULATORY queries hit Valyu's
+# proprietary corpora (the only non-trivial Valyu coverage per Day 1
+# capability map); RU_* queries pass through with handoff_required=True
+# and rely on the existing baseline markdown only (no Valyu-side input).
+
+run_name: "ab_run2"
+created: "2026-04-26"
+brief_ref: "WEEK_BRIEF_VALYU.md §3.8 §3.9"
+
+queries:
+  q1_ev:
+    question: "What is the state of the Russian electric vehicle market in 2026? Which manufacturers and models lead, and what is the localization profile?"
+    expected_domain: "ru_automotive"
+    baseline_fixture: "tests/fixtures/comparison_runs/2026-04-25/q1_ev_smart_report_step33.json"
+  q2_moscow_re:
+    question: "Анализ рынка премиум-класса новостроек Москвы 2026: лидеры, ценовая динамика, спрос."
+    expected_domain: "ru_real_estate"
+    baseline_fixture: "tests/fixtures/comparison_runs/2026-04-25/q2_moscow_re_smart_report_step33.json"
+  q3_eu_dac:
+    question: "How is Direct Air Capture regulated in the EU and what subsidies are available in 2026?"
+    expected_domain: "eu_regulatory"
+    baseline_fixture: "tests/fixtures/comparison_runs/2026-04-25/q3_eu_dac_smart_report_step33.json"
+
+configs:
+  A:
+    name: "baseline_step33"
+    description: |
+      Phase 3 closed code, no orchestrator. Source-of-truth fixtures
+      saved 2026-04-25. We compare against these JSONs directly — no
+      live A re-run.
+    source: "fixture"
+
+  B:
+    name: "valyu_hybrid"
+    description: |
+      Day 3 SearchOrchestrator routes per detected QueryDomain. EU_REG
+      queries hit Valyu proprietary; RU_* queries get the manual
+      handoff sentinel and config B falls back to baseline markdown
+      only (so RU queries effectively re-run baseline — useful as a
+      noise floor for the "did the model change" diff).
+    use_orchestrator: true
+    valyu_max_results: 8
+    # Models per stage. Sonnet 4.6 mirrors the Step 3.2 winner-config
+    # used for Run 1; Step 3.3 baseline was Haiku, so config B costs
+    # ≈3-5× more per stage than the saved baseline. Acceptable for
+    # the dry-run on Q3 only; full A/B on Day 5 will run all 3
+    # queries on the same model tier as baseline (Haiku) to keep
+    # the comparison fair.
+    models:
+      prompt_master: "anthropic/claude-sonnet-4.6"
+      analyzer: "anthropic/claude-sonnet-4.6"
+      synthesizer: "anthropic/claude-sonnet-4.6"
+      critic: "anthropic/claude-sonnet-4.6"
+
+dry_run:
+  query_id: "q3_eu_dac"
+  config: "B"
+  hard_cap_usd: 1.50
+  notes: |
+    Q3 EU DAC is the strongest expected Valyu win — domain routes to
+    proprietary EU regulatory corpus, baseline already shows 96%
+    STRONG (degenerate distribution) so any new diversity from
+    Valyu-sourced primary docs is a clear delta signal.
+
+stop_conditions:
+  - "Valyu primary returns < 3 hits → abort, document in BLOCKERS.md"
+  - "Total cost > $1.50 → abort"
+  - "Config B evidence_quality drops below baseline OK → flag in dry_run report (don't auto-abort, surfaces a real finding)"
