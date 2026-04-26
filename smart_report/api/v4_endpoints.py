@@ -80,7 +80,17 @@ class _DictBackedStore(V4SessionStore):
         super().__init__()
         self._sessions = backing
 
-_store = _DictBackedStore(_V4_SESSIONS)
+# SaaS persistence: when DATABASE_URL is set (Railway PostgreSQL), use the
+# Pg-backed store so sessions survive container restarts. Falls back to the
+# in-memory dict-backed store for local dev / unit tests (where most callers
+# monkeypatch _V4_SESSIONS directly).
+from ..persistence import make_session_store as _make_session_store
+
+_store = _make_session_store()
+if isinstance(_store, V4SessionStore) and not isinstance(_store, _DictBackedStore):
+    # in-memory path (DATABASE_URL absent) — wrap the dict so existing tests
+    # that patch _V4_SESSIONS keep working.
+    _store = _DictBackedStore(_V4_SESSIONS)
 
 
 class _SessionEmitter(EventEmitter):
