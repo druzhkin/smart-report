@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<title>Smart Report — Landing (print)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500;9..144,600;9..144,700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="landing.css?v=9" />
+
+<style>
+/* === Print-specific overrides === */
+@page {
+  size: A4 portrait;
+  margin: 14mm 12mm;
+}
+
+@media print {
+  html, body {
+    background: #FFFFFF !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    color-adjust: exact;
+    font-size: 10.5pt;
+    line-height: 1.45;
+  }
+
+  /* hide variant switcher and floating chrome */
+  .variant-switcher,
+  .vs-print-toolbar { display: none !important; }
+
+  /* topbar — make it static, not sticky */
+  .lp-topbar {
+    position: static !important;
+    page-break-after: avoid;
+    break-after: avoid;
+  }
+
+  /* ensure sections don't get awkwardly split */
+  section,
+  .lp-section,
+  .va-hero, .vb-hero, .vc-hero,
+  .va-facts, .va-problem, .va-how, .va-compare, .va-pricing, .va-testimonials, .va-faq, .va-final,
+  .vb-demo, .vb-tour, .vb-features, .vb-pricing, .vb-final,
+  .vc-section, .vc-final {
+    break-inside: avoid-page;
+    page-break-inside: avoid;
+  }
+
+  /* but allow tall sections to flow */
+  .va-faq, .vc-section, .vb-tour, .va-how {
+    break-inside: auto;
+    page-break-inside: auto;
+  }
+
+  /* avoid orphan headlines */
+  h1, h2, h3, h4 {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  /* fact strips, hero cards etc. shouldn't split */
+  .va-hero-card, .va-fact, .va-pricing-card, .vc-callout, .vb-demo-art, .vb-demo,
+  .va-testimonial, .va-faq-item, .vb-feature, .vc-pullquote {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  /* enlarge containers for print readability */
+  .lp-container {
+    max-width: 100% !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+
+  /* tone down extreme display sizes for paper */
+  .va-headline, .vb-headline, .vc-headline {
+    font-size: 28pt !important;
+    line-height: 1.1 !important;
+  }
+  .va-fact-num { font-size: 36pt !important; }
+  .va-hero-card-price { font-size: 32pt !important; }
+
+  /* CTA buttons — keep visible but unstyled-ish */
+  .lp-btn, button {
+    box-shadow: none !important;
+  }
+
+  /* remove animations */
+  *, *::before, *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  /* ensure overflow doesn't clip */
+  body, html, .va-hero, section { overflow: visible !important; }
+
+  /* page breaks between major top-level sections of a variant */
+  .va-problem,
+  .va-how,
+  .va-compare,
+  .va-pricing,
+  .va-testimonials,
+  .va-faq,
+  .va-final,
+  .vb-tour,
+  .vb-features,
+  .vb-pricing,
+  .vb-final,
+  .vc-section,
+  .vc-final {
+    break-before: page;
+    page-break-before: always;
+  }
+
+  /* but the very first section after hero shouldn't force break */
+  .va-hero + section,
+  .vb-hero + section,
+  .vc-hero + section {
+    break-before: auto;
+    page-break-before: auto;
+  }
+
+  /* hide sticky internal navs in print */
+  .vc-toc-sticky, .vc-toc { display: none !important; }
+}
+
+/* On-screen print toolbar (hidden in print) */
+.vs-print-toolbar {
+  position: fixed;
+  top: 14px;
+  right: 14px;
+  z-index: 200;
+  background: #0F0F0F;
+  color: #FFF;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.18);
+}
+.vs-print-toolbar:hover { background: oklch(0.62 0.19 38); }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<button class="vs-print-toolbar" onclick="window.print()">Печать / Сохранить PDF</button>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="landing_shared.jsx?v=9"></script>
+<script type="text/babel" src="landing_a_sales.jsx?v=9"></script>
+<script type="text/babel" src="landing_b_product.jsx?v=9"></script>
+<script type="text/babel" src="landing_c_content.jsx?v=9"></script>
+
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+// Read variant from URL ?v=a|b|c, then localStorage, else 'a'
+function pickVariant() {
+  const u = new URLSearchParams(location.search);
+  const fromUrl = u.get('v');
+  if (fromUrl && ['a','b','c'].includes(fromUrl)) return fromUrl;
+  const fromLs = localStorage.getItem("sr-landing-variant");
+  if (fromLs && ['a','b','c'].includes(fromLs)) return fromLs;
+  return 'a';
+}
+
+function App() {
+  const variant = pickVariant();
+  const Variant = variant === "a" ? window.LandingA
+                : variant === "b" ? window.LandingB
+                : window.LandingC;
+  return <Variant />;
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+
+// Auto-print after fonts + render are ready
+(async function() {
+  // wait fonts
+  if (document.fonts && document.fonts.ready) {
+    try { await document.fonts.ready; } catch (e) {}
+  }
+  // small render-settle delay
+  await new Promise(r => setTimeout(r, 700));
+  // only auto-print if NOT iframe (so the agent preview doesn't trigger)
+  if (window.self === window.top && !window.__printed) {
+    window.__printed = true;
+    // wait one more tick for React tree
+    setTimeout(() => window.print(), 200);
+  }
+})();
+</script>
+</body>
+</html>
