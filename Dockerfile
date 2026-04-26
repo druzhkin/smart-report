@@ -58,4 +58,4 @@ EXPOSE 8080
 #   Next.js on $PORT (public, serves UI + proxies API + serves landing.html at /)
 # `wait` keeps the container alive until either child dies, then exits
 # so Railway restart policy kicks in.
-CMD ["sh", "-c", "uvicorn smart_report.api.main:app --host 127.0.0.1 --port 8000 & cd frontend && npm start -- --port ${PORT:-8080} --hostname 0.0.0.0 & wait -n"]
+CMD ["bash", "-c", "uvicorn smart_report.api.main:app --host 127.0.0.1 --port 8000 & cd frontend && npm start -- --port ${PORT:-8080} --hostname 0.0.0.0 & wait -n"]
