@@ -212,6 +212,44 @@ Frontend-only:
 - Per-claim explanation drill-down — needs Source.quality_reason field added to the source-quality classifier output (not just tier).
 - Dead-code removal of `/api/v4/reports` + `/app/dashboard.html` — still wired from `landing_a_sales.jsx → goDashboard()`. Half-migrated landing → don't touch unattended.
 
+### 2026-04-27 (User-driven architecture switch — Valyu Research API)
+
+User noticed two things in prod test:
+1. «отчёта от валю не видно в окне» — clicking auto_dr_*.md didn't show content
+2. «тавили вообще не сработал» — Tavily 502 «Query is too long. Max 400»
+3. «а почему стоимость у валю 10 центов, если стандрат 25?» — pointed me to Valyu's published Research-mode pricing
+4. «валю не может сразу отдавать данные, нужно хотя бы пять минут, а на фронте появилось сразу» — ah! I was using the wrong Valyu product entirely.
+
+**Root cause:** I had wired `valyu.search()` (instant per-result web/data search, $0.001-0.005 per result) thinking it was Valyu's deep research. The actual product the user expected is `valyu.deepresearch.*` — proper async deep research with fixed-cost modes:
+
+| Mode | Price | ETA | Best for |
+|---|---|---|---|
+| Fast | $0.10 | ~5 min | quick queries |
+| Standard | $0.50 | 10-20 min | balanced (default) |
+| Heavy | $2.50 | ~90 min | fact verification |
+| Max | $15.00 | ~3 hours | exhaustive |
+
+**Architectural switch (this commit):**
+
+Backend:
+- `smart_report/sources/valyu_deepresearch.py` — `ValyuResearchClient` wrapping `Valyu().deepresearch.create/status/get_assets/cancel`. Submits with mode, polls for state, fetches markdown asset on completion.
+- `smart_report/sources/auto_dr.py` — added `submit_async_research`, `try_collect_async_research`, `cancel_async_research`. Sync path (Tavily/Exa/Perplexity, plus Valyu legacy search if no mode) unchanged.
+- `V4Session.pending_dr_jobs: list[dict]` — tracks in-flight async jobs (task_id, service, mode, cost).
+- `POST /api/v4/sessions/{id}/auto-dr` — when payload includes `mode`, submits async job, charges cost upfront, returns `AutoDRAsyncOut` with task_id + ETA.
+- `GET /api/v4/sessions/{id}/auto-dr-status?task_id=X` — polls. On completion, fetches markdown asset, prepends to source_reports (idempotent — won't duplicate on subsequent polls), removes from pending.
+- 4 new tests covering async submit/poll/complete/404. Suite 68/68 green.
+
+Frontend:
+- `lib/apiV4.ts` — `runAutoDR` returns union (sync `AutoDROut` | async `AutoDRAsyncOut`), `pollAutoDRStatus` helper, `isAsyncOut` type guard.
+- `DrPicker.tsx` — Valyu card now exposes 4-mode submenu (Fast/Standard/Heavy/Max) with prices + ETAs; default Standard. Big price label updates per chosen mode.
+- `Workspace.tsx` — `runIntegratedDr` accepts `{mode}`, branches on async; new `activeResearchTask` state + polling effect (15s for first 2 min, then 30s; up to 180 min for max mode); on completion auto-pushes success message + ref to session.
+- New CSS for `.valyu-mode-chip` row.
+
+Bonus fixes (same commit context, since user reported them together):
+- Tavily client: defensive 380-char query truncation on word boundary (closes 502 «query too long»).
+- Auto-DR ref-click now opens markdown content in artifact panel (was: stale "select files" placeholder).
+- Picker copy: honest about which Valyu API tier we're using.
+
 ### 2026-04-26 (User-driven UX hotfix — chat message clarity)
 
 User pinged mid-session: «он разместил запрос в валю или нет? написано так что нихера не понятно». Screenshot showed the auto-DR success message reading like a server log, not a confirmation. The integration was working — Valyu DID run the research, returned 10 sources, $0.0150, file persisted — but the wording made it look ambiguous.

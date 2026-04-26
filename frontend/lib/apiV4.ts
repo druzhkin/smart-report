@@ -463,6 +463,7 @@ export async function deleteSession(id: string): Promise<void> {
 // -- Auto-DR (server-side Deep Research) ----------------------------------
 
 export type AutoDRService = "valyu" | "tavily" | "exa" | "perplexity";
+export type ValyuResearchMode = "fast" | "standard" | "heavy" | "max";
 
 export type AutoDROut = {
   service: string;
@@ -472,33 +473,87 @@ export type AutoDROut = {
   cost_usd: number;
   cost_rub: number;
   notes: string;
+  task_id: string | null;
+};
+
+export type AutoDRAsyncOut = {
+  service: string;
+  mode: ValyuResearchMode;
+  task_id: string;
+  cost_usd: number;
+  cost_rub: number;
+  eta_min_low: number;
+  eta_min_high: number;
+  message: string;
+};
+
+export type AutoDRAnyOut = AutoDROut | AutoDRAsyncOut;
+
+export function isAsyncOut(o: AutoDRAnyOut): o is AutoDRAsyncOut {
+  return (o as AutoDRAsyncOut).task_id !== undefined && (o as AutoDRAsyncOut).task_id !== null
+    && !!(o as AutoDRAsyncOut).mode;
+}
+
+export type AutoDRStatusOut = {
+  task_id: string;
+  state: "queued" | "running" | "completed" | "failed" | "cancelled";
+  progress_pct: number | null;
+  message: string | null;
+  filename: string | null;
+  word_count: number | null;
+  source_count: number | null;
+  cost_usd: number | null;
+  cost_rub: number | null;
+  error: string | null;
 };
 
 export async function runAutoDR(
   id: string,
   service: AutoDRService,
-  opts: { prompt?: string; domain_hint?: string } = {}
-): Promise<AutoDROut> {
+  opts: { prompt?: string; domain_hint?: string; mode?: ValyuResearchMode } = {}
+): Promise<AutoDRAnyOut> {
   if (STUB) {
     await new Promise((r) => setTimeout(r, 1200));
+    if (opts.mode && service === "valyu") {
+      return {
+        service: "valyu",
+        mode: opts.mode,
+        task_id: `stub-task-${Date.now()}`,
+        cost_usd: 0.50, cost_rub: 37.7,
+        eta_min_low: 10, eta_min_high: 20,
+        message: "Stub: Valyu Research (standard) ~10–20 мин",
+      } as AutoDRAsyncOut;
+    }
     return {
-      service,
-      filename: `auto_dr_${service}.md`,
-      word_count: 1234,
-      source_count: 7,
-      cost_usd: 0.012,
-      cost_rub: 0.9,
-      notes: "stub",
+      service, filename: `auto_dr_${service}.md`,
+      word_count: 1234, source_count: 7,
+      cost_usd: 0.012, cost_rub: 0.9, notes: "stub",
+      task_id: null,
     };
   }
-  return jv4<AutoDROut>(`/api/v4/sessions/${encodeURIComponent(id)}/auto-dr`, {
+  return jv4<AutoDRAnyOut>(`/api/v4/sessions/${encodeURIComponent(id)}/auto-dr`, {
     method: "POST",
     body: JSON.stringify({
       service,
       prompt: opts.prompt,
       domain_hint: opts.domain_hint,
+      mode: opts.mode,
     }),
   });
+}
+
+export async function pollAutoDRStatus(id: string, taskId: string): Promise<AutoDRStatusOut> {
+  if (STUB) {
+    return {
+      task_id: taskId, state: "completed",
+      progress_pct: 100, message: null,
+      filename: "stub_research.md", word_count: 2000, source_count: 12,
+      cost_usd: 0.50, cost_rub: 37.7, error: null,
+    };
+  }
+  return jv4<AutoDRStatusOut>(
+    `/api/v4/sessions/${encodeURIComponent(id)}/auto-dr-status?task_id=${encodeURIComponent(taskId)}`
+  );
 }
 
 export function exportUrl(id: string, format: string): string {

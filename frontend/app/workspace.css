@@ -801,6 +801,58 @@
   margin-top: 4px;
 }
 .ws-root .dr-card__details p { margin: 0 0 4px 0; }
+.ws-root .valyu-mode-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 0 2px 0;
+  border-top: 1px dashed var(--rule);
+  margin-top: 4px;
+}
+.ws-root .valyu-mode-label {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--ink-3);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.ws-root .valyu-mode-chips {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.ws-root .valyu-mode-chip {
+  flex: 1;
+  min-width: 80px;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  padding: 4px 6px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-family: var(--sans);
+  font-size: 10px;
+  color: var(--ink-3);
+  letter-spacing: -0.005em;
+}
+.ws-root .valyu-mode-chip:hover:not(:disabled) {
+  background: var(--paper-2);
+  color: var(--ink);
+}
+.ws-root .valyu-mode-chip--active {
+  background: var(--ink);
+  color: var(--on-ink);
+  border-color: var(--ink);
+}
+.ws-root .valyu-mode-chip--active:hover:not(:disabled) {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-ink);
+}
+.ws-root .valyu-mode-chip:disabled { opacity: 0.5; cursor: wait; }
+.ws-root .valyu-mode-chip__name { font-weight: 600; font-size: 11px; }
+.ws-root .valyu-mode-chip__meta { font-family: var(--mono); font-size: 9px; opacity: 0.8; }
 .ws-root .dr-picker__footer {
   margin-top: 14px;
   padding-top: 12px;

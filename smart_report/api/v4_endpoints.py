@@ -363,9 +363,18 @@ class AutoDRIn(BaseModel):
         description="Optional override; defaults to the session's research_prompt.full_prompt or raw_question.",
     )
     domain_hint: str | None = Field(default=None, max_length=64)
+    # Valyu only: which Research mode. None = use legacy fast-search path
+    # (instant per-result $0.005-0.02). "fast"|"standard"|"heavy"|"max" =
+    # use Research API (fixed price, async, 5-180 min).
+    mode: Literal["fast", "standard", "heavy", "max"] | None = Field(default=None)
 
 
 class AutoDROut(BaseModel):
+    """Sync-instant result (Tavily/Exa/Perplexity, or Valyu legacy search).
+
+    For async Valyu Research, the endpoint returns AutoDRAsyncOut instead.
+    The frontend distinguishes by checking for `task_id`.
+    """
     service: str
     filename: str
     word_count: int
@@ -373,29 +382,117 @@ class AutoDROut(BaseModel):
     cost_usd: float
     cost_rub: float
     notes: str
+    task_id: str | None = None  # always None for sync path; helps frontend type-narrow
 
 
-@router.post("/sessions/{session_id}/auto-dr", response_model=AutoDROut)
-async def auto_dr(session_id: str, request: Request, payload: AutoDRIn) -> AutoDROut:
-    """Run a Deep Research call on the user's behalf via the chosen service.
+class AutoDRAsyncOut(BaseModel):
+    """Async submission — frontend polls /auto-dr-status until done."""
+    service: str
+    mode: str
+    task_id: str
+    cost_usd: float
+    cost_rub: float
+    eta_min_low: int
+    eta_min_high: int
+    message: str
 
-    The result is appended to ``session.source_reports`` as if the user had
-    pasted a Perplexity export — the analyze/synthesize pipeline picks it
-    up unchanged. Cost is added to the user's monthly cap (so unbounded
-    auto-DR clicks can't bypass /enforce_cost_cap).
+
+class AutoDRStatusOut(BaseModel):
+    task_id: str
+    state: str                                    # queued|running|completed|failed|cancelled
+    progress_pct: int | None = None
+    message: str | None = None
+    # When state="completed", the rest of these are populated and the
+    # session.source_reports has already been updated server-side.
+    filename: str | None = None
+    word_count: int | None = None
+    source_count: int | None = None
+    cost_usd: float | None = None
+    cost_rub: float | None = None
+    error: str | None = None
+
+
+@router.post("/sessions/{session_id}/auto-dr")
+async def auto_dr(session_id: str, request: Request, payload: AutoDRIn):
+    """Run Deep Research via the chosen service.
+
+    Two return shapes:
+    - **AutoDROut** (sync): Tavily/Exa/Perplexity, or Valyu without `mode`
+      param. Returns immediately with the result already appended to
+      `session.source_reports`.
+    - **AutoDRAsyncOut** (async): Valyu with `mode` ∈ {fast, standard,
+      heavy, max} — uses Valyu Research API (fixed price, 5-180 min).
+      Returns task_id immediately; frontend polls /auto-dr-status.
+
+    Cost is charged to the user's monthly cap on submission for async
+    (so a long-running heavy job can't be re-submitted forever) and on
+    completion for sync.
     """
     session = _owned_with_cap(session_id, request)
-    from ..sources.auto_dr import AutoDRError, run_auto_dr
+    from ..sources.auto_dr import (
+        AutoDRError, run_auto_dr, submit_async_research,
+    )
+    from ..sources.valyu_deepresearch import RESEARCH_MODE_PRICE_USD
 
     question = (payload.prompt or "").strip()
     if not question:
-        # Fall back to the generated research prompt, then raw question.
         if session.research_prompt and session.research_prompt.full_prompt:
             question = session.research_prompt.full_prompt
         else:
             question = session.raw_question
 
     emitter = _SessionEmitter(session_id)
+
+    # --- Async path: Valyu Research API ---
+    if payload.service == "valyu" and payload.mode is not None:
+        mode = payload.mode
+        emitter.emit(
+            "status",
+            f"Отправляю задачу в Valyu Research ({mode})…",
+            data={"service": "valyu", "mode": mode},
+        )
+        try:
+            sub = await submit_async_research("valyu", question, mode=mode)
+        except AutoDRError as e:
+            emitter.emit("error", f"valyu research: {e}", data={"service": "valyu", "mode": mode})
+            raise HTTPException(status_code=502, detail=str(e)) from e
+
+        # Charge cost upfront — fixed-price job, billed regardless of completion.
+        cost_rub = round(sub.cost_usd * _USD_RUB_RATE, 4)
+        session.total_cost_rub = float(session.total_cost_rub or 0.0) + cost_rub
+        # Track the in-flight job so /auto-dr-status can find it later.
+        session.pending_dr_jobs = list(session.pending_dr_jobs or []) + [{
+            "task_id": sub.task_id,
+            "service": "valyu",
+            "mode": mode,
+            "cost_usd": sub.cost_usd,
+            "cost_rub": cost_rub,
+            "submitted_at": time.time(),
+        }]
+        _store.update(session)
+
+        emitter.emit(
+            "status",
+            f"Valyu Research запущен: задача {sub.task_id[:8]}…, режим {mode}, ETA {sub.eta_min_low}-{sub.eta_min_high} мин",
+            data={"service": "valyu", "mode": mode, "task_id": sub.task_id},
+        )
+
+        return AutoDRAsyncOut(
+            service="valyu",
+            mode=mode,
+            task_id=sub.task_id,
+            cost_usd=sub.cost_usd,
+            cost_rub=cost_rub,
+            eta_min_low=sub.eta_min_low,
+            eta_min_high=sub.eta_min_high,
+            message=(
+                f"Valyu Research ({mode}) запущен. Ожидаемое время: "
+                f"{sub.eta_min_low}–{sub.eta_min_high} минут. Стоимость: "
+                f"${sub.cost_usd:.2f} (≈ ₽ {cost_rub:.2f}) — уже списана."
+            ),
+        )
+
+    # --- Sync path: Tavily/Exa/Perplexity, or Valyu legacy search ---
     emitter.emit(
         "status",
         f"Запускаю Deep Research через {payload.service}…",
@@ -416,12 +513,9 @@ async def auto_dr(session_id: str, request: Request, payload: AutoDRIn) -> AutoD
         emitter.emit("error", f"{payload.service} crashed: {e}", data={"service": payload.service})
         raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}") from e
 
-    # Append to source_reports so the existing /analyze flow consumes it.
     session.source_reports = list(session.source_reports) + [result.upload]
     if session.status in {"created", "prompt_generated"}:
         session.status = "reports_uploaded"
-    # Charge user's monthly cap. Cost goes on session.total_cost_rub which
-    # is what _user_monthly_spend_usd sums.
     session.total_cost_rub = float(session.total_cost_rub or 0.0) + result.cost_rub
     _store.update(session)
 
@@ -444,6 +538,69 @@ async def auto_dr(session_id: str, request: Request, payload: AutoDRIn) -> AutoD
         cost_rub=result.cost_rub,
         notes=result.notes,
     )
+
+
+@router.get("/sessions/{session_id}/auto-dr-status", response_model=AutoDRStatusOut)
+async def auto_dr_status(session_id: str, request: Request, task_id: str) -> AutoDRStatusOut:
+    """Poll the status of an async research job (Valyu Research).
+
+    On state="completed", the markdown asset is fetched and prepended to
+    session.source_reports server-side, then state stays "completed" on
+    subsequent polls (the result is in source_reports, not duplicated).
+    """
+    session = _get_owned(session_id, request)
+    job = next(
+        (j for j in (session.pending_dr_jobs or []) if j.get("task_id") == task_id),
+        None,
+    )
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"task_id {task_id} not found in this session")
+
+    from ..sources.auto_dr import try_collect_async_research
+
+    poll = await try_collect_async_research(
+        task_id, service=job.get("service", "valyu"), mode=job.get("mode", "standard"),
+    )
+
+    out = AutoDRStatusOut(
+        task_id=task_id,
+        state=poll.state,
+        progress_pct=poll.progress_pct,
+        message=poll.message,
+        error=poll.error,
+    )
+
+    if poll.state == "completed" and poll.result is not None:
+        # Idempotency: only append to source_reports if not already there.
+        already = any(
+            u.filename == poll.result.upload.filename for u in session.source_reports
+        )
+        if not already:
+            session.source_reports = list(session.source_reports) + [poll.result.upload]
+            if session.status in {"created", "prompt_generated"}:
+                session.status = "reports_uploaded"
+            # Move the job out of pending → no need to bill again (already billed on submit).
+            session.pending_dr_jobs = [
+                j for j in (session.pending_dr_jobs or []) if j.get("task_id") != task_id
+            ]
+            _store.update(session)
+            emitter = _SessionEmitter(session_id)
+            emitter.emit(
+                "status",
+                f"Valyu Research завершён: {poll.result.source_count} источник(ов).",
+                data={
+                    "service": "valyu",
+                    "task_id": task_id,
+                    "source_count": poll.result.source_count,
+                },
+            )
+        out.filename = poll.result.upload.filename
+        out.word_count = poll.result.upload.word_count
+        out.source_count = poll.result.source_count
+        out.cost_usd = poll.result.cost_usd
+        out.cost_rub = poll.result.cost_rub
+
+    return out
 
 
 @router.post("/sessions/{session_id}/synthesize", response_model=FinalReport)

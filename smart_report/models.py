@@ -602,6 +602,11 @@ class V4Session(_V4Base):
     # endpoints must verify the requesting user matches; None = legacy/public.
     user_email: str | None = None
 
+    # Async deep-research jobs (Valyu deepresearch). Stored as a list of
+    # task_id → metadata so we can poll status without re-querying which
+    # service / mode / cost was used.
+    pending_dr_jobs: list[dict] = Field(default_factory=list)
+
 
 V4Session.model_rebuild()
 FinalReport.model_rebuild()

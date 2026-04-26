@@ -10,7 +10,10 @@ import {
   useCallback,
 } from "react";
 import type { ChatMessage, Artifact, Phase, ToastState } from "./types";
-import type { AnalysisOutput, AutoDRService, FinalReport, ResearchPrompt } from "@/lib/apiV4";
+import type {
+  AnalysisOutput, AutoDRService, FinalReport, ResearchPrompt,
+  ValyuResearchMode,
+} from "@/lib/apiV4";
 import {
   createSession,
   generatePrompt,
@@ -20,6 +23,8 @@ import {
   synthesize,
   getSession,
   runAutoDR,
+  pollAutoDRStatus,
+  isAsyncOut,
   cancelSession,
   deleteSession,
   getEvents,
@@ -149,6 +154,9 @@ export default function Workspace() {
   const [savedSessions, setSavedSessions] = useState<SessionListItem[]>([]);
   const [qualityGrade, setQualityGrade] = useState<QualityGrade | null>(null);
   const [sourceContent, setSourceContent] = useState<{ filename: string; content: string } | null>(null);
+  const [activeResearchTask, setActiveResearchTask] = useState<{
+    taskId: string; service: string; mode: ValyuResearchMode;
+  } | null>(null);
 
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     if (typeof window === "undefined") return "light";
@@ -310,6 +318,98 @@ export default function Workspace() {
   const reloadSessions = useCallback(() => {
     listSessions().then(setSavedSessions).catch(() => {});
   }, []);
+
+  // ===== Async Valyu Research polling =====
+  // Polls /auto-dr-status while there is an active research task. Backoff:
+  // 15s for first 2 min, then 30s. The task can run up to 180 min (max
+  // mode), so we keep polling until completed/failed/cancelled. Stops on
+  // unmount or sessionId change.
+  useEffect(() => {
+    if (!sessionId || !activeResearchTask) return;
+    const { taskId, service, mode } = activeResearchTask;
+    let cancelled = false;
+    let pollCount = 0;
+    let lastState = "";
+    const tick = async () => {
+      if (cancelled) return;
+      pollCount += 1;
+      try {
+        const st = await pollAutoDRStatus(sessionId, taskId);
+        if (cancelled) return;
+        if (st.state !== lastState) {
+          lastState = st.state;
+        }
+        if (st.state === "completed") {
+          const costRub = (st.cost_rub ?? 0).toFixed(2);
+          setMessages((ms) => [
+            ...ms,
+            {
+              id: `dr-done-${taskId}`,
+              role: "system",
+              kind: "text",
+              content:
+                `✓ Valyu Research (${mode}) завершён!\n\n` +
+                `Получено ${st.source_count ?? "?"} источник(ов), отчёт сохранён как «${st.filename}». ` +
+                `Стоимость: $${(st.cost_usd ?? 0).toFixed(2)} (≈ ₽ ${costRub}). Можно запускать анализ.`,
+            },
+            {
+              id: `dr-done-ref-${taskId}`,
+              role: "system",
+              kind: "ref",
+              refKind: "upload",
+              title: `Valyu Research (${mode}): отчёт`,
+              subtitle: `${st.source_count ?? 0} источник(ов) · ${st.word_count ?? 0} слов · открыть содержимое →`,
+              accent: true,
+              sourceFilename: st.filename || undefined,
+            },
+            {
+              id: `dr-done-cta-${taskId}`,
+              role: "system",
+              kind: "cta",
+              primary: "Запустить анализ →",
+              action: "go-upload-stage",
+              secondary: "Заказать ещё",
+              secondaryAction: "go-upload-stage",
+            },
+          ]);
+          setPhase(PHASE.UPLOAD);
+          setActiveResearchTask(null);
+          // Refresh session to pick up updated source_reports.
+          const s = await getSession(sessionId);
+          setCost(s.total_cost_rub || 0);
+          return;
+        }
+        if (st.state === "failed" || st.state === "cancelled") {
+          setMessages((ms) => [
+            ...ms,
+            {
+              id: `dr-${st.state}-${taskId}`,
+              role: "system",
+              kind: "text",
+              content:
+                st.state === "cancelled"
+                  ? `Valyu Research (${mode}) отменён.`
+                  : `✗ Valyu Research (${mode}) не справился. ${st.error || st.message || ""}`,
+            },
+          ]);
+          setActiveResearchTask(null);
+          return;
+        }
+        // Still running — schedule next tick. Backoff after 8 polls (~2 min).
+        const delayMs = pollCount < 8 ? 15_000 : 30_000;
+        setTimeout(tick, delayMs);
+      } catch (e) {
+        // Network blip — back off and retry.
+        if (!cancelled) setTimeout(tick, 30_000);
+      }
+    };
+    // Kick off first poll after 10s (Valyu reports typical first ~10s).
+    const handle = setTimeout(tick, 10_000);
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+    };
+  }, [sessionId, activeResearchTask]);
 
   // ===== Live events polling =====
   // While a long-running call is in flight (analyze / synthesize can take
@@ -610,7 +710,7 @@ export default function Workspace() {
 
   // ===== DR picker handlers =====
   const runIntegratedDr = useCallback(
-    async (service: AutoDRService) => {
+    async (service: AutoDRService, opts?: { mode?: ValyuResearchMode }) => {
       if (!sessionId) {
         showToast("Сессия не найдена — начните новый вопрос");
         return;
@@ -622,54 +722,83 @@ export default function Workspace() {
         service === "tavily" ? "Tavily" :
         service === "exa" ? "Exa" :
         service === "perplexity" ? "Perplexity Sonar Pro" : service;
-      push({
-        role: "user",
-        kind: "text",
-        content: `Заказать исследование у ${serviceLabel}`,
-      });
+      const isAsync = service === "valyu" && !!opts?.mode;
+      const askLabel = isAsync
+        ? `Заказать Valyu Research (${opts!.mode})`
+        : `Заказать исследование у ${serviceLabel}`;
+      push({ role: "user", kind: "text", content: askLabel });
       push({
         role: "system",
         kind: "thinking",
         traces: [
-          `Отправляю запрос в ${serviceLabel}…`,
-          `${serviceLabel} ищет источники по вашему промпту…`,
-          "Получаю ответ и упаковываю в отчёт…",
+          `Отправляю запрос в ${serviceLabel}${isAsync ? ` (${opts!.mode})` : ""}…`,
+          `${serviceLabel} обрабатывает…`,
+          isAsync
+            ? `Это длинная задача — ETA по тарифу Valyu.`
+            : `Получаю ответ и упаковываю в отчёт…`,
         ],
         onDone: () => {},
       });
       try {
         const res = await runAutoDR(sessionId, service, {
           prompt: promptData?.full_prompt,
+          mode: opts?.mode,
         });
         setMessages((ms) => ms.filter((m) => m.kind !== "thinking"));
         const s = await getSession(sessionId);
         setCost(s.total_cost_rub || 0);
-        const costRub = (res.cost_usd * 75.4).toFixed(2);
-        push({
-          role: "system",
-          kind: "text",
-          content:
-            `✓ ${serviceLabel} провёл исследование и вернул ${res.source_count} источник(ов).\n\n` +
-            `Стоимость: $${res.cost_usd.toFixed(4)} (≈ ₽ ${costRub}). Результат сохранён как «${res.filename}» — это готовый отчёт, его можно сразу анализировать.`,
-        });
-        push({
-          role: "system",
-          kind: "ref",
-          refKind: "upload",
-          title: `${serviceLabel}: готовый отчёт`,
-          subtitle: `${res.source_count} источник(ов) · ${res.word_count} слов · открыть содержимое →`,
-          accent: true,
-          sourceFilename: res.filename,
-        });
-        push({
-          role: "system",
-          kind: "cta",
-          primary: "Запустить анализ этого отчёта →",
-          action: "go-upload-stage",
-          secondary: "Заказать ещё одно исследование",
-          secondaryAction: "go-upload-stage",
-        });
-        setPhase(PHASE.UPLOAD);
+
+        if (isAsyncOut(res)) {
+          // Async submission — kick off poll loop in a background effect.
+          const costRub = res.cost_rub.toFixed(2);
+          push({
+            role: "system",
+            kind: "text",
+            content:
+              `✓ Valyu Research (${res.mode}) запущен.\n\n` +
+              `${res.message}\n\n` +
+              `Можете закрыть вкладку — результат появится в этой сессии, когда задача завершится. ` +
+              `Я буду периодически опрашивать статус и обновлю чат, как только отчёт будет готов.`,
+          });
+          push({
+            role: "system",
+            kind: "ref",
+            refKind: "upload",
+            title: `Valyu Research (${res.mode})`,
+            subtitle: `задача ${res.task_id.slice(0, 8)}… · ETA ${res.eta_min_low}–${res.eta_min_high} мин · ₽ ${costRub}`,
+            accent: true,
+          });
+          // Track this task_id; the polling effect below will pick it up.
+          setActiveResearchTask({ taskId: res.task_id, service: "valyu", mode: res.mode });
+        } else {
+          // Sync result — already in source_reports.
+          const costRub = (res.cost_usd * 75.4).toFixed(2);
+          push({
+            role: "system",
+            kind: "text",
+            content:
+              `✓ ${serviceLabel} провёл исследование и вернул ${res.source_count} источник(ов).\n\n` +
+              `Стоимость: $${res.cost_usd.toFixed(4)} (≈ ₽ ${costRub}). Результат сохранён как «${res.filename}» — готовый отчёт.`,
+          });
+          push({
+            role: "system",
+            kind: "ref",
+            refKind: "upload",
+            title: `${serviceLabel}: готовый отчёт`,
+            subtitle: `${res.source_count} источник(ов) · ${res.word_count} слов · открыть содержимое →`,
+            accent: true,
+            sourceFilename: res.filename,
+          });
+          push({
+            role: "system",
+            kind: "cta",
+            primary: "Запустить анализ этого отчёта →",
+            action: "go-upload-stage",
+            secondary: "Заказать ещё одно исследование",
+            secondaryAction: "go-upload-stage",
+          });
+          setPhase(PHASE.UPLOAD);
+        }
       } catch (e) {
         setMessages((ms) => ms.filter((m) => m.kind !== "thinking"));
         const msg = e instanceof Error ? e.message : String(e);

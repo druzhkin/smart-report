@@ -471,6 +471,140 @@ def test_delete_403s_when_not_owner():
     assert r.status_code == 403, r.text
 
 
+def test_auto_dr_async_path_returns_task_id_and_charges_upfront(monkeypatch):
+    """When mode is set, auto-dr submits a Valyu Research job and returns task_id."""
+    from smart_report.sources import auto_dr as auto_dr_mod
+
+    submitted: dict = {}
+
+    async def _fake_submit(service, question, *, mode="standard"):
+        submitted["service"] = service
+        submitted["question"] = question
+        submitted["mode"] = mode
+        return auto_dr_mod.AsyncResearchSubmission(
+            task_id="task-xyz-123",
+            service="valyu",
+            mode=mode,
+            cost_usd=0.50,
+            eta_min_low=10,
+            eta_min_high=20,
+        )
+
+    monkeypatch.setattr(auto_dr_mod, "submit_async_research", _fake_submit)
+
+    client = _authed_client()
+    sid = client.post(
+        "/api/v4/sessions", json={"question": "test research async flow"}
+    ).json()["session_id"]
+
+    r = client.post(
+        f"/api/v4/sessions/{sid}/auto-dr",
+        json={"service": "valyu", "mode": "standard", "prompt": "deep dive on X"},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["task_id"] == "task-xyz-123"
+    assert body["mode"] == "standard"
+    assert body["cost_usd"] == pytest.approx(0.50)
+    assert body["eta_min_low"] == 10
+    assert "10–20" in body["message"] or "10-20" in body["message"]
+
+    # Cost charged upfront, job tracked in pending_dr_jobs
+    sess = client.get(f"/api/v4/sessions/{sid}").json()
+    assert len(sess["pending_dr_jobs"]) == 1
+    assert sess["pending_dr_jobs"][0]["task_id"] == "task-xyz-123"
+    assert sess["total_cost_rub"] > 30  # 0.50 * 75.4 = ~37
+
+
+def test_auto_dr_status_running_returns_state(monkeypatch):
+    from smart_report.sources import auto_dr as auto_dr_mod
+
+    async def _fake_submit(service, question, *, mode="standard"):
+        return auto_dr_mod.AsyncResearchSubmission(
+            task_id="t1", service="valyu", mode=mode,
+            cost_usd=0.50, eta_min_low=10, eta_min_high=20,
+        )
+
+    async def _fake_poll(task_id, *, service="valyu", mode="standard"):
+        return auto_dr_mod.AsyncResearchPoll(state="running", progress_pct=42, message="searching…")
+
+    monkeypatch.setattr(auto_dr_mod, "submit_async_research", _fake_submit)
+    monkeypatch.setattr(auto_dr_mod, "try_collect_async_research", _fake_poll)
+
+    client = _authed_client()
+    sid = client.post(
+        "/api/v4/sessions", json={"question": "test research async flow"}
+    ).json()["session_id"]
+    client.post(
+        f"/api/v4/sessions/{sid}/auto-dr",
+        json={"service": "valyu", "mode": "standard", "prompt": "x"},
+    )
+    r = client.get(f"/api/v4/sessions/{sid}/auto-dr-status?task_id=t1")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["state"] == "running"
+    assert body["progress_pct"] == 42
+
+
+def test_auto_dr_status_completed_appends_to_source_reports(monkeypatch):
+    from smart_report.models import UploadedMarkdown
+    from smart_report.sources import auto_dr as auto_dr_mod
+
+    async def _fake_submit(service, question, *, mode="standard"):
+        return auto_dr_mod.AsyncResearchSubmission(
+            task_id="t2", service="valyu", mode=mode,
+            cost_usd=0.50, eta_min_low=10, eta_min_high=20,
+        )
+
+    async def _fake_poll(task_id, *, service="valyu", mode="standard"):
+        return auto_dr_mod.AsyncResearchPoll(
+            state="completed",
+            result=auto_dr_mod.AutoDRResult(
+                upload=UploadedMarkdown(
+                    filename="valyu_research_standard_t2.md",
+                    content="# Final report\n\nSome findings.",
+                    detected_tool="other",
+                    word_count=4,
+                ),
+                service="valyu",
+                cost_usd=0.50, cost_rub=37.7, source_count=8, notes="test",
+            ),
+        )
+
+    monkeypatch.setattr(auto_dr_mod, "submit_async_research", _fake_submit)
+    monkeypatch.setattr(auto_dr_mod, "try_collect_async_research", _fake_poll)
+
+    client = _authed_client()
+    sid = client.post(
+        "/api/v4/sessions", json={"question": "test research async flow"}
+    ).json()["session_id"]
+    client.post(
+        f"/api/v4/sessions/{sid}/auto-dr",
+        json={"service": "valyu", "mode": "standard", "prompt": "x"},
+    )
+    r = client.get(f"/api/v4/sessions/{sid}/auto-dr-status?task_id=t2")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["state"] == "completed"
+    assert body["filename"] == "valyu_research_standard_t2.md"
+    assert body["source_count"] == 8
+
+    # Source appended, job removed from pending
+    sess = client.get(f"/api/v4/sessions/{sid}").json()
+    assert len(sess["source_reports"]) == 1
+    assert sess["source_reports"][0]["filename"] == "valyu_research_standard_t2.md"
+    assert sess["pending_dr_jobs"] == []
+
+
+def test_auto_dr_status_404_for_unknown_task():
+    client = _authed_client()
+    sid = client.post(
+        "/api/v4/sessions", json={"question": "test research async flow"}
+    ).json()["session_id"]
+    r = client.get(f"/api/v4/sessions/{sid}/auto-dr-status?task_id=neverexisted")
+    assert r.status_code == 404
+
+
 def test_track_b_endpoints_are_wired():
     """Track B has shipped — analyze/synthesize/upload routes exist (body behaviour
     is covered by test_v4_full_cycle / test_analyzer / test_synthesizer)."""

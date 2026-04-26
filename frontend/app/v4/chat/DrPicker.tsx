@@ -1,15 +1,30 @@
 "use client";
 
 // Smart Report v.IV — Deep Research service picker.
-// Replaces the lone "Скопировать промт →" CTA with a card of 7 services.
 //
 // 4 integrated (server-side via /api/v4/sessions/{id}/auto-dr):
-//   valyu, tavily, exa, perplexity
+//   valyu (with Research-mode submenu: fast / standard / heavy / max),
+//   tavily, exa, perplexity
 // 3 copy-launch (client-side: copy prompt → open service tab):
 //   openai, claude, gemini
 
 import { useState } from "react";
-import type { AutoDRService } from "@/lib/apiV4";
+import type { AutoDRService, ValyuResearchMode } from "@/lib/apiV4";
+
+export type ValyuModeSpec = {
+  key: ValyuResearchMode;
+  label: string;
+  price: string;
+  eta: string;
+};
+
+// Valyu Research modes — fixed prices per Valyu docs (2026-04).
+export const VALYU_MODES: ValyuModeSpec[] = [
+  { key: "fast",     label: "Fast",     price: "$0.10",  eta: "~5 мин" },
+  { key: "standard", label: "Standard", price: "$0.50",  eta: "10-20 мин" },
+  { key: "heavy",    label: "Heavy",    price: "$2.50",  eta: "~90 мин" },
+  { key: "max",      label: "Max",      price: "$15.00", eta: "~3 часа" },
+];
 
 export type DrServiceKey =
   | AutoDRService          // valyu | tavily | exa | perplexity (integrated)
@@ -30,11 +45,11 @@ export interface DrServiceMeta {
 export const DR_SERVICES: DrServiceMeta[] = [
   {
     key: "valyu",
-    label: "Valyu",
-    price: "≈ $0.01–0.02 (fast mode)",
-    when: "SEC-фалинги, FRED, arXiv, PubMed. Лучший выбор для финансов, регуляторики, науки. Стандартный режим у Valyu стоит ~$0.25, но мы используем fast — быстрее и в 10× дешевле.",
+    label: "Valyu Research",
+    price: "от $0.10 до $15 (4 режима)",
+    when: "Полноценный async DR: fast (5 мин), standard (10–20 мин), heavy (90 мин, fact-verification), max (3 часа, exhaustive). Лучшее качество для финансов, регуляторики, науки. Запускается в фоне, можно закрыть вкладку.",
     mode: "integrated",
-    badge: "🏆 для отчётности",
+    badge: "🏆 настоящий DR",
   },
   {
     key: "tavily",
@@ -85,7 +100,7 @@ export const DR_SERVICES: DrServiceMeta[] = [
 ];
 
 export interface DrPickerProps {
-  onIntegrated: (service: AutoDRService) => Promise<void> | void;
+  onIntegrated: (service: AutoDRService, opts?: { mode?: ValyuResearchMode }) => Promise<void> | void;
   onCopyLaunch: (key: DrServiceKey, url: string) => void;
   onSkip: () => void;            // "Я уже запустил — загружу .md"
   disabled?: boolean;
@@ -100,11 +115,16 @@ export function DrPicker({
   busyKey,
 }: DrPickerProps) {
   const [expanded, setExpanded] = useState<DrServiceKey | null>(null);
+  const [valyuMode, setValyuMode] = useState<ValyuResearchMode>("standard");
 
   const handleClick = async (svc: DrServiceMeta) => {
     if (disabled || busyKey) return;
     if (svc.mode === "integrated") {
-      await onIntegrated(svc.key as AutoDRService);
+      if (svc.key === "valyu") {
+        await onIntegrated("valyu", { mode: valyuMode });
+      } else {
+        await onIntegrated(svc.key as AutoDRService);
+      }
     } else {
       onCopyLaunch(svc.key, svc.url || "");
     }
@@ -136,6 +156,28 @@ export function DrPicker({
                 <div className="dr-card__price">{svc.price}</div>
               </div>
               <div className="dr-card__when">{svc.when}</div>
+              {svc.key === "valyu" && (
+                <div className="valyu-mode-row">
+                  <div className="valyu-mode-label">Режим:</div>
+                  <div className="valyu-mode-chips">
+                    {VALYU_MODES.map((m) => (
+                      <button
+                        key={m.key}
+                        type="button"
+                        className={
+                          "valyu-mode-chip" + (valyuMode === m.key ? " valyu-mode-chip--active" : "")
+                        }
+                        onClick={() => setValyuMode(m.key)}
+                        disabled={disabled || !!busyKey}
+                        title={`${m.label} · ${m.price} · ${m.eta}`}
+                      >
+                        <span className="valyu-mode-chip__name">{m.label}</span>
+                        <span className="valyu-mode-chip__meta">{m.price} · {m.eta}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className="dr-card__actions">
                 <button
                   type="button"
@@ -145,6 +187,8 @@ export function DrPicker({
                 >
                   {isBusy
                     ? "Запускаю…"
+                    : svc.key === "valyu"
+                    ? `Запустить Valyu Research (${VALYU_MODES.find(m => m.key === valyuMode)?.price}) →`
                     : svc.mode === "integrated"
                     ? "Запустить →"
                     : "Открыть и скопировать промт →"}

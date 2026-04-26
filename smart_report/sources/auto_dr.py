@@ -1,21 +1,17 @@
-"""Auto-DR: one-shot research-on-behalf for the chat UI.
+"""Auto-DR: research-on-behalf for the chat UI.
 
-When a user clicks "Заказать DR через Valyu" (or Tavily/Exa/Perplexity)
-in the chat workspace, the frontend POSTs to /api/v4/sessions/{id}/auto-dr.
-This module does the actual work: route to the right backend, run it,
-return an UploadedMarkdown the endpoint then appends to
-`session.source_reports` so the existing analyze→synthesize pipeline
-picks it up exactly as if the analyst had pasted a Perplexity export.
+Two distinct execution patterns:
 
-Service catalog (mirrors the chat picker):
-  valyu      — premium structured (sec.gov, fred, arxiv, pubmed). ~$0.10
-  tavily     — cheap general web (basic) / advanced for regulatory. ~$0.005-0.020
-  exa        — semantic similarity (papers/blogs). ~$0.005-0.020
-  perplexity — LLM-based DR via OpenRouter `perplexity/sonar-pro`. ~$0.50-2
+1. **Sync/instant** (Tavily, Exa, Perplexity, Valyu-search):
+   Click → adapter call → markdown → appended to source_reports.
+   `run_auto_dr(...)` returns AutoDRResult immediately.
 
-Copy-launch services (OpenAI ChatGPT DR, Claude, Gemini Deep Research)
-do NOT route here — the frontend just copies the prompt and opens the
-service in a new tab.
+2. **Async/long-running** (Valyu Research API — fast/standard/heavy/max):
+   Click → submit job → return task_id immediately.
+   Frontend polls /auto-dr-status until completed, at which point the
+   markdown asset is fetched and prepended to source_reports.
+   `submit_async_research(...)` and `try_collect_async_research(...)`
+   are the entry points for this path.
 """
 
 from __future__ import annotations
@@ -247,3 +243,154 @@ def _count_citations(md: str) -> int:
         return 0
     sources_block = m.group(1)
     return len(re.findall(r"^\s*\d+\.\s", sources_block, re.MULTILINE))
+
+
+# ---------------------------------------------------------------------------
+# Async research path (Valyu deepresearch)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class AsyncResearchSubmission:
+    """Returned by submit_async_research — opaque to the frontend except
+    `task_id` (used for polling) + `eta_min_low/high` (UX message)."""
+    task_id: str
+    service: str                 # "valyu" for now
+    mode: str                    # "fast" | "standard" | "heavy" | "max"
+    cost_usd: float
+    eta_min_low: int
+    eta_min_high: int
+
+
+async def submit_async_research(
+    service: str,
+    question: str,
+    *,
+    mode: str = "standard",
+) -> AsyncResearchSubmission:
+    """Submit a long-running research job. Currently only Valyu supports this.
+
+    Returns immediately (sub-second). Frontend should then poll
+    `try_collect_async_research(task_id)` until it returns an AutoDRResult.
+    """
+    if service != "valyu":
+        raise AutoDRError(
+            f"async research only available for valyu (got {service!r}); "
+            "use run_auto_dr() for tavily/exa/perplexity"
+        )
+    if not question or not question.strip():
+        raise AutoDRError("async research requires a non-empty question")
+
+    from .valyu_deepresearch import (
+        ValyuResearchClient,
+        ValyuResearchError,
+        RESEARCH_MODE_PRICE_USD,
+    )
+    if mode not in RESEARCH_MODE_PRICE_USD:
+        raise AutoDRError(f"unknown valyu mode: {mode!r}")
+
+    import os
+    api_key = os.environ.get("VALYU_API_KEY")
+    if not api_key:
+        raise AutoDRError("VALYU_API_KEY not set")
+    client = ValyuResearchClient(api_key=api_key)
+
+    try:
+        sub = await client.submit(question, mode=mode)  # type: ignore[arg-type]
+    except ValyuResearchError as e:
+        raise AutoDRError(f"valyu research submit failed: {e}") from e
+    return AsyncResearchSubmission(
+        task_id=sub.task_id,
+        service="valyu",
+        mode=sub.mode,
+        cost_usd=sub.cost_usd,
+        eta_min_low=sub.eta_min_low,
+        eta_min_high=sub.eta_min_high,
+    )
+
+
+@dataclass
+class AsyncResearchPoll:
+    """Returned by try_collect_async_research.
+
+    `state` is the normalised job state. `result` is non-None only when
+    state="completed" — the endpoint then prepends `result.upload` to
+    `session.source_reports`.
+    """
+    state: str                                   # "queued" | "running" | "completed" | "failed" | "cancelled"
+    progress_pct: Optional[int] = None
+    message: Optional[str] = None
+    result: Optional[AutoDRResult] = None
+    error: Optional[str] = None
+
+
+async def try_collect_async_research(
+    task_id: str,
+    *,
+    service: str = "valyu",
+    mode: str = "standard",
+) -> AsyncResearchPoll:
+    """Single-poll the job. Caller (frontend) is responsible for backoff."""
+    if service != "valyu":
+        return AsyncResearchPoll(state="failed", error=f"unknown service {service!r}")
+    from .valyu_deepresearch import (
+        ValyuResearchClient,
+        ValyuResearchError,
+        RESEARCH_MODE_PRICE_USD,
+    )
+    import os
+    api_key = os.environ.get("VALYU_API_KEY")
+    if not api_key:
+        return AsyncResearchPoll(state="failed", error="VALYU_API_KEY not set")
+    client = ValyuResearchClient(api_key=api_key)
+
+    try:
+        st = await client.status(task_id)
+    except ValyuResearchError as e:
+        return AsyncResearchPoll(state="failed", error=str(e))
+
+    if st.state != "completed":
+        return AsyncResearchPoll(
+            state=st.state,
+            progress_pct=st.progress_pct,
+            message=st.message,
+        )
+
+    # Completed → fetch the markdown asset and wrap as AutoDRResult.
+    try:
+        rr = await client.fetch_result(task_id)
+    except ValyuResearchError as e:
+        return AsyncResearchPoll(state="failed", error=f"asset fetch failed: {e}")
+
+    cost_usd = RESEARCH_MODE_PRICE_USD.get(mode, 0.50)
+    upload = UploadedMarkdown(
+        filename=f"valyu_research_{mode}_{task_id[:8]}.md",
+        content=rr.markdown,
+        detected_tool="other",
+        word_count=rr.word_count,
+    )
+    result = AutoDRResult(
+        upload=upload,
+        service="valyu",
+        cost_usd=cost_usd,
+        cost_rub=round(cost_usd * _USD_RUB_RATE, 4),
+        source_count=rr.sources_count,
+        notes=f"backend=valyu_research mode={mode} task_id={task_id}",
+    )
+    return AsyncResearchPoll(state="completed", result=result)
+
+
+async def cancel_async_research(task_id: str, *, service: str = "valyu") -> None:
+    """Best-effort cancel of an in-flight job."""
+    if service != "valyu":
+        return
+    from .valyu_deepresearch import ValyuResearchClient
+    import os
+    api_key = os.environ.get("VALYU_API_KEY")
+    if not api_key:
+        return
+    client = ValyuResearchClient(api_key=api_key)
+    try:
+        await client.cancel(task_id)
+    except Exception as e:
+        _logger.warning("cancel %s failed: %s", task_id, e)
