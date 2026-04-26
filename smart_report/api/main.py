@@ -10,7 +10,7 @@ from typing import Any
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import RedirectResponse, Response, StreamingResponse
 
 from ..io import RUNS_DIR
 from ..orchestrator import run as run_orchestrator
@@ -67,6 +67,18 @@ async def _run_job(job: Job) -> None:
 
 
 # ---------- endpoints ----------
+
+
+@app.get("/", include_in_schema=False)
+async def root() -> RedirectResponse:
+    """Bare domain → landing page (admin/admin auth gate)."""
+    return RedirectResponse(url="/landing/", status_code=307)
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon() -> Response:
+    """Stub to silence the 404 noise in browser console — no icon file shipped."""
+    return Response(status_code=204)
 
 
 @app.get("/health")

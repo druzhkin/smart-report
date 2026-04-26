@@ -90,3 +90,17 @@ def test_other_routes_still_work_without_auth(client: TestClient):
     r = client.get("/health")
     assert r.status_code == 200
     assert r.json() == {"status": "ok"}
+
+
+def test_root_redirects_to_landing(client: TestClient):
+    """Bare domain → /landing/ so users opening the deploy URL hit the
+    auth-gated landing page directly instead of the FastAPI 404 JSON."""
+    r = client.get("/", follow_redirects=False)
+    assert r.status_code == 307
+    assert r.headers["location"] == "/landing/"
+
+
+def test_favicon_returns_204_not_404(client: TestClient):
+    """Browsers always probe /favicon.ico — silence the console 404 noise."""
+    r = client.get("/favicon.ico")
+    assert r.status_code == 204
