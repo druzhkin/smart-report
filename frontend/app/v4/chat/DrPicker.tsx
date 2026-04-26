@@ -74,10 +74,10 @@ export const DR_SERVICES: DrServiceMeta[] = [
   {
     key: "tavily",
     label: "Tavily Research",
-    price: "от $0.05 до $0.30 (3 режима)",
-    when: "Агентский DR от Tavily: mini ($0.05, 2-5 мин), pro ($0.30, 5-15 мин), auto (на усмотрение). Сильный по веб-источникам и свежим данным.",
+    price: "от $0.05 до $0.30 (требуется paid Tavily plan)",
+    when: "Агентский DR от Tavily: mini ($0.05, 2-5 мин), pro ($0.30, 5-15 мин), auto. ВНИМАНИЕ: Research API доступен только на Tavily paid plan — на нашем free key возвращает ошибку 'usage limit'. Если нужно сейчас — используйте Valyu или Exa.",
     mode: "integrated",
-    badge: "💰 быстрый и недорогой",
+    badge: "⚠ paid Tavily plan",
   },
   {
     key: "exa",
