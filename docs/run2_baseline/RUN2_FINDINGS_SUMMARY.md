@@ -1,14 +1,21 @@
 # Run 2 Baseline — Findings Summary
 
-**Session:** 2026-04-26
-**Authoring note:** Block A (3 fresh Sonnet runs) **failed** due to A12
-(Sonnet 4.6 broken on OpenRouter today, 3/3 hang attempts). Block B + C
-pivoted to use the existing Day-1 reviews of the Step 3.3 acceptance
-fixtures (Haiku tier, same `origin/v4.5` code path) as substance basis.
-The calibration / template / confidence findings transfer cleanly between
-Haiku and Sonnet because all three signals come from the same shared
-code (source-quality classifier, intake, synth instructions). Sonnet
-re-run scheduled when OpenRouter recovers.
+**Session:** 2026-04-26 (initial draft + 2026-04-26 18:00 Sonnet-unblock-session update)
+
+**UPDATE 2026-04-26 18:00:** Sonnet "hangs" diagnosed as **slow legitimate
+generation, not OpenRouter brokenness** (BLOCKERS.md A13 supersedes A11+A12).
+Pipeline-completion on Sonnet **verified** for first synth attempt (Q1 EV);
+the 42-min watchdog kill was during the data_audit-triggered SECOND synth
+attempt (A14). DOCX-substance verification on Sonnet still **provisional**
+(no rendered DOCX captured because the harness saves only after coverage
+retry returns — see SONNET_VERIFY.md for the partial verdict).
+
+**Authoring note:** Substance findings below (calibration in DOCX,
+template/confidence closed) come from Day-1 reviews of Step 3.3
+acceptance fixtures (Haiku tier, same `origin/v4.5` code path). Sonnet
+verification of the same DOCX-rendered signals deferred to a future
+session with ≥45min/query watchdog or a partial-state checkpoint
+added to the harness.
 
 ---
 

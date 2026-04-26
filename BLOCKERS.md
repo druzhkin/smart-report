@@ -107,6 +107,46 @@ always-on.
 
 ---
 
+### A14 — Coverage-audit retry doubles Sonnet baseline wall time (extends A13)
+
+**Date:** 2026-04-26 (Sonnet unblock session, Block B Q1 attempt)
+
+**What we learned:** Q1 EV with proper 30-min watchdog still got
+killed at 42min wall. Buffered stdout flushed on kill revealed:
+
+```
+[synthesizer] Финальный отчёт готов            ← first synth SUCCEEDED at ~25min
+[bibliography] Bibliography generated
+[data_audit] Coverage audit: critical_failure  ← triggered retry
+[synthesizer] Coverage below target — retrying with feedback
+[synthesizer] Собираю финальный отчёт          ← second synth started, killed mid-way
+```
+
+A13 hypothesis confirmed for ONE synth call (~14 min). What we
+missed: `data_audit` critical_failure triggers a SECOND synth call
+with feedback. So total Sonnet wall time per query that hits
+critical_failure is **2 × synth (~28 min) + PM/intake/analyze
+(~5-7 min) = ~33-45 min**.
+
+Q1 EV apparently triggers critical_failure consistently (the auto-
+retry mechanism is a deliberate quality gate, not a bug). Other
+queries may or may not trigger it depending on input source pool
+adequacy.
+
+**Operational recommendation for next session:** Sonnet baseline
+runs need **≥45 min watchdog per query**, not 25-30 min. For a
+3-query A/B run with Sonnet, budget 3-4 hours wall time minimum.
+
+**Phase 4 candidate (NEW, ranks alongside #3 in PHASE_4_PRIORITIZATION):**
+checkpoint partial state in `scripts/run2_baseline.py` after FIRST
+synth completes — even if coverage retry fails or is killed, we'd
+have a usable DOCX from the first attempt for review purposes. One-
+line fix in `_run_one_query` — render DOCX after `[synthesizer]
+Финальный отчёт готов` event, NOT only after `orch.synthesize()`
+returns.
+
+---
+
 ### A13 — Sonnet 4.6 synth not "hung" — slow legitimate JSON generation (resolves A12)
 
 **Date:** 2026-04-26 (Sonnet unblock session)

@@ -172,6 +172,7 @@ first because it's load-bearing for all future A/B verification).
 | 2026-04-26 | Block A 2.2 — Sonnet large-prompt threshold probe (3k/30k/100k) | $0.20 | $0.14 | ~$52 | all OK; prompt size NOT the cause |
 | 2026-04-26 | Block A 2.2 — Sonnet response_format=json_object probe (3 cases) | $0.10 | $0.04 | ~$52 | all OK; format NOT the cause |
 | 2026-04-26 | Block A 2.2 — root cause found: max_tokens=32000 + slow Sonnet structured gen | $0 (analysis) | $0 | ~$52 | A13 logged; "hangs" were premature watchdog kills on legitimate slow gen |
+| 2026-04-26 | Block B — Q1 EV Sonnet baseline (30-min watchdog) | $2.69 | ~$2.50 estimate | ~$49 | first synth SUCCEEDED, killed during coverage-retry second synth (A14 logged); pipeline-completion verified, DOCX substance still provisional |
 
 **End-of-session totals:**
 
