@@ -107,6 +107,61 @@ always-on.
 
 ---
 
+### A6 — HALT Day 5 multi-query A/B (Valyu hybrid regresses on Q3)
+
+**Date:** 2026-04-26 (Day 4)
+
+**Trigger:** First live Q3 EU DAC dry-run with config B
+(`runs/ab_run2/q3_eu_dac_B_20260426T065658Z.json`) showed:
+- Cost +78% vs baseline ($1.58 vs $0.89, breaching brief's $1.50 cap by $0.08)
+- Source count -93% (2 vs 29)
+- 0 STRONG vs 64 STRONG
+- 20 WEAK vs 1 WEAK
+Brief stop condition "evidence_quality drops below baseline" met
+catastrophically.
+
+**Root cause:** Valyu's `search_type="proprietary"` does NOT surface
+EU regulatory primary documents. It returns arxiv + pubmed +
+financial + biomed because those are the curated datasets in the
+"proprietary" tier. The Day 1 capability map flagged this
+("No EU regulatory dataset listed by name") but Day 3 routing built
+EU_REG → Valyu proprietary anyway, on the brief's assumption that
+Valyu would cover EU regulators.
+
+**Decision:** Halt the Day 5 multi-query A/B (Q1/Q2/Q3 × {A,B}).
+Running 2 more queries with the same routing would burn $3-5 just
+to confirm the same negative signal.
+
+**Risk if wrong:** None — if hybrid is actually fine on Q1 / Q2 we'd
+discover that on Day 6 with a single re-test instead of a 6-query
+run.
+
+**Easy to revert:** flip Day 5 plan back to "full A/B" once routing
+or backend is fixed.
+
+---
+
+### A7 — Operational error: duplicate --live launch (~$1.10 wasted)
+
+**Date:** 2026-04-26 (Day 4)
+
+**What happened:** Launched a second `--live` run for Q3 EU DAC
+~30s before the completion notification arrived for the first one.
+Second run reached "synthesizer second-attempt" before I killed it.
+~$1.10 estimated wasted spend, no output captured.
+
+**Root cause:** I assumed the first --live had died silently
+(0-byte output file for >3 min) and re-launched, but it was just
+slow-starting. Output appeared right after I launched the second
+process.
+
+**Mitigation in script for next time:** None added — the script is
+fine, the operator (me) made the mistake. For future --live
+invocations: check `runs/ab_run2/` for new output files AND run
+`Get-Process python` before re-launching.
+
+---
+
 ### A4 — Exa AI + Tavily keys provided, decision deferred to Day 6
 
 **Date:** 2026-04-26 (Day 3, end of session)

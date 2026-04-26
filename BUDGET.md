@@ -82,3 +82,31 @@ combo. Day 3 routing handles the proprietary override per-domain.
 onto the existing 6-domain enum without surprises; A3 risk closed by
 making `("proprietary", fast=False)` the explicit per-domain override
 for EU_REGULATORY.
+
+---
+
+## Day 4 — 2026-04-26 (continued, BREACH)
+
+| Date | Task | Expected | Actual | OpenRouter left | Valyu left |
+|---|---|---|---|---|---|
+| 2026-04-26 | configs/ab_run2.yaml + script (mock-only) | $0.00 | $0.00 | $58.50 | ~$5.998 |
+| 2026-04-26 | Q3 EU DAC dry-run config B (1st, completed) | ≤$1.50 | **$1.5808** | $56.92 | ~$5.994 |
+| 2026-04-26 | Q3 EU DAC dry-run config B (2nd, killed mid-run) | $0 | **~$1.10** | $55.82 | ~$5.994 |
+
+**End-of-Day-4 totals:**
+
+| Category | Spent today | Week-to-date | Hard cap |
+|---|---|---|---|
+| OpenRouter | ~$2.68 | ~$2.68 | $14.00 |
+| Valyu | ~$0.007 | ~$0.009 | $6.00 |
+| **Total** | **~$2.69** | **~$2.69** | **$20.00** |
+
+**Caps status:**
+- Day 4 sub-cap ($1.50 dry-run): **BREACHED by $1.18** (1.79× cap).
+  - $0.08 from the first run's organic cycle cost overrun.
+  - $1.10 from the operational mistake of launching a duplicate
+    --live (A7).
+- Week hard cap ($20.00): still 87% headroom, $17.31 remaining.
+
+**Decisions logged:** A6 (halt Day 5 multi-query A/B due to
+regression), A7 (operational mistake, no spend recovery possible).

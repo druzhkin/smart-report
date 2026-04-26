@@ -13,11 +13,18 @@
 
 ## TL;DR (running update)
 
-Days 1–3 closed in a single session at **$0.002 cumulative spend**
-(one live Valyu arXiv smoke). Three autonomous decisions logged
-(A1/A2/A3 in `BLOCKERS.md`). Test suite at 547 passed (+13 from
-Day 3 routing tests, +12 from Day 2 client tests). Days 4–7 remain
-(A/B prep + Run + Phase 4 brief + closing).
+Days 1–3 closed at $0.002 spend (mock-only). Day 4 broke open the
+brief's load-bearing assumption: **Valyu's `proprietary` mode does
+NOT cover EU regulatory primary docs** — first live Q3 dry-run
+returned arxiv/pubmed instead of eur-lex, and the resulting hybrid
+report regressed 64→0 STRONG, 29→2 sources, +78% cost vs baseline.
+
+Day 4 spend ~$2.69 (1st live run $1.58 + duplicate-launch operator
+mistake ~$1.10), week-to-date $2.69 of $20 cap. Day 5 multi-query
+A/B HALTED per stop-condition (BLOCKERS.md A6); Day 6 Phase 4 brief
+is now load-bearing — original Phase 4 candidate list torn up.
+
+Test suite still at 547 passed (no Day 4 regressions in code).
 
 ## What's done
 
@@ -68,7 +75,35 @@ Day 3 routing tests, +12 from Day 2 client tests). Days 4–7 remain
 
 ## What's not done yet
 
-### Day 4 — A/B prep + Q3 dry-run (PENDING)
+### Day 4 (2026-04-26) ✅ closed with REGRESSION + over-spend
+
+- `configs/ab_run2.yaml` — A/B config for Day 4-5.
+- `scripts/ab_run2.py` — `--plan` + `--live` harness (in-process v4
+  cycle, mirrors `live_acceptance_run.py`).
+- Live Q3 EU DAC config B run (`runs/ab_run2/q3_eu_dac_B_*.json`):
+  - Cost $1.58 vs baseline $0.89 (+78%, breached $1.50 sub-cap)
+  - Source count 2 vs baseline 29 (-93%)
+  - 0 STRONG vs baseline 64
+  - **Root cause:** Valyu `proprietary` returned arxiv+pubmed for an
+    EU regulatory query. Day 1 capability map flagged this; Day 3
+    routing built the dependency anyway based on brief assumption.
+- Operator mistake: duplicate `--live` launch wasted ~$1.10. Day 4
+  total spend ~$2.69.
+- Day 5 multi-query A/B HALTED per stop-condition (BLOCKERS.md A6).
+- Commits: `092ebc3` (scaffolding) + Day 4 close (this commit).
+
+### Day 5 (PENDING — replanned)
+
+Brief's full A/B HALTED (A6). Two replacement options pending user
+decision:
+
+  **(a)** Re-test Q3 with `("all", fast_mode=True)` instead of
+  proprietary (~$1.50). Tests whether Valyu's web tier surfaces
+  europa.eu where proprietary did not. If still regression →
+  full HALT, Day 5 = brief writing.
+
+  **(b)** Skip live runs entirely on Day 5; treat Day 5 as a brief-
+  writing day for Phase 4. Conservative on budget.
 
 Per brief §3.8 + §3.9:
 - `configs/ab_run2.yaml` with explicit A | B switch
@@ -129,11 +164,11 @@ orchestrator.
 | Day 1 | $0.00 | $0.00 | $0.00 | $20.00 |
 | Day 2 | $0.00 | $0.002 | $0.002 | $19.998 |
 | Day 3 | $0.00 | $0.00 | $0.00 | $19.998 |
-| Day 4 | TBD | TBD | TBD | TBD |
-| Day 5 | TBD | TBD | TBD | TBD |
+| Day 4 | ~$2.68 | ~$0.007 | ~$2.69 (1st run $1.58 + duplicate-launch $1.10) | $17.31 |
+| Day 5 | TBD | TBD | TBD (likely $0 if Day 5 = brief writing) | TBD |
 | Day 6 | TBD | TBD | TBD | TBD |
 | Day 7 | TBD | TBD | TBD | TBD |
-| **Week** | $0.00 | $0.002 | **$0.002 so far** | $19.998 |
+| **Week** | ~$2.68 | ~$0.009 | **~$2.69 so far** | $17.31 |
 
 ## Top decisions made without user
 
