@@ -55,13 +55,95 @@ from smart_report.evidence_grades import evidence_grade_distribution
 from smart_report.models import ResearchPrompt, UploadedMarkdown, V4Session
 from smart_report import v4_orchestrator as v4_module
 from smart_report.v4_orchestrator import V4Orchestrator, V4SessionStore
-from scripts.live_acceptance_run import (
-    COMPARISON_QUERIES,
-    DOWNLOADS,
-    SONNET,
-    USD_RUB_RATE,
-    _load_markdown_uploads,
-)
+
+# Self-contained query specs + helpers — INTENTIONALLY NOT importing
+# from scripts.live_acceptance_run because that module monkey-patches
+# httpx.Response.raise_for_status globally (line ~48), which interacts
+# poorly with smart_report.llm's retry shim. The monkey-patch is the
+# leading hypothesis for the Sonnet hang debugged in Block A of the
+# 2026-04-26 unblock session — see daily/sonnet_unblock_protocol.md.
+
+USD_RUB_RATE = 75.4
+SONNET = "anthropic/claude-sonnet-4.6"
+DOWNLOADS = Path("C:/Users/rodina-adm/Downloads")
+
+COMPARISON_QUERIES = [
+    {
+        "id": "q1_ev",
+        "question": (
+            "Сравните перспективы трёх лидеров электромобильного рынка в "
+            "России (Москвич, АВТОВАЗ, Evolute) на горизонте 3 лет в условиях "
+            "конкуренции с китайскими брендами BYD, Geely, Chery"
+        ),
+        "uploads": [
+            (
+                "Перспективы-российских-производителей-электромобилей-в-условиях-китайской-конкуренции-прогноз-на-2026–2029-годы.md",
+                "openai_dr",
+            ),
+            (
+                "«Сравните перспективы трёх лидеров электромобильно.md",
+                "perplexity",
+            ),
+        ],
+    },
+    {
+        "id": "q2_moscow_re",
+        "question": (
+            "Какие тренды повлияют на девелоперов бизнес-сегмента жилья в "
+            "Москве в 2026-2027?"
+        ),
+        "uploads": [
+            (
+                "Тренды,-влияющие-на-московских-девелоперов-жилого-сегмента-в-2026-2027-годах.md",
+                "openai_dr",
+            ),
+            (
+                "«Какие тренды повлияют на девелоперов бизнес-сегме.md",
+                "perplexity",
+            ),
+        ],
+    },
+    {
+        "id": "q3_eu_dac",
+        "question": (
+            "How is Direct Air Capture regulated in the EU and what subsidies "
+            "are available in 2026?"
+        ),
+        "uploads": [
+            (
+                "EU-Direct-Air-Capture-Regulation-and-2026-Subsidies-Comprehensive-Framework-and-Funding-Landscape.md",
+                "openai_dr",
+            ),
+        ],
+    },
+]
+
+
+def _detect_tool(filename: str) -> str:
+    name = filename.lower()
+    if "perplexity" in name or "pplx" in name:
+        return "perplexity"
+    if "openai" in name or "chatgpt" in name or "deep-research" in name:
+        return "openai_dr"
+    if "claude" in name:
+        return "claude"
+    return "other"
+
+
+def _load_markdown_uploads(specs: list[tuple[str, str]]) -> list[UploadedMarkdown]:
+    uploads: list[UploadedMarkdown] = []
+    for filename, tool in specs:
+        p = DOWNLOADS / filename
+        text = p.read_text(encoding="utf-8")
+        uploads.append(
+            UploadedMarkdown(
+                filename=filename,
+                content=text,
+                detected_tool=tool,
+                word_count=len(text.split()),
+            )
+        )
+    return uploads
 
 OUT_ROOT = REPO_ROOT / "docs/run2_baseline"
 PER_RUN_HARD_CAP_USD = 4.00

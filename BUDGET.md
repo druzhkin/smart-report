@@ -156,6 +156,23 @@ architecture work. Session hard cap: OpenRouter $11, backends $0.
 | 2026-04-26 | Q1 EV — also hung at synth stage, killed at 12min wall | $2.69 | ~$0.80 estimate | ~$52 | confirms Sonnet 4.6 broken globally today, not Q3-specific |
 | 2026-04-26 | Q2 + Block B fresh-run path — SKIPPED | $0 | $0 | ~$52 | Sonnet broken; Block C+D pivot to Day-1 review basis |
 
+---
+
+## Session: Sonnet unblock + smoke verify + §5.6 Protocol (2026-04-26)
+
+Session hard cap: OpenRouter $7, backends $0. Replaces planned «§5.6
+straight to Protocol» path per user decision (need to unblock Sonnet
+first because it's load-bearing for all future A/B verification).
+
+| Date | Task | Expected | Actual | OpenRouter left | Notes |
+|---|---|---|---|---|---|
+| 2026-04-26 | Block A 2.1 — Sonnet 4.6 minimal smoke (3 models probed) | $0.003 | $0.003 | ~$52 | ALL PASS 3-5s; bug NOT in OpenRouter |
+| 2026-04-26 | Block A 2.2 — pipeline call_json smoke (~3k token prompt) | $0.005 | $0.0032 | ~$52 | OK 4.7s; smart_report.llm wrapper not the culprit |
+| 2026-04-26 | Block A 2.2 — Q1 EV with monkey-patch removed (10-min watchdog) | $2.69 | ~$0.40 estimate | ~$52 | hypothesis: monkey-patch — DISPROVEN, hang at synth same as before |
+| 2026-04-26 | Block A 2.2 — Sonnet large-prompt threshold probe (3k/30k/100k) | $0.20 | $0.14 | ~$52 | all OK; prompt size NOT the cause |
+| 2026-04-26 | Block A 2.2 — Sonnet response_format=json_object probe (3 cases) | $0.10 | $0.04 | ~$52 | all OK; format NOT the cause |
+| 2026-04-26 | Block A 2.2 — root cause found: max_tokens=32000 + slow Sonnet structured gen | $0 (analysis) | $0 | ~$52 | A13 logged; "hangs" were premature watchdog kills on legitimate slow gen |
+
 **End-of-session totals:**
 
 | Category | Spent | Hard cap |

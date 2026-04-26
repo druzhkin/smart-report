@@ -107,6 +107,66 @@ always-on.
 
 ---
 
+### A13 — Sonnet 4.6 synth not "hung" — slow legitimate JSON generation (resolves A12)
+
+**Date:** 2026-04-26 (Sonnet unblock session)
+
+**Diagnostic chain ruled out:**
+- ❌ OpenRouter outage: minimal smoke 3 models all OK 3-5s
+  (`scripts/diagnostics/sonnet_smoke.py`)
+- ❌ smart_report.llm wrapper: pipeline call_json with 3k-token prompt
+  OK 4.7s (`scripts/diagnostics/sonnet_pipeline_smoke.py`)
+- ❌ live_acceptance_run monkey-patch on httpx.Response.raise_for_status:
+  Q1 EV with monkey-patch removed STILL hung at synth (run2_baseline.py
+  refactored to be self-contained)
+- ❌ Prompt size up to 100k chars: probe OK 5.2s
+  (`scripts/diagnostics/sonnet_large_prompt_smoke.py`)
+- ❌ response_format=json_object alone or with longer output: probe
+  OK 16s for 600 tokens out
+  (`scripts/diagnostics/sonnet_json_format_smoke.py`)
+
+**Actual root cause:** `smart_report/synthesizer.py:395` requests
+`max_tokens=32000` for the synth call. Q3 step33 fixture (Haiku-tier
+baseline saved 2026-04-25) emitted ~21k tokens of structured JSON
+output. Sonnet 4.6 generates structured JSON (response_format=json_object)
+at ~37 tokens/sec per the json_format probe. 21k tokens × 37 tok/s
+≈ **9-15 minutes** of pure server-side generation time.
+
+Run 2 watchdog windows of 10-16 min were **killing the call slightly
+before legitimate completion**, NOT diagnosing a hang.
+
+**Confirmation pattern:**
+- Smoke test on Sonnet 4.6 with small expected output: 3-5s ✅
+- Smoke test with 100k tokens INPUT but small output: 5.2s ✅
+- Smoke test with structured JSON, 600 tokens out: 16s ✅
+- v4 cycle synth call with 32k max_tokens, ~21k actual output: 12-16min
+  (I killed it at 10-16min watchdog → looked like hang)
+
+**Fix:** ZERO pipeline change required. Operational fix in harnesses:
+
+1. **Watchdog extension:** any run that exercises the v4 cycle synth
+   on Sonnet must allow ≥25 minutes per query (vs the 10-min watchdog
+   I used in Run 2 + first Q1 attempt). Acceptable wall-time per
+   Sonnet baseline run: **20-25 minutes** until/unless we lower
+   `max_tokens` from 32000.
+
+2. **No pipeline-side change** — `max_tokens=32000` is intentional per
+   the comment "14k causes JSON truncation". Lowering it would
+   re-trigger the truncation bug Step 3.3 already resolved.
+
+**Phase 4 candidate (Step #6 in RUN2_FINDINGS_SUMMARY.md is now
+empirically grounded):** httpx-level read-timeout instrumentation
+that distinguishes "actively streaming bytes" from "TCP idle" so we
+can cancel only true hangs, not slow generations. Plus session
+emitter for "tokens received so far" so Run 2 watchdogs can use
+real progress signal.
+
+**Cost of diagnosis:** ~$0.15 across 4 diagnostic probes. Worth the
+spend — the conclusion supersedes A11+A12 (which both speculated
+about Sonnet/OpenRouter brokenness; reality is much simpler).
+
+---
+
 ### A12 — Sonnet 4.6 globally broken on OpenRouter today (3/3 hang)
 
 **Date:** 2026-04-26 (Run 2 review session)
