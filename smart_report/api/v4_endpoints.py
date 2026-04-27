@@ -625,6 +625,100 @@ async def auto_dr_cancel(session_id: str, request: Request, task_id: str) -> dic
     return {"task_id": task_id, "state": "cancelled", "kind": cancel_kind}
 
 
+class AutoFollowupIn(BaseModel):
+    service: Literal["valyu", "exa"] = "valyu"
+    mode: str = "standard"
+
+
+@router.post("/sessions/{session_id}/auto-followup", response_model=AutoDRAsyncOut)
+async def auto_followup(session_id: str, request: Request, payload: AutoFollowupIn) -> AutoDRAsyncOut:
+    """Fire ONE Valyu Standard (default) on the entire followup_prompt.
+
+    The followup prompt produced by analyzer is already structured with
+    `## Conflict:` / `## Gap:` headers — Standard agent reads the structure
+    and addresses every section in one coherent document. Per-section split
+    into N×Fast was rejected: at 5+ gaps Standard is cheaper ($0.50 vs
+    $0.60), produces coherent output for synthesize (vs N fragmented
+    docs), and the UI is simpler (1 progress bar, 1 retry, 1 cancel).
+
+    Result lands in `session.followup_reports` (not source_reports) via
+    `is_followup=True` on the pending_dr_jobs entry — auto_dr_status
+    routes by that flag.
+    """
+    session = _owned_with_cap(session_id, request)
+    if session.analysis is None or session.analysis.followup_prompt is None:
+        raise HTTPException(
+            status_code=400,
+            detail="auto-followup requires a completed /analyze with a followup_prompt",
+        )
+
+    prompt = session.analysis.followup_prompt.prompt
+    if not prompt.strip():
+        raise HTTPException(status_code=400, detail="followup_prompt is empty")
+
+    from ..sources.auto_dr import submit_async_research, AutoDRError
+
+    svc_label = {"valyu": "Valyu Research", "exa": "Exa Research"}.get(
+        payload.service, payload.service
+    )
+    emitter = _SessionEmitter(session_id)
+    emitter.emit(
+        "status",
+        f"Запускаю {svc_label} ({payload.mode}) на followup-добор…",
+        data={"service": payload.service, "mode": payload.mode, "is_followup": True},
+    )
+
+    try:
+        sub = await submit_async_research(
+            payload.service, prompt, mode=payload.mode,
+            session_id=session_id, store=_store,
+        )
+    except AutoDRError as e:
+        emitter.emit("error", f"{svc_label} (followup): {e}",
+                     data={"service": payload.service, "mode": payload.mode})
+        raise HTTPException(status_code=502, detail=str(e)) from e
+
+    cost_rub = round(sub.cost_usd * _USD_RUB_RATE, 4)
+    session = _store.get(session_id)
+    # submit_async_research does not touch pending_dr_jobs — endpoint adds
+    # the entry, tagged is_followup so auto_dr_status routes to followup_reports.
+    session.pending_dr_jobs = list(session.pending_dr_jobs or []) + [{
+        "task_id": sub.task_id,
+        "service": payload.service,
+        "mode": payload.mode,
+        "cost_usd": sub.cost_usd,
+        "cost_rub": cost_rub,
+        "submitted_at": time.time(),
+        "state": "running",
+        "is_followup": True,
+    }]
+    session.total_cost_rub = float(session.total_cost_rub or 0.0) + cost_rub
+    _store.update(session)
+
+    emitter.emit(
+        "status",
+        f"{svc_label} ({payload.mode}) на добор запущен: задача {sub.task_id[:8]}…, "
+        f"ETA {sub.eta_min_low}-{sub.eta_min_high} мин",
+        data={"service": payload.service, "mode": payload.mode,
+              "task_id": sub.task_id, "is_followup": True},
+    )
+
+    return AutoDRAsyncOut(
+        service=payload.service,
+        mode=payload.mode,
+        task_id=sub.task_id,
+        cost_usd=sub.cost_usd,
+        cost_rub=cost_rub,
+        eta_min_low=sub.eta_min_low,
+        eta_min_high=sub.eta_min_high,
+        message=(
+            f"{svc_label} ({payload.mode}) на добор запущен. ETA "
+            f"{sub.eta_min_low}–{sub.eta_min_high} мин. Стоимость: "
+            f"${sub.cost_usd:.2f} (≈ ₽ {cost_rub:.2f}) — уже списана."
+        ),
+    )
+
+
 @router.post("/sessions/{session_id}/auto-dr-accept-partial")
 async def auto_dr_accept_partial(session_id: str, request: Request, task_id: str) -> dict:
     """Accept a partial LLM DR result as a source_report.
@@ -797,14 +891,28 @@ async def auto_dr_status(session_id: str, request: Request, task_id: str) -> Aut
         _store.update(session)
 
     if poll.state == "completed" and poll.result is not None:
-        # Idempotency: only append to source_reports if not already there.
+        # Followup auto-DR results go to session.followup_reports;
+        # first-pass DR goes to source_reports. Routed by is_followup flag.
+        is_followup = bool(job.get("is_followup"))
+        bucket = session.followup_reports if is_followup else session.source_reports
         already = any(
-            u.filename == poll.result.upload.filename for u in session.source_reports
+            u.filename == poll.result.upload.filename for u in (bucket or [])
         )
+        # Rewrite filename for followup tasks so they don't collide with
+        # initial-DR auto_dr_<svc>_<id>.md naming and so the chat UI can
+        # distinguish them (auto_followup_ prefix).
+        if is_followup and poll.result.upload.filename.startswith("auto_dr_"):
+            poll.result.upload.filename = f"auto_followup_{job.get('service','svc')}_{task_id[:8]}.md"
+            already = any(u.filename == poll.result.upload.filename for u in (bucket or []))
         if not already:
-            session.source_reports = list(session.source_reports) + [poll.result.upload]
-            if session.status in {"created", "prompt_generated"}:
-                session.status = "reports_uploaded"
+            if is_followup:
+                session.followup_reports = list(session.followup_reports or []) + [poll.result.upload]
+                if session.status in {"created", "prompt_generated", "reports_uploaded", "analyzed"}:
+                    session.status = "dobor_uploaded"
+            else:
+                session.source_reports = list(session.source_reports) + [poll.result.upload]
+                if session.status in {"created", "prompt_generated"}:
+                    session.status = "reports_uploaded"
             # Move the job out of pending → no need to bill again (already billed on submit).
             session.pending_dr_jobs = [
                 j for j in (session.pending_dr_jobs or []) if j.get("task_id") != task_id
@@ -813,10 +921,11 @@ async def auto_dr_status(session_id: str, request: Request, task_id: str) -> Aut
             emitter = _SessionEmitter(session_id)
             emitter.emit(
                 "status",
-                f"Valyu Research завершён: {poll.result.source_count} источник(ов).",
+                f"{'Followup' if is_followup else 'Valyu Research'} завершён: {poll.result.source_count} источник(ов).",
                 data={
                     "service": "valyu",
                     "task_id": task_id,
+                    "is_followup": is_followup,
                     "source_count": poll.result.source_count,
                 },
             )
