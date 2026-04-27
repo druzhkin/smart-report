@@ -306,12 +306,38 @@ export default function Workspace() {
             ];
             setPhase(PHASE.CRITIQUE);
           } else if (hasUploads) {
+            // List EVERY source_report as a clickable ref so the user sees
+            // exactly what's in the session — not just a count.
+            const reportRefs: ChatMessage[] = (s.source_reports || []).map((u, i) => {
+              // Friendly label from the auto_dr_<service>_<...>.md filename
+              const m = /^auto_dr_(\w+)_([0-9a-f-]+)(?:_partial)?\.md$/.exec(u.filename);
+              const svc = m?.[1];
+              const svcLabel =
+                svc === "valyu" ? "Valyu Research" :
+                svc === "tavily" ? "Tavily Research" :
+                svc === "exa" ? "Exa Research" :
+                svc === "openai" ? "OpenAI Deep Research" :
+                svc === "perplexity" ? "Perplexity Deep Research" :
+                u.filename;
+              return {
+                id: `${tag}-ref-${i}`,
+                role: "system",
+                kind: "ref",
+                refKind: "upload",
+                title: `${svcLabel}: отчёт`,
+                subtitle: `${u.word_count} слов · открыть содержимое →`,
+                accent: true,
+                sourceFilename: u.filename,
+              };
+            });
             next = [
               ...next,
               { id: tag, role: "system", kind: "text",
-                content: `Сессия восстановлена. Загружено ${s.source_reports.length} отчёт(ов) — можно запускать анализ.` },
+                content: `Сессия восстановлена. В источниках уже ${s.source_reports.length} отчёт(ов):` },
+              ...reportRefs,
               { id: tag + "-cta", role: "system", kind: "cta",
-                primary: "Запустить анализ →", action: "go-analyze" },
+                primary: "Запустить анализ →", action: "go-analyze",
+                secondary: "Заказать ещё DR", secondaryAction: "go-upload-stage" },
             ];
             setPhase(PHASE.UPLOAD);
           } else {
@@ -1042,6 +1068,19 @@ export default function Workspace() {
             accent: true,
             taskId: res.task_id,
           });
+          // Seed drProgress immediately so the panel shows service/mode
+          // instead of "Research (?)" before the first poll lands.
+          setDrProgress((dp) => ({
+            ...dp,
+            [res.task_id]: {
+              service: res.service, mode: res.mode,
+              state: "running",
+              progress_pct: null, message: null,
+              poll_count: 0,
+              started_at: Math.floor(Date.now() / 1000),
+              last_polled_at: 0,
+            },
+          }));
           // Auto-open the progress panel so user sees streaming live.
           setArtifact({ kind: "dr-progress", data: { taskId: res.task_id } });
           // Track this task_id; the polling effect below will pick it up.
