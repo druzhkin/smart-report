@@ -133,6 +133,7 @@ def _submit_llm_dr(
     session_id: str, store: Any, detected_tool: str,
 ) -> LLMResearchTaskInfo:
     task_id = str(uuid.uuid4())
+    print(f"[dr-submit] {service}/{mode} task_id={task_id} session={session_id} model={model_id}", flush=True)
     bg = asyncio.create_task(
         _run_streaming_dr(
             task_id=task_id, question=question, model_id=model_id,
@@ -180,6 +181,7 @@ async def _run_streaming_dr(
     last_flush_at = 0.0
     last_flush_chars = 0
     full_text = ""
+    print(f"[dr-run] {service} task_id={task_id} starting stream model={model_id}", flush=True)
 
     def _len() -> int:
         return sum(len(c) for c in accumulated)
@@ -296,13 +298,17 @@ async def _run_streaming_dr(
         await _finalise("completed")
     except asyncio.CancelledError:
         # User cancel — write cancelled state + partial
+        print(f"[dr-run] {service} task_id={task_id} CANCELLED chars={_len()}", flush=True)
         await _flush(force=True)
         await _finalise("cancelled", error="cancelled by user")
         raise
     except Exception as e:
+        print(f"[dr-run] {service} task_id={task_id} FAILED chars={_len()} err={type(e).__name__}: {e}", flush=True)
         await _flush(force=True)
         await _finalise("failed", error=f"{type(e).__name__}: {e}")
         _logger.warning("dr task %s failed: %s", task_id, e)
+    else:
+        print(f"[dr-run] {service} task_id={task_id} COMPLETED chars={_len()} duration={int(time.time()-started)}s", flush=True)
     finally:
         _LIVE_TASKS.pop(task_id, None)
 
