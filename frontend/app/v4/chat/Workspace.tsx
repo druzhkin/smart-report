@@ -153,7 +153,15 @@ export default function Workspace() {
   const [confirmReset, setConfirmReset] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
-  const [drBusy, setDrBusy] = useState<DrServiceKey | null>(null);
+  // Per-service submit-in-flight set. Each entry is briefly true (~1-5s)
+  // while runAutoDR is awaiting the backend submit. Concurrent submits to
+  // DIFFERENT services are allowed — the polling layer supports many
+  // tasks. Only re-clicks of the SAME service are blocked.
+  const [drBusy, setDrBusy] = useState<Set<DrServiceKey>>(() => new Set());
+  const drBusyAdd = useCallback((k: DrServiceKey) =>
+    setDrBusy((prev) => { const n = new Set(prev); n.add(k); return n; }), []);
+  const drBusyDel = useCallback((k: DrServiceKey) =>
+    setDrBusy((prev) => { const n = new Set(prev); n.delete(k); return n; }), []);
   const [savedSessions, setSavedSessions] = useState<SessionListItem[]>([]);
   const [qualityGrade, setQualityGrade] = useState<QualityGrade | null>(null);
   const [sourceContent, setSourceContent] = useState<{ filename: string; content: string } | null>(null);
@@ -1135,8 +1143,8 @@ export default function Workspace() {
         showToast("Сессия не найдена — начните новый вопрос");
         return;
       }
-      if (drBusy) return;
-      setDrBusy(service);
+      if (drBusy.has(service)) return;
+      drBusyAdd(service);
       const serviceLabel =
         service === "valyu" ? "Valyu Research" :
         service === "tavily" ? "Tavily Research" :
@@ -1258,10 +1266,10 @@ export default function Workspace() {
             `Это могла быть временная проблема со стороны ${serviceLabel}. Выберите другой сервис из списка выше или загрузите .md-отчёт вручную.`,
         });
       } finally {
-        setDrBusy(null);
+        drBusyDel(service);
       }
     },
-    [sessionId, drBusy, promptData, push]
+    [sessionId, drBusy, promptData, push, drBusyAdd, drBusyDel]
   );
 
   const launchExternalDr = useCallback(
@@ -1904,7 +1912,7 @@ export default function Workspace() {
             onCopyLaunch={launchExternalDr}
             onSkip={goToUploadStage}
             disabled={pending}
-            busyKey={drBusy}
+            busyKeys={drBusy}
           />
         </Msg>
       );

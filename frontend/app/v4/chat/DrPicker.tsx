@@ -141,7 +141,11 @@ export interface DrPickerProps {
   onCopyLaunch: (key: DrServiceKey, url: string) => void;
   onSkip: () => void;            // "Я уже запустил — загружу .md"
   disabled?: boolean;
-  busyKey?: DrServiceKey | null;
+  // Set of services whose submit-API call is in flight. Per-service —
+  // ONE service being submitted does NOT block other DR cards (the
+  // backend supports concurrent task submission and the polling layer
+  // is multi-task aware).
+  busyKeys?: ReadonlySet<DrServiceKey>;
 }
 
 export function DrPicker({
@@ -149,7 +153,7 @@ export function DrPicker({
   onCopyLaunch,
   onSkip,
   disabled,
-  busyKey,
+  busyKeys,
 }: DrPickerProps) {
   const [expanded, setExpanded] = useState<DrServiceKey | null>(null);
   const [valyuMode, setValyuMode] = useState<ValyuResearchMode>("standard");
@@ -185,7 +189,8 @@ export function DrPicker({
   };
 
   const handleClick = async (svc: DrServiceMeta) => {
-    if (disabled || busyKey) return;
+    if (disabled) return;
+    if (busyKeys?.has(svc.key)) return;
     if (svc.mode === "integrated") {
       const mode = modeFor(svc.key);
       if (mode) {
@@ -209,7 +214,7 @@ export function DrPicker({
       </div>
       <div className="dr-picker__grid">
         {DR_SERVICES.map((svc) => {
-          const isBusy = busyKey === svc.key;
+          const isBusy = !!busyKeys?.has(svc.key);
           const isExpanded = expanded === svc.key;
           return (
             <div
@@ -239,7 +244,7 @@ export function DrPicker({
                             "valyu-mode-chip" + (cur === m.key ? " valyu-mode-chip--active" : "")
                           }
                           onClick={() => setModeFor(svc.key, m.key)}
-                          disabled={disabled || !!busyKey}
+                          disabled={disabled || isBusy}
                           title={`${m.label} · ${m.price} · ${m.eta}`}
                         >
                           <span className="valyu-mode-chip__name">{m.label}</span>
@@ -255,7 +260,7 @@ export function DrPicker({
                   type="button"
                   className="dr-card__btn dr-card__btn--primary"
                   onClick={() => handleClick(svc)}
-                  disabled={disabled || !!busyKey}
+                  disabled={disabled || isBusy}
                 >
                   {(() => {
                     if (isBusy) return "Запускаю…";
@@ -302,7 +307,7 @@ export function DrPicker({
           type="button"
           className="dr-picker__skip"
           onClick={onSkip}
-          disabled={disabled || !!busyKey}
+          disabled={disabled}
         >
           Уже запустил — загружу отчёт сам
         </button>
