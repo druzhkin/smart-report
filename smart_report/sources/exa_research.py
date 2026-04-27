@@ -149,83 +149,80 @@ class ExaResearchClient:
         )
 
     async def fetch_result(self, research_id: str) -> ExaResearchResult:
+        """Read `output.content` (markdown) and walk `events[]` for citations.
+
+        Per Exa SDK ResearchCompletedDto:
+          output: ResearchOutput { content: str, parsed: dict | None }
+          events: list of {plan,task}-{operation,output} events. Each
+                  task-operation with type='search' has results: list[Result(url)],
+                  type='crawl' has a single result. We collect all URLs
+                  across events as the citation list.
+        """
         st = await self.status(research_id)
         if st.state != "completed":
             raise ExaResearchError(f"task {research_id} not completed (state={st.state})")
         d = st.raw
 
-        # Exa response shape varies — top-level may have `report`/`answer`/
-        # `output` either as plain strings OR as nested dicts like
-        # {"content": "..."} / {"markdown": "..."}. Walk candidates and
-        # coerce to string. (Bug 2026-04-27: response had a dict here and
-        # we did markdown.split() → AttributeError → 500 on every poll.)
-        def _coerce_to_md(value) -> str:
-            if value is None:
-                return ""
-            if isinstance(value, str):
-                return value
-            if isinstance(value, dict):
-                # Try common content fields
-                for k in ("content", "markdown", "text", "report", "answer", "output"):
-                    inner = value.get(k)
-                    if isinstance(inner, str) and inner:
-                        return inner
-                # Fallback: dump the whole dict as a JSON code block
-                import json as _json
-                try:
-                    return "```json\n" + _json.dumps(value, indent=2, ensure_ascii=False) + "\n```"
-                except Exception:
-                    return str(value)
-            if isinstance(value, list):
-                # Concatenate string parts; ignore non-strings
-                parts = [v for v in value if isinstance(v, str)]
-                if parts:
-                    return "\n\n".join(parts)
-                import json as _json
-                try:
-                    return "```json\n" + _json.dumps(value, indent=2, ensure_ascii=False) + "\n```"
-                except Exception:
-                    return str(value)
-            return str(value)
-
+        # ---- Extract markdown from output.content ----
+        output = d.get("output")
         markdown = ""
-        for field_name in ("report", "markdown", "answer", "output"):
-            candidate = _coerce_to_md(d.get(field_name))
-            if candidate:
-                markdown = candidate
-                break
-        if not markdown and isinstance(d.get("structured_output"), dict):
-            import json
-            markdown = "```json\n" + json.dumps(d["structured_output"], indent=2, ensure_ascii=False) + "\n```"
-
-        citations = d.get("citations") or d.get("sources") or []
-        if not markdown and isinstance(citations, list) and citations:
-            lines = [f"# Exa research result\n"]
-            for i, c in enumerate(citations, 1):
-                if isinstance(c, dict):
-                    lines.append(f"{i}. {c.get('title','(untitled)')} — {c.get('url','')}")
-                else:
-                    lines.append(f"{i}. {c}")
-            markdown = "\n".join(lines)
+        if isinstance(output, dict):
+            markdown = output.get("content") or ""
+            # If output_schema was used, content is empty and `parsed` is the dict.
+            if not markdown and isinstance(output.get("parsed"), dict):
+                import json as _json
+                markdown = "```json\n" + _json.dumps(output["parsed"], indent=2, ensure_ascii=False) + "\n```"
+        elif isinstance(output, str):
+            markdown = output
 
         if not markdown:
             raise ExaResearchError(
-                f"completed task {research_id} has no markdown/report; raw: {str(d)[:400]}"
+                f"completed task {research_id} has no output.content; raw keys: {list(d.keys())}"
             )
 
-        sources_count = len(citations) if isinstance(citations, list) else 0
-        word_count = len(markdown.split())
+        # ---- Walk events[] for citations (URLs) ----
+        urls_seen: list[str] = []
+        urls_set: set[str] = set()
 
-        if isinstance(citations, list) and citations and "## Sources" not in markdown and "## Источники" not in markdown:
+        def _add_url(u: Any) -> None:
+            if isinstance(u, str) and u and u not in urls_set:
+                urls_set.add(u)
+                urls_seen.append(u)
+
+        events = d.get("events") or []
+        if isinstance(events, list):
+            for ev in events:
+                if not isinstance(ev, dict):
+                    continue
+                # Both plan-operation and task-operation events have data: {type, ...}
+                data = ev.get("data")
+                if isinstance(data, dict):
+                    op_type = data.get("type")
+                    if op_type == "search":
+                        for r in (data.get("results") or []):
+                            if isinstance(r, dict):
+                                _add_url(r.get("url"))
+                    elif op_type == "crawl":
+                        r = data.get("result")
+                        if isinstance(r, dict):
+                            _add_url(r.get("url"))
+
+        # If somehow events were absent, fall back to scraping URLs from the markdown body.
+        if not urls_seen:
+            import re
+            for u in re.findall(r"https?://[^\s\)\]\>]+", markdown):
+                _add_url(u)
+
+        sources_count = len(urls_seen)
+
+        # Append a Sources section if the markdown doesn't already have one.
+        if urls_seen and ("## Sources" not in markdown and "## Источники" not in markdown):
             tail = ["\n\n## Sources\n"]
-            for i, c in enumerate(citations, 1):
-                if isinstance(c, dict):
-                    url = c.get("url", "")
-                    if url:
-                        tail.append(f"{i}. {url}")
-                else:
-                    tail.append(f"{i}. {c}")
+            for i, u in enumerate(urls_seen, 1):
+                tail.append(f"{i}. {u}")
             markdown = markdown + "\n".join(tail)
+
+        word_count = len(markdown.split())
 
         return ExaResearchResult(
             research_id=research_id,

@@ -311,7 +311,7 @@ export default function Workspace() {
               { id: tag, role: "system", kind: "text",
                 content: `Сессия восстановлена. Загружено ${s.source_reports.length} отчёт(ов) — можно запускать анализ.` },
               { id: tag + "-cta", role: "system", kind: "cta",
-                primary: "Запустить анализ →", action: "go-upload-stage" },
+                primary: "Запустить анализ →", action: "go-analyze" },
             ];
             setPhase(PHASE.UPLOAD);
           } else {
@@ -532,8 +532,8 @@ export default function Workspace() {
                 role: "system",
                 kind: "cta",
                 primary: "Запустить анализ →",
-                action: "go-upload-stage",
-                secondary: "Заказать ещё",
+                action: "go-analyze",
+                secondary: "Заказать ещё DR",
                 secondaryAction: "go-upload-stage",
               },
             ]);
@@ -920,30 +920,58 @@ export default function Workspace() {
     [pending, sessionTitle, push]
   );
 
-  const goToUploadStage = useCallback(() => {
+  const goToUploadStage = useCallback(async () => {
     push({ role: "user", kind: "text", content: "Я уже запустил внешний DR" });
-    push({
-      role: "system",
-      kind: "text",
-      content:
-        "Хорошо. Когда отчёты будут готовы — загружайте их. Поддерживаю .md, .txt — до 10 файлов за раз.",
-    });
-    push({
-      role: "system",
-      kind: "ref",
-      refKind: "upload",
-      title: "Загрузка отчётов",
-      subtitle: "ожидание файлов",
-    });
-    push({
-      role: "system",
-      kind: "cta",
-      primary: "Выбрать файлы для загрузки →",
-      action: "trigger-upload",
-    });
+    // Check if we already have source_reports (auto-DR results) on this
+    // session — if so, acknowledge them instead of pretending we're waiting
+    // for nothing.
+    let existingCount = 0;
+    if (sessionId) {
+      try {
+        const s = await getSession(sessionId);
+        existingCount = (s.source_reports || []).length;
+      } catch {}
+    }
+    if (existingCount > 0) {
+      push({
+        role: "system",
+        kind: "text",
+        content:
+          `У сессии уже есть ${existingCount} отчёт(ов) от запущенных DR-сервисов. ` +
+          `Можно сразу запускать анализ или добавить ещё свои файлы (.md / .txt — до 10 за раз).`,
+      });
+      push({
+        role: "system",
+        kind: "cta",
+        primary: "Запустить анализ →",
+        action: "go-analyze",
+        secondary: "Загрузить ещё файлы",
+        secondaryAction: "trigger-upload",
+      });
+    } else {
+      push({
+        role: "system",
+        kind: "text",
+        content:
+          "Хорошо. Когда отчёты будут готовы — загружайте их. Поддерживаю .md, .txt — до 10 файлов за раз.",
+      });
+      push({
+        role: "system",
+        kind: "ref",
+        refKind: "upload",
+        title: "Загрузка отчётов",
+        subtitle: "ожидание файлов",
+      });
+      push({
+        role: "system",
+        kind: "cta",
+        primary: "Выбрать файлы для загрузки →",
+        action: "trigger-upload",
+      });
+    }
     setArtifact({ kind: "upload-stage" });
     setPhase(PHASE.UPLOAD);
-  }, [push]);
+  }, [push, sessionId]);
 
   // ===== DR picker handlers =====
   const runIntegratedDr = useCallback(
@@ -1043,8 +1071,8 @@ export default function Workspace() {
           push({
             role: "system",
             kind: "cta",
-            primary: "Запустить анализ этого отчёта →",
-            action: "go-upload-stage",
+            primary: "Запустить анализ →",
+            action: "go-analyze",
             secondary: "Заказать ещё одно исследование",
             secondaryAction: "go-upload-stage",
           });
@@ -1162,6 +1190,62 @@ export default function Workspace() {
     },
     [sessionId, push]
   );
+
+  const actAnalyzeOnly = useCallback(async () => {
+    // Run /analyze without uploading new files — for the case where
+    // session.source_reports already has content from auto-DR runs.
+    if (!sessionId) {
+      showToast("Сессия не найдена");
+      return;
+    }
+    push({ role: "user", kind: "text", content: "Запустить анализ имеющихся отчётов" });
+    setPending(true);
+    push({
+      role: "system",
+      kind: "thinking",
+      traces: [
+        "читаю загруженные отчёты",
+        "извлечение фактов и утверждений",
+        "сверка между источниками",
+        "поиск противоречий и пробелов",
+      ],
+      onDone: () => {},
+    });
+    try {
+      const pref = getPipelineModel();
+      const analysis = await analyze(sessionId, pref);
+      setAnalysisData(analysis);
+      const s = await getSession(sessionId);
+      setCost(s.total_cost_rub || 0);
+      setMessages((ms) => ms.filter((m) => m.kind !== "thinking"));
+      const conflictsCount = analysis.conflicts.length;
+      const gapsCount = analysis.gaps.length;
+      const consensusCount = analysis.consensus.length;
+      const unverifiedCount = analysis.unverified_numbers.length;
+      push({
+        role: "system", kind: "text",
+        content: `Прочитал отчёты. Нашёл ${consensusCount} согласий, ${conflictsCount} противоречий, ${gapsCount} пробелов, ${unverifiedCount} неподтверждённых цифр.\n\nПротиворечия — главное. Разбираем?`,
+      });
+      push({
+        role: "system", kind: "ref", refKind: "critique",
+        title: "Критика и сверка",
+        subtitle: `${consensusCount} · ${conflictsCount} · ${gapsCount} · ${unverifiedCount}`,
+        accent: true,
+      });
+      push({
+        role: "system", kind: "cta",
+        primary: "Запустить followup-добор", action: "go-topup",
+        secondary: "Пропустить — собирать финал", secondaryAction: "go-final-direct",
+      });
+      setPhase(PHASE.CRITIQUE);
+      setArtifact({ kind: "critique", data: analysis });
+    } catch (e) {
+      setMessages((ms) => ms.filter((m) => m.kind !== "thinking"));
+      showToast(`Ошибка анализа: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setPending(false);
+    }
+  }, [sessionId, push]);
 
   const actTopup = useCallback(() => {
     push({
@@ -1391,6 +1475,8 @@ export default function Workspace() {
         actFinal();
       } else if (action === "go-final-direct") {
         actFinalDirect();
+      } else if (action === "go-analyze") {
+        actAnalyzeOnly();
       } else if (action === "retry-generate-prompt") {
         retryGeneratePrompt();
       } else if (action.startsWith("accept-partial:")) {
@@ -1407,7 +1493,7 @@ export default function Workspace() {
             push({
               role: "system", kind: "cta",
               primary: "Запустить анализ →",
-              action: "go-upload-stage",
+              action: "go-analyze",
             });
             setPhase(PHASE.UPLOAD);
           })
@@ -1447,6 +1533,7 @@ export default function Workspace() {
       actTopup,
       actFinal,
       actFinalDirect,
+      actAnalyzeOnly,
       retryGeneratePrompt,
     ]
   );

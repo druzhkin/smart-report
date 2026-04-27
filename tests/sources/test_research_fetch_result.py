@@ -43,77 +43,99 @@ def _make_valyu_client(status_response: dict):
 
 
 @pytest.mark.asyncio
-async def test_exa_fetch_result_handles_dict_output_field():
-    """Production bug: Exa's `output` field came back as a dict, not str.
-    `len(markdown.split())` raised AttributeError. Coercion must unwrap."""
+async def test_exa_fetch_result_reads_output_content():
+    """Per Exa SDK ResearchCompletedDto: report markdown is in output.content."""
     client = _make_exa_client({
         "status": "completed",
-        "output": {"content": "# Findings\n\nThis is the actual report markdown."},
-        "citations": [{"url": "https://example.com", "title": "Example"}],
+        "output": {"content": "# Findings\n\nReport body.", "parsed": None},
+        "events": [],
     })
     result = await client.fetch_result("r_test")
-    assert isinstance(result.markdown, str)
     assert "Findings" in result.markdown
     assert result.word_count > 0
-    assert result.sources_count == 1
 
 
 @pytest.mark.asyncio
-async def test_exa_fetch_result_handles_dict_output_with_markdown_key():
+async def test_exa_fetch_result_extracts_urls_from_events():
+    """Citations come from events[] — search/crawl operations carry URLs."""
     client = _make_exa_client({
         "status": "completed",
-        "output": {"markdown": "# Report\n\nBody text"},
-        "citations": [],
+        "output": {"content": "# Body", "parsed": None},
+        "events": [
+            {
+                "event_type": "task-operation",
+                "data": {
+                    "type": "search",
+                    "search_type": "auto",
+                    "query": "test",
+                    "results": [
+                        {"url": "https://example.com/a"},
+                        {"url": "https://example.com/b"},
+                    ],
+                },
+            },
+            {
+                "event_type": "task-operation",
+                "data": {
+                    "type": "crawl",
+                    "result": {"url": "https://example.com/c"},
+                },
+            },
+            # Duplicate URL — must be deduped
+            {
+                "event_type": "task-operation",
+                "data": {
+                    "type": "search",
+                    "results": [{"url": "https://example.com/a"}],
+                },
+            },
+            # think operation has no urls
+            {"event_type": "task-operation", "data": {"type": "think", "content": "thinking"}},
+        ],
     })
     result = await client.fetch_result("r_test")
-    assert "Report" in result.markdown
+    assert result.sources_count == 3  # a, b, c — deduped
+    # Sources section appended to markdown
+    assert "## Sources" in result.markdown
+    assert "https://example.com/a" in result.markdown
+    assert "https://example.com/c" in result.markdown
 
 
 @pytest.mark.asyncio
-async def test_exa_fetch_result_handles_list_of_strings():
+async def test_exa_fetch_result_handles_parsed_schema_output():
+    """When output_schema was used, content is empty, parsed has the JSON."""
     client = _make_exa_client({
         "status": "completed",
-        "output": ["Section A.\n\nA1 content.", "Section B.\n\nB1 content."],
-        "citations": [],
-    })
-    result = await client.fetch_result("r_test")
-    assert "Section A" in result.markdown
-    assert "Section B" in result.markdown
-
-
-@pytest.mark.asyncio
-async def test_exa_fetch_result_handles_plain_string():
-    """The original happy path — string field works as before."""
-    client = _make_exa_client({
-        "status": "completed",
-        "report": "# Direct markdown report\n\nNo nesting.",
-        "citations": [],
-    })
-    result = await client.fetch_result("r_test")
-    assert "Direct markdown" in result.markdown
-
-
-@pytest.mark.asyncio
-async def test_exa_fetch_result_falls_back_to_json_dump_for_unknown_dict():
-    """Dict without any recognised content key: dump as JSON code block."""
-    client = _make_exa_client({
-        "status": "completed",
-        "output": {"weird_field": "x", "another": [1, 2]},
-        "citations": [],
+        "output": {"content": "", "parsed": {"answer": "42", "confidence": 0.9}},
+        "events": [],
     })
     result = await client.fetch_result("r_test")
     assert "```json" in result.markdown
-    assert "weird_field" in result.markdown
+    assert "answer" in result.markdown
 
 
 @pytest.mark.asyncio
-async def test_exa_fetch_result_raises_when_truly_empty():
+async def test_exa_fetch_result_falls_back_to_url_scrape_when_no_events():
+    """If events absent (some SDK versions), scrape URLs from the body."""
     client = _make_exa_client({
         "status": "completed",
-        # No content fields at all
-        "citations": [],
+        "output": {
+            "content": "Per https://example.com/x and https://example.com/y, the answer is X.",
+            "parsed": None,
+        },
+        # No events
     })
-    with pytest.raises(ExaResearchError):
+    result = await client.fetch_result("r_test")
+    assert result.sources_count == 2
+
+
+@pytest.mark.asyncio
+async def test_exa_fetch_result_raises_when_no_content():
+    client = _make_exa_client({
+        "status": "completed",
+        "output": {"content": "", "parsed": None},
+    })
+    with pytest.raises(ExaResearchError, match="no output.content"):
         await client.fetch_result("r_test")
 
 
