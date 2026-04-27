@@ -157,13 +157,40 @@ class TavilyResearchClient:
         d = st.raw
 
         # Tavily returns the report under various names depending on version.
-        markdown = (
-            d.get("markdown")
-            or d.get("report")
-            or d.get("answer")
-            or d.get("output")
-            or ""
-        )
+        # Tavily response shape varies — fields may be plain strings OR
+        # nested dicts/lists. Same defensive coercion as exa_research.
+        def _coerce_to_md(value) -> str:
+            if value is None:
+                return ""
+            if isinstance(value, str):
+                return value
+            if isinstance(value, dict):
+                for k in ("content", "markdown", "text", "report", "answer", "output"):
+                    inner = value.get(k)
+                    if isinstance(inner, str) and inner:
+                        return inner
+                import json as _json
+                try:
+                    return "```json\n" + _json.dumps(value, indent=2, ensure_ascii=False) + "\n```"
+                except Exception:
+                    return str(value)
+            if isinstance(value, list):
+                parts = [v for v in value if isinstance(v, str)]
+                if parts:
+                    return "\n\n".join(parts)
+                import json as _json
+                try:
+                    return "```json\n" + _json.dumps(value, indent=2, ensure_ascii=False) + "\n```"
+                except Exception:
+                    return str(value)
+            return str(value)
+
+        markdown = ""
+        for field_name in ("markdown", "report", "answer", "output"):
+            candidate = _coerce_to_md(d.get(field_name))
+            if candidate:
+                markdown = candidate
+                break
         # If structured: dict, render as JSON-like markdown.
         if not markdown and isinstance(d.get("structured_output"), dict):
             import json

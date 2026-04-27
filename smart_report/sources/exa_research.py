@@ -152,13 +152,46 @@ class ExaResearchClient:
             raise ExaResearchError(f"task {research_id} not completed (state={st.state})")
         d = st.raw
 
-        markdown = (
-            d.get("report")
-            or d.get("markdown")
-            or d.get("answer")
-            or d.get("output")
-            or ""
-        )
+        # Exa response shape varies — top-level may have `report`/`answer`/
+        # `output` either as plain strings OR as nested dicts like
+        # {"content": "..."} / {"markdown": "..."}. Walk candidates and
+        # coerce to string. (Bug 2026-04-27: response had a dict here and
+        # we did markdown.split() → AttributeError → 500 on every poll.)
+        def _coerce_to_md(value) -> str:
+            if value is None:
+                return ""
+            if isinstance(value, str):
+                return value
+            if isinstance(value, dict):
+                # Try common content fields
+                for k in ("content", "markdown", "text", "report", "answer", "output"):
+                    inner = value.get(k)
+                    if isinstance(inner, str) and inner:
+                        return inner
+                # Fallback: dump the whole dict as a JSON code block
+                import json as _json
+                try:
+                    return "```json\n" + _json.dumps(value, indent=2, ensure_ascii=False) + "\n```"
+                except Exception:
+                    return str(value)
+            if isinstance(value, list):
+                # Concatenate string parts; ignore non-strings
+                parts = [v for v in value if isinstance(v, str)]
+                if parts:
+                    return "\n\n".join(parts)
+                import json as _json
+                try:
+                    return "```json\n" + _json.dumps(value, indent=2, ensure_ascii=False) + "\n```"
+                except Exception:
+                    return str(value)
+            return str(value)
+
+        markdown = ""
+        for field_name in ("report", "markdown", "answer", "output"):
+            candidate = _coerce_to_md(d.get(field_name))
+            if candidate:
+                markdown = candidate
+                break
         if not markdown and isinstance(d.get("structured_output"), dict):
             import json
             markdown = "```json\n" + json.dumps(d["structured_output"], indent=2, ensure_ascii=False) + "\n```"
