@@ -58,6 +58,12 @@ export const OPENAI_DR_MODES: ServiceModeSpec[] = [
   { key: "standard", label: "o3-DR",      price: "$3.00–$8.00", eta: "15-30 мин" },
 ];
 
+// Perplexity Deep Research — sonar-deep-research model.
+// Distinct from sync sonar-pro (used as fallback in legacy mode).
+export const PERPLEXITY_DR_MODES: ServiceModeSpec[] = [
+  { key: "deep", label: "sonar-deep-research", price: "≈ $0.05–$0.15", eta: "5-15 мин" },
+];
+
 export type DrServiceKey =
   | AutoDRService          // valyu | tavily | exa | perplexity (integrated)
   | "openai"               // copy-launch: ChatGPT Deep Research
@@ -100,10 +106,11 @@ export const DR_SERVICES: DrServiceMeta[] = [
   },
   {
     key: "perplexity",
-    label: "Perplexity Sonar Pro",
-    price: "≈ $0.01 – $0.10",
-    when: "Быстрый LLM с веб-поиском, средняя глубина.",
+    label: "Perplexity Deep Research",
+    price: "≈ $0.05 – $0.15",
+    when: "sonar-deep-research: настоящий многошаговый DR, 5-15 мин.",
     mode: "integrated",
+    badge: "🏆 настоящий DR",
   },
   {
     key: "openai",
@@ -149,12 +156,14 @@ export function DrPicker({
   const [tavilyMode, setTavilyMode] = useState<string>("pro");
   const [exaMode, setExaMode] = useState<string>("standard");
   const [openaiMode, setOpenaiMode] = useState<string>("mini");
+  const [perplexityMode, setPerplexityMode] = useState<string>("deep");
 
   const modeFor = (key: DrServiceKey): string | undefined => {
     if (key === "valyu") return valyuMode;
     if (key === "tavily") return tavilyMode;
     if (key === "exa") return exaMode;
     if (key === "openai") return openaiMode;
+    if (key === "perplexity") return perplexityMode;
     return undefined;
   };
 
@@ -163,6 +172,7 @@ export function DrPicker({
     if (key === "tavily") return TAVILY_RESEARCH_MODES;
     if (key === "exa") return EXA_RESEARCH_MODES;
     if (key === "openai") return OPENAI_DR_MODES;
+    if (key === "perplexity") return PERPLEXITY_DR_MODES;
     return [];
   };
 
@@ -171,6 +181,7 @@ export function DrPicker({
     else if (key === "tavily") setTavilyMode(value);
     else if (key === "exa") setExaMode(value);
     else if (key === "openai") setOpenaiMode(value);
+    else if (key === "perplexity") setPerplexityMode(value);
   };
 
   const handleClick = async (svc: DrServiceMeta) => {

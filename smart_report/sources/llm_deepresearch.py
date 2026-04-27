@@ -37,6 +37,13 @@ OPENAI_DR_MODELS: dict[str, tuple[str, float, int, int]] = {
     "standard": ("openai/o3-deep-research",      3.00, 15, 30),
 }
 
+# Perplexity sonar-deep-research — distinct from sonar-pro (which is sync
+# and used for quick LLM-with-web responses). The deep-research model
+# does multi-step planning + browsing + synthesis, takes 5-15 min.
+PERPLEXITY_DR_MODELS: dict[str, tuple[str, float, int, int]] = {
+    "deep": ("perplexity/sonar-deep-research", 0.10, 5, 15),
+}
+
 
 # In-process task registry. {task_id: {state, started_at, ...}}
 _TASKS: dict[str, dict[str, Any]] = {}
@@ -50,6 +57,44 @@ class LLMResearchTaskInfo:
     cost_usd: float
     eta_min_low: int
     eta_min_high: int
+
+
+def submit_perplexity_deep_research(
+    question: str,
+    *,
+    mode: str = "deep",
+    session_id: Optional[str] = None,
+    store: Optional[Any] = None,
+) -> LLMResearchTaskInfo:
+    """Same async pattern as OpenAI DR but for Perplexity sonar-deep-research.
+
+    Submit returns task_id immediately; background asyncio.Task runs the
+    long OpenRouter call (5-15 min). Result persists to session.source_reports
+    on completion.
+    """
+    if mode not in PERPLEXITY_DR_MODELS:
+        raise ValueError(f"unknown perplexity DR mode: {mode!r}")
+    if not question or not question.strip():
+        raise ValueError("question is required")
+    model_id, est_cost, eta_lo, eta_hi = PERPLEXITY_DR_MODELS[mode]
+    task_id = str(uuid.uuid4())
+    _TASKS[task_id] = {
+        "state": "running",
+        "service": "perplexity",
+        "mode": mode,
+        "model": model_id,
+        "started_at": time.time(),
+        "result": None,
+        "error": None,
+    }
+    bg = asyncio.create_task(
+        _run_llm_dr(task_id, question, model_id, "perplexity", "perplexity", session_id, store)
+    )
+    _TASKS[task_id]["asyncio_task"] = bg
+    return LLMResearchTaskInfo(
+        task_id=task_id, service="perplexity", mode=mode,
+        cost_usd=est_cost, eta_min_low=eta_lo, eta_min_high=eta_hi,
+    )
 
 
 def submit_openai_deep_research(
@@ -89,7 +134,9 @@ def submit_openai_deep_research(
         "error": None,
     }
     # Fire-and-forget. Errors are caught inside the task and stored on the registry.
-    bg = asyncio.create_task(_run_openai_dr(task_id, question, model_id, session_id, store))
+    bg = asyncio.create_task(
+        _run_llm_dr(task_id, question, model_id, "openai", "openai_dr", session_id, store)
+    )
     _TASKS[task_id]["asyncio_task"] = bg  # so cancel_openai_dr_task can task.cancel()
     return LLMResearchTaskInfo(
         task_id=task_id,
@@ -101,26 +148,33 @@ def submit_openai_deep_research(
     )
 
 
-async def _run_openai_dr(
+async def _run_llm_dr(
     task_id: str,
     question: str,
     model_id: str,
+    service: str,
+    detected_tool: str,
     session_id: Optional[str],
     store: Optional[Any],
 ) -> None:
-    """Background runner — calls OpenRouter, writes result to registry."""
+    """Background runner — calls OpenRouter, writes result to registry.
+
+    Generic over service (openai / perplexity / future). Persists result
+    to session.source_reports on completion (PG-backed for restart-safety
+    after the API call returns).
+    """
     from smart_report.llm import call_json
     from smart_report.models import UploadedMarkdown
     from smart_report.sources.auto_dr import AutoDRResult, _USD_RUB_RATE
 
     started = time.time()
     try:
-        # Note: OpenRouter's o3-deep-research / o4-mini-deep-research are
-        # invoked like normal chat completions. The actual call blocks for
-        # 5-30 min while OpenAI's agent loop runs server-side. Our existing
-        # call_json uses an httpx timeout — must override for these.
+        # OpenRouter's deep-research models (openai/o3-deep-research,
+        # perplexity/sonar-deep-research, etc.) block the call for 5-30 min
+        # while the upstream agent loop runs. Any timeout error lands in
+        # `except` below.
         result = await call_json(
-            role=f"auto_dr_openai_dr",
+            role=f"auto_dr_{service}",
             messages=[
                 {
                     "role": "system",
@@ -136,16 +190,12 @@ async def _run_openai_dr(
             ],
             model=model_id,
             temperature=0.2,
-            # Force a long timeout — OpenAI's o3-deep-research can run 30+ min.
-            # call_json doesn't accept this directly, but we pass via httpx kwargs.
-            # If call_json doesn't propagate this, the call still goes through;
-            # any timeout error lands in `except` below and stays on the registry.
         )
     except Exception as e:
         _TASKS[task_id]["state"] = "failed"
         _TASKS[task_id]["error"] = f"{type(e).__name__}: {e}"
         _TASKS[task_id]["finished_at"] = time.time()
-        _logger.warning("openai DR task %s failed: %s", task_id, e)
+        _logger.warning("%s DR task %s failed: %s", service, task_id, e)
         return
 
     md = (result.text or "").strip()
@@ -159,15 +209,14 @@ async def _run_openai_dr(
     cost_usd = cost_rub / _USD_RUB_RATE if cost_rub else 0.0
 
     upload = UploadedMarkdown(
-        filename=f"auto_dr_openai_{task_id[:8]}.md",
+        filename=f"auto_dr_{service}_{task_id[:8]}.md",
         content=md,
-        detected_tool="openai_dr",
+        detected_tool=detected_tool,  # type: ignore[arg-type]
         word_count=len(md.split()),
     )
     # Citation count: try a "Sources" section first, then fall back to
-    # counting unique URL references in the body. OpenAI DR formats vary —
-    # sometimes inline ([url]), sometimes footnote ([N]), sometimes a
-    # References section.
+    # counting unique URL references. Both OpenAI DR and Perplexity vary
+    # in format (inline / footnote / References block).
     import re
     src_match = re.search(
         r"##\s*(Sources?|References|Bibliography|Источники)\s*$(.+)",
@@ -176,24 +225,23 @@ async def _run_openai_dr(
     if src_match:
         sources_count = len(re.findall(r"^\s*\d+\.\s", src_match.group(2), re.MULTILINE))
     else:
-        # Fall back to unique URLs in the markdown body
         urls = set(re.findall(r"https?://[^\s\)\]\>]+", md))
         sources_count = len(urls)
 
     auto_dr_result = AutoDRResult(
         upload=upload,
-        service="openai",
+        service=service,
         cost_usd=cost_usd,
         cost_rub=cost_rub,
         source_count=sources_count,
-        notes=f"backend=openai_deep_research model={model_id} duration_s={int(time.time()-started)}",
+        notes=f"backend={service}_deep_research model={model_id} duration_s={int(time.time()-started)}",
     )
     _TASKS[task_id]["state"] = "completed"
     _TASKS[task_id]["result"] = auto_dr_result
     _TASKS[task_id]["finished_at"] = time.time()
     _logger.info(
-        "openai DR task %s completed in %ds (cost $%.2f)",
-        task_id, int(time.time()-started), cost_usd,
+        "%s DR task %s completed in %ds (cost $%.2f)",
+        service, task_id, int(time.time()-started), cost_usd,
     )
 
     # Persistence shortcut: if caller passed session_id+store, write the

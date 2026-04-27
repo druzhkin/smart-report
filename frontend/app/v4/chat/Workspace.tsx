@@ -468,7 +468,8 @@ export default function Workspace() {
         service === "valyu" ? "Valyu Research" :
         service === "tavily" ? "Tavily Research" :
         service === "exa" ? "Exa Research" :
-        service === "openai" ? "OpenAI Deep Research" : service;
+        service === "openai" ? "OpenAI Deep Research" :
+        service === "perplexity" ? "Perplexity Deep Research" : service;
       let cancelled = false;
       let pollCount = 0;
       const startedAt = Math.floor(Date.now() / 1000);
@@ -905,14 +906,15 @@ export default function Workspace() {
         service === "valyu" ? "Valyu Research" :
         service === "tavily" ? "Tavily Research" :
         service === "exa" ? "Exa Research" :
-        service === "perplexity" ? "Perplexity Sonar Pro" :
-        service === "openai" ? "OpenAI GPT-4o" :
+        service === "perplexity" ? (opts?.mode ? "Perplexity Deep Research" : "Perplexity Sonar Pro") :
+        service === "openai" ? "OpenAI Deep Research" :
         service === "claude" ? "Anthropic Claude Sonnet 4.5" :
         service === "gemini" ? "Google Gemini 2.5 Pro" : service;
-      // Async path is for valyu/tavily/exa Research APIs and OpenAI Deep
-      // Research (when mode is set). claude/gemini/perplexity are sync.
+      // Async path: valyu/tavily/exa/openai Research APIs + Perplexity
+      // sonar-deep-research (when mode is set). claude/gemini are sync.
       const isAsync = !!opts?.mode && (
-        service === "valyu" || service === "tavily" || service === "exa" || service === "openai"
+        service === "valyu" || service === "tavily" || service === "exa"
+        || service === "openai" || service === "perplexity"
       );
       const askLabel = isAsync
         ? `Заказать ${serviceLabel} (${opts!.mode})`

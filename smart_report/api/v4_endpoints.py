@@ -447,14 +447,15 @@ async def auto_dr(session_id: str, request: Request, payload: AutoDRIn):
 
     emitter = _SessionEmitter(session_id)
 
-    # --- Async path: Valyu / Tavily / Exa / OpenAI Research APIs ---
-    if payload.mode is not None and payload.service in {"valyu", "tavily", "exa", "openai"}:
+    # --- Async path: Valyu / Tavily / Exa / OpenAI / Perplexity Research APIs ---
+    if payload.mode is not None and payload.service in {"valyu", "tavily", "exa", "openai", "perplexity"}:
         mode = payload.mode
         svc_label = {
             "valyu": "Valyu Research",
             "tavily": "Tavily Research",
             "exa": "Exa Research",
             "openai": "OpenAI Deep Research",
+            "perplexity": "Perplexity Deep Research",
         }[payload.service]
         emitter.emit(
             "status",
@@ -575,8 +576,9 @@ async def auto_dr_cancel(session_id: str, request: Request, task_id: str) -> dic
     svc = job.get("service", "")
     cancel_kind = "soft"  # default; flipped to "hard" below if SDK supports it
 
-    if svc == "openai":
+    if svc in ("openai", "perplexity"):
         from ..sources.llm_deepresearch import cancel_openai_dr_task
+        # Same registry/asyncio.Task pattern for both — cancel works the same way.
         ok = cancel_openai_dr_task(task_id)
         if not ok:
             raise HTTPException(

@@ -421,9 +421,30 @@ async def submit_async_research(
             eta_min_low=info.eta_min_low, eta_min_high=info.eta_min_high,
         )
 
+    if service == "perplexity":
+        from .llm_deepresearch import (
+            PERPLEXITY_DR_MODELS, submit_perplexity_deep_research,
+        )
+        if mode not in PERPLEXITY_DR_MODELS:
+            raise AutoDRError(
+                f"unknown perplexity DR mode: {mode!r}; allowed: {list(PERPLEXITY_DR_MODELS)}"
+            )
+        try:
+            info = submit_perplexity_deep_research(
+                question, mode=mode,
+                session_id=session_id, store=store,
+            )
+        except Exception as e:
+            raise AutoDRError(f"perplexity DR submit failed: {type(e).__name__}: {e}") from e
+        return AsyncResearchSubmission(
+            task_id=info.task_id, service="perplexity", mode=info.mode,
+            cost_usd=info.cost_usd,
+            eta_min_low=info.eta_min_low, eta_min_high=info.eta_min_high,
+        )
+
     raise AutoDRError(
         f"async research not available for service {service!r}; "
-        "supported: valyu, tavily, exa, openai"
+        "supported: valyu, tavily, exa, openai, perplexity"
     )
 
 
@@ -562,14 +583,10 @@ async def try_collect_async_research(
             ),
         )
 
-    if service == "openai":
+    if service in ("openai", "perplexity"):
         from .llm_deepresearch import get_llm_research_task
         t = get_llm_research_task(task_id)
         if not t:
-            # In pending_dr_jobs but not in registry → task was lost.
-            # Most likely the container restarted between submit and now.
-            # The asyncio.Task is gone; OpenAI may have completed the call
-            # but we have no way to fetch the result. Spend is forfeit.
             return AsyncResearchPoll(
                 state="failed",
                 error=(
@@ -578,11 +595,12 @@ async def try_collect_async_research(
                 ),
             )
         state = t.get("state", "running")
+        svc_label = "OpenAI Deep Research" if service == "openai" else "Perplexity Deep Research"
         if state == "running":
             elapsed = int((__import__("time").time() - t.get("started_at", 0)))
             return AsyncResearchPoll(
                 state="running",
-                message=f"OpenAI Deep Research работает уже {elapsed}с (обычно 5-30 мин)",
+                message=f"{svc_label} работает уже {elapsed}с",
             )
         if state == "failed":
             return AsyncResearchPoll(state="failed", error=t.get("error") or "unknown")
