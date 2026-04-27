@@ -240,6 +240,48 @@ export default function Workspace() {
         if (s.analysis) setAnalysisData(s.analysis);
         if (s.final_report) setFinalData(s.final_report);
 
+        // RESUME polling for any DR tasks still running on the backend.
+        // Without this, page reload silently orphans live tasks — user
+        // submits 4 DRs, reloads, then never sees completion because no
+        // poller is watching. The polling effect picks these up via
+        // activeResearchTasks change. drProgress is seeded so the panel
+        // doesn't show "Запускаю задачу…" while waiting for first poll.
+        const runningJobs = (s.pending_dr_jobs || []).filter(
+          (j: any) => (j.state || "running") === "running"
+        );
+        if (runningJobs.length > 0) {
+          setActiveResearchTasks((arr) => {
+            const seen = new Set(arr.map((t) => t.taskId));
+            const additions = runningJobs
+              .filter((j: any) => !seen.has(j.task_id))
+              .map((j: any) => ({
+                taskId: j.task_id,
+                service: j.service,
+                mode: j.mode || "standard",
+              }));
+            return additions.length ? [...arr, ...additions] : arr;
+          });
+          setDrProgress((dp) => {
+            const next = { ...dp };
+            for (const j of runningJobs) {
+              if (next[j.task_id]) continue;
+              next[j.task_id] = {
+                service: j.service,
+                mode: j.mode || "standard",
+                state: "running",
+                progress_pct: null,
+                message: j.partial_chars
+                  ? `восстановлено: ${j.partial_chars} символов получено ранее`
+                  : null,
+                poll_count: 0,
+                started_at: j.submitted_at || Math.floor(Date.now() / 1000),
+                last_polled_at: 0,
+              };
+            }
+            return next;
+          });
+        }
+
         // Rehydrate chat: figure out the FURTHEST phase the server reached,
         // and ensure the chat shows the user it's done. We add ONE recovery
         // line + a CTA to continue, so the user isn't stranded.

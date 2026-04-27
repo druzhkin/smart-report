@@ -134,6 +134,33 @@ def _submit_llm_dr(
 ) -> LLMResearchTaskInfo:
     task_id = str(uuid.uuid4())
     print(f"[dr-submit] {service}/{mode} task_id={task_id} session={session_id} model={model_id}", flush=True)
+    # Pre-populate pending_dr_jobs SYNCHRONOUSLY before scheduling the
+    # asyncio task. Otherwise the streaming runner's first flush races
+    # against the endpoint's separate write and can silently no-op
+    # ("job not in pending_dr_jobs"). Idempotent: if endpoint also adds
+    # an entry with the same task_id, the dedupe in callers handles it.
+    cost_rub = round(cost_usd * _USD_RUB_RATE, 4)
+    try:
+        session = store.get(session_id)
+        existing_ids = {j.get("task_id") for j in (session.pending_dr_jobs or [])}
+        if task_id not in existing_ids:
+            session.pending_dr_jobs = list(session.pending_dr_jobs or []) + [{
+                "task_id": task_id,
+                "service": service,
+                "mode": mode,
+                "model": model_id,
+                "cost_usd": cost_usd,
+                "cost_rub": cost_rub,
+                "submitted_at": time.time(),
+                "state": "running",
+                "partial_content": "",
+                "partial_chars": 0,
+                "last_progress_at": time.time(),
+            }]
+            store.update(session)
+    except Exception as e:
+        _logger.warning("submit pre-populate failed for %s: %s", task_id, e)
+
     bg = asyncio.create_task(
         _run_streaming_dr(
             task_id=task_id, question=question, model_id=model_id,
@@ -155,7 +182,8 @@ def _submit_llm_dr(
 
 _FLUSH_EVERY_SECONDS = 5.0
 _FLUSH_EVERY_CHARS = 1000
-_USD_RUB_RATE = 75.4
+_USD_RUB_RATE = 95.0  # 2026-04 actual ~95 RUB/USD; was hardcoded 75.4 (stale)
+_AUTO_RESUBMIT_PARTIAL_THRESHOLD = 200  # interrupted tasks with fewer chars are auto-restarted on container boot
 
 
 async def _run_streaming_dr(
@@ -425,11 +453,17 @@ def reconcile_orphaned_dr_jobs(store: Any) -> int:
     """Scan all sessions; mark any pending_dr_jobs of services 'openai' or
     'perplexity' that are still in 'running' state as 'interrupted_with_partial'.
 
+    Auto-resubmit: if the job barely started (partial_chars < threshold),
+    silently re-fire the asyncio task with the same parameters so the
+    user doesn't see a loss. Above threshold we keep partial and let the
+    user decide via recovery UI.
+
     Returns count of jobs marked. Idempotent — already-terminal jobs are
     untouched. Safe to call on every app startup.
     """
     now = time.time()
     marked = 0
+    auto_resubmitted = 0
     try:
         sessions = store.all()
     except Exception as e:
@@ -441,20 +475,48 @@ def reconcile_orphaned_dr_jobs(store: Any) -> int:
         if not jobs:
             continue
         changed = False
+        # We may need to remove auto-resubmitted jobs and add fresh ones.
+        new_jobs: list[dict] = []
+        resubmit_specs: list[tuple[str, str, str, str]] = []  # (service, mode, question, original_task_id)
+
         for j in jobs:
             if j.get("service") not in ("openai", "perplexity"):
+                new_jobs.append(j)
                 continue
             state = j.get("state") or "running"
             if state != "running":
+                new_jobs.append(j)
                 continue
+
+            partial_chars = int(j.get("partial_chars", 0) or 0)
+            mode = j.get("mode") or ("mini" if j.get("service") == "openai" else "deep")
+            # We also need the question to resubmit. Use research_prompt or raw_question.
+            question = ""
+            if session.research_prompt and session.research_prompt.full_prompt:
+                question = session.research_prompt.full_prompt
+            elif session.raw_question:
+                question = session.raw_question
+
+            if partial_chars < _AUTO_RESUBMIT_PARTIAL_THRESHOLD and question:
+                # Auto-resubmit: drop this entry, defer fresh submit until after
+                # the loop (we can't call asyncio.create_task before event loop
+                # is running on startup; collect specs and fire in a deferred
+                # coroutine).
+                resubmit_specs.append((j.get("service"), mode, question, j.get("task_id", "?")))
+                changed = True
+                continue
+
             j["state"] = "interrupted_with_partial"
             j["interrupted_at"] = now
             j.setdefault("partial_content", "")
             j.setdefault("partial_chars", len(j.get("partial_content", "")))
             j.setdefault("error", "container restarted before completion")
+            new_jobs.append(j)
             changed = True
             marked += 1
+
         if changed:
+            session.pending_dr_jobs = new_jobs
             try:
                 store.update(session)
             except Exception as e:
@@ -462,10 +524,41 @@ def reconcile_orphaned_dr_jobs(store: Any) -> int:
                     "reconcile_orphaned_dr_jobs: update %s failed: %s",
                     getattr(session, "session_id", "?"), e,
                 )
+                continue
 
-    if marked:
-        _logger.info("reconcile_orphaned_dr_jobs: marked %d job(s) interrupted", marked)
-    return marked
+            # Fire auto-resubmits for this session. They schedule new
+            # asyncio tasks which append fresh entries to pending_dr_jobs.
+            for service, mode, question, original_task_id in resubmit_specs:
+                try:
+                    if service == "openai":
+                        info = submit_openai_deep_research(
+                            question, mode=mode,
+                            session_id=session.session_id, store=store,
+                        )
+                    else:
+                        info = submit_perplexity_deep_research(
+                            question, mode=mode,
+                            session_id=session.session_id, store=store,
+                        )
+                    auto_resubmitted += 1
+                    print(
+                        f"[dr-reconcile] auto-resubmit {service}/{mode} "
+                        f"orig_task={original_task_id[:8]} new_task={info.task_id[:8]} "
+                        f"session={session.session_id}",
+                        flush=True,
+                    )
+                except Exception as e:
+                    _logger.warning(
+                        "auto-resubmit failed for %s/%s in session %s: %s",
+                        service, mode, session.session_id, e,
+                    )
+
+    if marked or auto_resubmitted:
+        _logger.info(
+            "reconcile_orphaned_dr_jobs: marked %d interrupted, auto-resubmitted %d",
+            marked, auto_resubmitted,
+        )
+    return marked + auto_resubmitted
 
 
 # ---------------------------------------------------------------------------
