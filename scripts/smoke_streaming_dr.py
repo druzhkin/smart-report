@@ -43,25 +43,31 @@ async def main() -> int:
     )
     store._sessions[sid] = session  # type: ignore[attr-defined]
 
-    # Choose model: SMOKE_MODEL=cheap (sonar-pro $0.005, ~3s) or
-    # SMOKE_MODEL=deep (sonar-deep-research $0.10, ~5-15min)
-    if os.environ.get("SMOKE_MODEL", "cheap") == "deep":
-        dr.PERPLEXITY_DR_MODELS = {
-            "smoke": ("perplexity/sonar-deep-research", 0.10, 5, 15),
-        }
+    # SMOKE_MODEL: cheap | deep | openai
+    smoke = os.environ.get("SMOKE_MODEL", "cheap")
+    if smoke == "deep":
+        dr.PERPLEXITY_DR_MODELS = {"smoke": ("perplexity/sonar-deep-research", 0.10, 5, 15)}
+        info = dr.submit_perplexity_deep_research(
+            session.raw_question, mode="smoke",
+            session_id=sid, store=store,
+        )
+    elif smoke == "openai":
+        dr.OPENAI_DR_MODELS = {"smoke": ("openai/o4-mini-deep-research", 0.50, 5, 10)}
+        info = dr.submit_openai_deep_research(
+            session.raw_question, mode="smoke",
+            session_id=sid, store=store,
+        )
     else:
-        dr.PERPLEXITY_DR_MODELS = {
-            "smoke": ("perplexity/sonar-pro", 0.01, 0, 1),
-        }
-
-    info = dr.submit_perplexity_deep_research(
-        session.raw_question, mode="smoke",
-        session_id=sid, store=store,
-    )
+        dr.PERPLEXITY_DR_MODELS = {"smoke": ("perplexity/sonar-pro", 0.01, 0, 1)}
+        info = dr.submit_perplexity_deep_research(
+            session.raw_question, mode="smoke",
+            session_id=sid, store=store,
+        )
     print(f"submitted: task_id={info.task_id}")
 
     # Poll partial_content from store every 2s until task is done or timeout.
-    timeout_s = 1200 if os.environ.get("SMOKE_MODEL", "cheap") == "deep" else 90
+    smoke_mode = os.environ.get("SMOKE_MODEL", "cheap")
+    timeout_s = 90 if smoke_mode == "cheap" else 1500  # deep & openai both reasoning models, can take 10-25 min
     deadline = time.time() + timeout_s
     last_chars = -1
     while time.time() < deadline:
