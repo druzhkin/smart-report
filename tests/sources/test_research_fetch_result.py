@@ -29,6 +29,14 @@ def _make_tavily_client(status_response: dict) -> TavilyResearchClient:
     return TavilyResearchClient(api_key="test", sdk_factory=lambda: sdk)
 
 
+def _make_valyu_client(status_response: dict):
+    """Construct a ValyuResearchClient whose SDK returns this from .deepresearch.status()."""
+    from smart_report.sources.valyu_deepresearch import ValyuResearchClient
+    sdk = MagicMock()
+    sdk.deepresearch.status = MagicMock(return_value=status_response)
+    return ValyuResearchClient(api_key="test", sdk_factory=lambda: sdk)
+
+
 # ---------------------------------------------------------------------------
 # Exa
 # ---------------------------------------------------------------------------
@@ -124,6 +132,38 @@ async def test_tavily_fetch_result_handles_dict_output_field():
     result = await client.fetch_result("req_test")
     assert "Tavily report" in result.markdown
     assert result.sources_count == 1
+
+
+@pytest.mark.asyncio
+async def test_valyu_fetch_result_reads_output_field():
+    """Bug 2026-04-27: was calling get_assets(task_id) which requires
+    asset_id positional arg. Markdown is in `output` field of status()."""
+    from smart_report.sources.valyu_deepresearch import ValyuResearchClient
+    client = _make_valyu_client({
+        "status": "completed",
+        "output": "# Real Valyu DR result\n\n4858 words of analysis...",
+        "output_type": "markdown",
+        "sources": [{"url": f"https://example.com/{i}"} for i in range(19)],
+        "cost": 0.10,
+    })
+    result = await client.fetch_result("a1159e3d-test")
+    assert "Real Valyu DR" in result.markdown
+    assert result.sources_count == 19
+    assert result.word_count > 0
+
+
+@pytest.mark.asyncio
+async def test_valyu_fetch_result_raises_when_output_missing():
+    from smart_report.sources.valyu_deepresearch import (
+        ValyuResearchClient, ValyuResearchError,
+    )
+    client = _make_valyu_client({
+        "status": "completed",
+        "output": "",
+        "sources": [],
+    })
+    with pytest.raises(ValyuResearchError, match="no `output` markdown"):
+        await client.fetch_result("test-id")
 
 
 @pytest.mark.asyncio

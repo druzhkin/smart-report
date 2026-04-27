@@ -171,36 +171,40 @@ class ValyuResearchClient:
         )
 
     async def fetch_result(self, task_id: str) -> ValyuResearchResult:
-        """Fetch the final markdown report. Call only after status="completed"."""
+        """Fetch the final markdown report. Call only after status="completed".
+
+        The markdown is in the status() response itself under `output`
+        (output_type=markdown). The `get_assets` SDK method is only for
+        binary assets (images/PDFs/deliverables) by asset_id — NOT for
+        the report text. Fixed 2026-04-27 after a real prod task was
+        completing fine on Valyu's side but our endpoint kept returning
+        500 'get_assets() missing 1 required positional argument: asset_id'.
+        """
         sdk = self._get_sdk()
         try:
-            assets = await asyncio.to_thread(sdk.deepresearch.get_assets, task_id)
+            status_resp = await asyncio.to_thread(sdk.deepresearch.status, task_id)
         except Exception as e:
-            raise ValyuResearchError(f"get_assets failed: {type(e).__name__}: {e}") from e
-        d = self._to_dict(assets)
+            raise ValyuResearchError(f"status fetch failed: {type(e).__name__}: {e}") from e
+        d = self._to_dict(status_resp)
 
-        # SDK returns a dict-like with 'markdown' or 'report' field, plus per-format URLs.
-        markdown = (
-            d.get("markdown")
-            or d.get("report")
-            or d.get("report_markdown")
-            or ""
-        )
-        # Some SDK versions return assets as a list of {format, content/url}.
-        if not markdown and isinstance(d.get("assets"), list):
-            for asset in d["assets"]:
-                if isinstance(asset, dict) and asset.get("format") == "markdown":
-                    markdown = asset.get("content") or asset.get("text") or ""
-                    if markdown:
-                        break
-        if not markdown:
+        markdown = d.get("output") or ""
+        # Defensive: handle dict-shaped output (future SDK versions may wrap it)
+        if isinstance(markdown, dict):
+            markdown = markdown.get("content") or markdown.get("markdown") or markdown.get("text") or ""
+        if not isinstance(markdown, str) or not markdown:
             raise ValyuResearchError(
-                f"completed task {task_id} has no markdown asset; raw: {str(d)[:500]}"
+                f"completed task {task_id} has no `output` markdown; raw keys: "
+                f"{list(d.keys())}"
             )
 
-        # Naive citation count: lines starting with a number in the Sources section.
-        import re
-        sources_count = len(re.findall(r"^\s*\d+\.\s+http", markdown, re.MULTILINE))
+        # Sources field is a list — count it directly when present, else
+        # fall back to numbered URLs in the markdown.
+        sources_field = d.get("sources")
+        if isinstance(sources_field, list):
+            sources_count = len(sources_field)
+        else:
+            import re
+            sources_count = len(re.findall(r"^\s*\d+\.\s+http", markdown, re.MULTILINE))
         word_count = len(markdown.split())
 
         return ValyuResearchResult(
