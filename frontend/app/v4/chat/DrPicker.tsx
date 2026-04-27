@@ -19,11 +19,12 @@ export type ValyuModeSpec = {
 };
 
 // Valyu Research modes — fixed prices per Valyu docs (2026-04).
+// Fast is a quick recon, NOT deep research — labeled accordingly.
 export const VALYU_MODES: ValyuModeSpec[] = [
-  { key: "fast",     label: "Fast",     price: "$0.10",  eta: "~5 мин" },
-  { key: "standard", label: "Standard", price: "$0.50",  eta: "10-20 мин" },
-  { key: "heavy",    label: "Heavy",    price: "$2.50",  eta: "~90 мин" },
-  { key: "max",      label: "Max",      price: "$15.00", eta: "~3 часа" },
+  { key: "fast",     label: "Fast (recon)", price: "$0.10",  eta: "~5 мин" },
+  { key: "standard", label: "Standard ⭐",   price: "$0.50",  eta: "10-20 мин" },
+  { key: "heavy",    label: "Heavy",        price: "$2.50",  eta: "~90 мин" },
+  { key: "max",      label: "Max",          price: "$15.00", eta: "~3 часа" },
 ];
 
 // Generic mode spec for Tavily and Exa research (different label sets).
@@ -35,15 +36,17 @@ export type ServiceModeSpec = {
 };
 
 export const TAVILY_RESEARCH_MODES: ServiceModeSpec[] = [
-  { key: "mini", label: "Mini", price: "$0.05", eta: "2-5 мин" },
-  { key: "pro",  label: "Pro",  price: "$0.30", eta: "5-15 мин" },
-  { key: "auto", label: "Auto", price: "≈$0.20", eta: "3-12 мин" },
+  { key: "mini", label: "Mini (recon)", price: "$0.05", eta: "2-5 мин" },
+  { key: "pro",  label: "Pro ⭐",        price: "$0.30", eta: "5-15 мин" },
+  { key: "auto", label: "Auto",          price: "≈$0.20", eta: "3-12 мин" },
 ];
 
+// Fast = быстрый recon, ~600 слов — НЕ deep research. Standard и Pro —
+// настоящий DR. Дефолт = Standard.
 export const EXA_RESEARCH_MODES: ServiceModeSpec[] = [
-  { key: "fast",     label: "Fast",     price: "$0.10", eta: "3-7 мин" },
-  { key: "standard", label: "Standard", price: "$0.50", eta: "10-20 мин" },
-  { key: "pro",      label: "Pro",      price: "$2.00", eta: "30-60 мин" },
+  { key: "fast",     label: "Fast (recon)", price: "$0.10", eta: "3-7 мин" },
+  { key: "standard", label: "Standard ⭐",   price: "$0.50", eta: "10-20 мин" },
+  { key: "pro",      label: "Pro",          price: "$2.00", eta: "30-60 мин" },
 ];
 
 // OpenAI Deep Research — настоящий o3/o4-mini-deep-research через OpenRouter,
@@ -74,24 +77,24 @@ export const DR_SERVICES: DrServiceMeta[] = [
   {
     key: "valyu",
     label: "Valyu Research",
-    price: "от $0.10 до $15 (4 режима)",
-    when: "Полноценный async DR: fast (5 мин), standard (10–20 мин), heavy (90 мин, fact-verification), max (3 часа, exhaustive). Лучшее качество для финансов, регуляторики, науки. Запускается в фоне, можно закрыть вкладку.",
+    price: "Standard $0.50 (рекомендуем) · Heavy $2.50 · Max $15",
+    when: "Полноценный async DR. ⚠ Fast ($0.10) — это быстрый recon, короткий, не глубокое исследование. Для DR-качества: Standard (10-20 мин) минимум, Heavy (90 мин с fact-verification) или Max (3ч, exhaustive). Лучший выбор для финансов, регуляторики, науки.",
     mode: "integrated",
     badge: "🏆 настоящий DR",
   },
   {
     key: "tavily",
     label: "Tavily Research",
-    price: "от $0.05 до $0.30 (требуется paid Tavily plan)",
-    when: "Агентский DR от Tavily: mini ($0.05, 2-5 мин), pro ($0.30, 5-15 мин), auto. ВНИМАНИЕ: Research API доступен только на Tavily paid plan — на нашем free key возвращает ошибку 'usage limit'. Если нужно сейчас — используйте Valyu или Exa.",
+    price: "Pro $0.30 (рекомендуем) · Mini $0.05 — recon",
+    when: "ВНИМАНИЕ: Research API требует paid Tavily plan — наш ключ free-tier, вернёт 'usage limit'. ⚠ Mini — быстрый recon, не DR. Pro (5-15 мин) — настоящий DR. Сильный по веб-источникам и свежим данным. Если нужно сейчас — используйте Valyu или Exa.",
     mode: "integrated",
     badge: "⚠ paid Tavily plan",
   },
   {
     key: "exa",
     label: "Exa Research",
-    price: "от $0.10 до $2.00 (3 режима)",
-    when: "Агентский DR с семантическим поиском: fast ($0.10), standard ($0.50), pro ($2.00, до 60 мин с structured output). Лучший для научных статей, блогов, similarity-исследований.",
+    price: "Standard $0.50 (рекомендуем) · Pro $2.00 · Fast $0.10 — recon",
+    when: "Агентский DR с семантическим поиском. ⚠ Fast ($0.10) — быстрая выжимка ~600 слов, НЕ deep research. Для DR-качества: Standard (10-20 мин) минимум, Pro (30-60 мин с structured output). Лучший для научных статей, блогов, similarity-исследований.",
     mode: "integrated",
   },
   {

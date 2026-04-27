@@ -154,9 +154,13 @@ export default function Workspace() {
   const [savedSessions, setSavedSessions] = useState<SessionListItem[]>([]);
   const [qualityGrade, setQualityGrade] = useState<QualityGrade | null>(null);
   const [sourceContent, setSourceContent] = useState<{ filename: string; content: string } | null>(null);
-  const [activeResearchTask, setActiveResearchTask] = useState<{
+  // Multiple concurrent DR tasks supported — user can fire Valyu, Exa,
+  // and OpenAI in parallel and each gets its own poll loop. (Was a Map
+  // pattern bug: single-valued state meant launching task #2 stopped
+  // polling task #1, leaving the result orphaned in source_reports.)
+  const [activeResearchTasks, setActiveResearchTasks] = useState<Array<{
     taskId: string; service: string; mode: string;
-  } | null>(null);
+  }>>([]);
 
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     if (typeof window === "undefined") return "light";
@@ -413,102 +417,113 @@ export default function Workspace() {
     listSessions().then(setSavedSessions).catch(() => {});
   }, []);
 
-  // ===== Async Valyu Research polling =====
-  // Polls /auto-dr-status while there is an active research task. Backoff:
-  // 15s for first 2 min, then 30s. The task can run up to 180 min (max
-  // mode), so we keep polling until completed/failed/cancelled. Stops on
-  // unmount or sessionId change.
+  // ===== Async DR polling — concurrent multi-task =====
+  // Each entry in activeResearchTasks gets its own independent poll loop
+  // keyed by task_id. Adding a second task does NOT stop polling the first.
+  // Pollers cancel on session change, unmount, or when their task is
+  // removed from the array.
+  const pollersRef = useRef<Map<string, () => void>>(new Map());
+
   useEffect(() => {
-    if (!sessionId || !activeResearchTask) return;
-    const { taskId, service, mode } = activeResearchTask;
-    const svcLabel =
-      service === "valyu" ? "Valyu Research" :
-      service === "tavily" ? "Tavily Research" :
-      service === "exa" ? "Exa Research" :
-      service === "openai" ? "OpenAI Deep Research" : service;
-    let cancelled = false;
-    let pollCount = 0;
-    let lastState = "";
-    const tick = async () => {
-      if (cancelled) return;
-      pollCount += 1;
-      try {
-        const st = await pollAutoDRStatus(sessionId, taskId);
-        if (cancelled) return;
-        if (st.state !== lastState) {
-          lastState = st.state;
-        }
-        if (st.state === "completed") {
-          const costRub = (st.cost_rub ?? 0).toFixed(2);
-          setMessages((ms) => [
-            ...ms,
-            {
-              id: `dr-done-${taskId}`,
-              role: "system",
-              kind: "text",
-              content:
-                `✓ ${svcLabel} (${mode}) завершён!\n\n` +
-                `Получено ${st.source_count ?? "?"} источник(ов), отчёт сохранён как «${st.filename}». ` +
-                `Стоимость: $${(st.cost_usd ?? 0).toFixed(2)} (≈ ₽ ${costRub}). Можно запускать анализ.`,
-            },
-            {
-              id: `dr-done-ref-${taskId}`,
-              role: "system",
-              kind: "ref",
-              refKind: "upload",
-              title: `${svcLabel} (${mode}): отчёт`,
-              subtitle: `${st.source_count ?? 0} источник(ов) · ${st.word_count ?? 0} слов · открыть содержимое →`,
-              accent: true,
-              sourceFilename: st.filename || undefined,
-            },
-            {
-              id: `dr-done-cta-${taskId}`,
-              role: "system",
-              kind: "cta",
-              primary: "Запустить анализ →",
-              action: "go-upload-stage",
-              secondary: "Заказать ещё",
-              secondaryAction: "go-upload-stage",
-            },
-          ]);
-          setPhase(PHASE.UPLOAD);
-          setActiveResearchTask(null);
-          // Refresh session to pick up updated source_reports.
-          const s = await getSession(sessionId);
-          setCost(s.total_cost_rub || 0);
-          return;
-        }
-        if (st.state === "failed" || st.state === "cancelled") {
-          setMessages((ms) => [
-            ...ms,
-            {
-              id: `dr-${st.state}-${taskId}`,
-              role: "system",
-              kind: "text",
-              content:
-                st.state === "cancelled"
-                  ? `${svcLabel} (${mode}) отменён.`
-                  : `✗ ${svcLabel} (${mode}) не справился. ${st.error || st.message || ""}`,
-            },
-          ]);
-          setActiveResearchTask(null);
-          return;
-        }
-        // Still running — schedule next tick. Backoff after 8 polls (~2 min).
-        const delayMs = pollCount < 8 ? 15_000 : 30_000;
-        setTimeout(tick, delayMs);
-      } catch (e) {
-        // Network blip — back off and retry.
-        if (!cancelled) setTimeout(tick, 30_000);
+    if (!sessionId) {
+      // Cancel everything on session change.
+      for (const cancel of pollersRef.current.values()) cancel();
+      pollersRef.current.clear();
+      return;
+    }
+    const activeIds = new Set(activeResearchTasks.map(t => t.taskId));
+    // Cancel pollers whose task is no longer active.
+    for (const [taskId, cancel] of pollersRef.current.entries()) {
+      if (!activeIds.has(taskId)) {
+        cancel();
+        pollersRef.current.delete(taskId);
       }
-    };
-    // Kick off first poll after 10s (Valyu reports typical first ~10s).
-    const handle = setTimeout(tick, 10_000);
-    return () => {
-      cancelled = true;
-      clearTimeout(handle);
-    };
-  }, [sessionId, activeResearchTask]);
+    }
+    // Spawn pollers for new tasks.
+    for (const task of activeResearchTasks) {
+      if (pollersRef.current.has(task.taskId)) continue;
+      const { taskId, service, mode } = task;
+      const svcLabel =
+        service === "valyu" ? "Valyu Research" :
+        service === "tavily" ? "Tavily Research" :
+        service === "exa" ? "Exa Research" :
+        service === "openai" ? "OpenAI Deep Research" : service;
+      let cancelled = false;
+      let pollCount = 0;
+      pollersRef.current.set(taskId, () => { cancelled = true; });
+      const tick = async () => {
+        if (cancelled) return;
+        pollCount += 1;
+        try {
+          const st = await pollAutoDRStatus(sessionId, taskId);
+          if (cancelled) return;
+          if (st.state === "completed") {
+            const costRub = (st.cost_rub ?? 0).toFixed(2);
+            setMessages((ms) => [
+              ...ms,
+              {
+                id: `dr-done-${taskId}`,
+                role: "system",
+                kind: "text",
+                content:
+                  `✓ ${svcLabel} (${mode}) завершён!\n\n` +
+                  `Получено ${st.source_count ?? "?"} источник(ов), отчёт сохранён как «${st.filename}». ` +
+                  `Стоимость: $${(st.cost_usd ?? 0).toFixed(2)} (≈ ₽ ${costRub}). Можно запускать анализ.`,
+              },
+              {
+                id: `dr-done-ref-${taskId}`,
+                role: "system",
+                kind: "ref",
+                refKind: "upload",
+                title: `${svcLabel} (${mode}): отчёт`,
+                subtitle: `${st.source_count ?? 0} источник(ов) · ${st.word_count ?? 0} слов · открыть содержимое →`,
+                accent: true,
+                sourceFilename: st.filename || undefined,
+              },
+              {
+                id: `dr-done-cta-${taskId}`,
+                role: "system",
+                kind: "cta",
+                primary: "Запустить анализ →",
+                action: "go-upload-stage",
+                secondary: "Заказать ещё",
+                secondaryAction: "go-upload-stage",
+              },
+            ]);
+            setPhase(PHASE.UPLOAD);
+            setActiveResearchTasks((arr) => arr.filter((t) => t.taskId !== taskId));
+            try {
+              const s = await getSession(sessionId);
+              setCost(s.total_cost_rub || 0);
+            } catch {}
+            return;
+          }
+          if (st.state === "failed" || st.state === "cancelled") {
+            setMessages((ms) => [
+              ...ms,
+              {
+                id: `dr-${st.state}-${taskId}`,
+                role: "system",
+                kind: "text",
+                content:
+                  st.state === "cancelled"
+                    ? `${svcLabel} (${mode}) отменён.`
+                    : `✗ ${svcLabel} (${mode}) не справился. ${st.error || st.message || ""}`,
+              },
+            ]);
+            setActiveResearchTasks((arr) => arr.filter((t) => t.taskId !== taskId));
+            return;
+          }
+          const delayMs = pollCount < 8 ? 15_000 : 30_000;
+          setTimeout(tick, delayMs);
+        } catch (e) {
+          if (!cancelled) setTimeout(tick, 30_000);
+        }
+      };
+      // First poll after 10s
+      setTimeout(tick, 10_000);
+    }
+  }, [sessionId, activeResearchTasks]);
 
   // ===== Live events polling =====
   // While a long-running call is in flight (analyze / synthesize can take
@@ -651,17 +666,17 @@ export default function Workspace() {
   // ===== Cancel handler =====
   const onCancel = useCallback(async () => {
     if (!sessionId) return;
-    // Priority 1: active long-running DR task (e.g. OpenAI Deep Research)
-    // — abort just that task, leave the session usable.
-    if (activeResearchTask && activeResearchTask.service === "openai") {
-      const { taskId } = activeResearchTask;
+    // Priority 1: cancel the most recent active DR task (LIFO).
+    if (activeResearchTasks.length > 0) {
+      const task = activeResearchTasks[activeResearchTasks.length - 1];
+      const { taskId, service, mode } = task;
       try {
         await cancelAutoDR(sessionId, taskId);
       } catch (e) {
         showToast(`Не удалось отменить: ${e instanceof Error ? e.message : String(e)}`);
         return;
       }
-      setActiveResearchTask(null);
+      setActiveResearchTasks((arr) => arr.filter((t) => t.taskId !== taskId));
       setMessages((ms) => [
         ...ms,
         {
@@ -669,10 +684,10 @@ export default function Workspace() {
           role: "system",
           kind: "text",
           content:
-            "OpenAI Deep Research отменён. ВАЖНО: токены, которые уже потратились на стороне OpenAI, не возвращаются — деньги списались.",
+            `${service} ${mode} DR отменён. ВАЖНО: токены/credits, потраченные на стороне ${service}, не возвращаются.`,
         },
       ]);
-      showToast("DR отменён");
+      showToast(`${service} DR отменён`);
       return;
     }
     // Otherwise — generic session cancel (existing behaviour).
@@ -694,7 +709,7 @@ export default function Workspace() {
     ]);
     setPending(false);
     showToast("Сессия отменена");
-  }, [sessionId, pending, activeResearchTask]);
+  }, [sessionId, pending, activeResearchTasks]);
 
   // ===== Helpers =====
   const push = useCallback(
@@ -901,7 +916,10 @@ export default function Workspace() {
             accent: true,
           });
           // Track this task_id; the polling effect below will pick it up.
-          setActiveResearchTask({ taskId: res.task_id, service: res.service, mode: res.mode });
+          setActiveResearchTasks((arr) => [
+            ...arr.filter((t) => t.taskId !== res.task_id),
+            { taskId: res.task_id, service: res.service, mode: res.mode },
+          ]);
         } else {
           // Sync result — already in source_reports.
           const costRub = (res.cost_usd * 75.4).toFixed(2);
@@ -1887,19 +1905,21 @@ export default function Workspace() {
                 rows={1}
               />
               <div className="composer-actions">
-                {sessionId && (pending || activeResearchTask) ? (
+                {sessionId && (pending || activeResearchTasks.length > 0) ? (
                   <button
                     type="button"
                     className="composer-send"
                     onClick={onCancel}
                     style={{ background: "var(--paper-2)", color: "var(--ink)", border: "1px solid var(--ink)" }}
                     title={
-                      activeResearchTask
-                        ? `Прервать ${activeResearchTask.service} DR (токены уже потрачены — деньги не возвращаются)`
+                      activeResearchTasks.length > 0
+                        ? `Прервать ${activeResearchTasks[activeResearchTasks.length - 1].service} DR (LIFO; деньги не возвращаются). В полёте: ${activeResearchTasks.length}`
                         : "Прервать запущенный шаг (за уже потраченные токены спишется)"
                     }
                   >
-                    {activeResearchTask ? `Отменить DR (${activeResearchTask.mode})` : "Отменить"}
+                    {activeResearchTasks.length > 0
+                      ? `Отменить DR${activeResearchTasks.length > 1 ? ` (${activeResearchTasks.length} в полёте)` : ` (${activeResearchTasks[activeResearchTasks.length - 1].mode})`}`
+                      : "Отменить"}
                   </button>
                 ) : (
                   <button
