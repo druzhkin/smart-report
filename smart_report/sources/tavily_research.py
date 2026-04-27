@@ -20,6 +20,9 @@ from typing import Any, Literal, Optional
 
 _logger = logging.getLogger(__name__)
 
+# Reuse the dict-or-int progress normaliser from valyu_deepresearch.
+from .valyu_deepresearch import _coerce_progress_pct
+
 
 TavilyResearchModel = Literal["mini", "pro", "auto"]
 
@@ -143,7 +146,7 @@ class TavilyResearchClient:
             state = "running"
         return TavilyResearchStatus(
             request_id=request_id, state=state,
-            progress_pct=d.get("progress") or d.get("progress_pct"),
+            progress_pct=_coerce_progress_pct(d.get("progress") or d.get("progress_pct")),
             message=d.get("message") or d.get("status_message"),
             raw=d,
         )

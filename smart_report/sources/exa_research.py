@@ -20,6 +20,8 @@ from typing import Any, Literal, Optional
 
 _logger = logging.getLogger(__name__)
 
+from .valyu_deepresearch import _coerce_progress_pct
+
 
 ExaResearchModel = Literal["exa-research-fast", "exa-research", "exa-research-pro"]
 
@@ -141,7 +143,7 @@ class ExaResearchClient:
             state = "running"
         return ExaResearchStatus(
             research_id=research_id, state=state,
-            progress_pct=d.get("progress") or d.get("progress_pct"),
+            progress_pct=_coerce_progress_pct(d.get("progress") or d.get("progress_pct")),
             message=d.get("message") or d.get("status_message"),
             raw=d,
         )

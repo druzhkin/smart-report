@@ -41,12 +41,13 @@ export const TAVILY_RESEARCH_MODES: ServiceModeSpec[] = [
   { key: "auto", label: "Auto",          price: "≈$0.20", eta: "3-12 мин" },
 ];
 
-// Fast = быстрый recon, ~600 слов — НЕ deep research. Standard и Pro —
-// настоящий DR. Дефолт = Standard.
+// Per Exa pricing (2026-04): research = $5/1k searches + $5/1k page reads,
+// research-pro = $5/1k searches + $10/1k page reads. Per-call cost depends
+// on page count (~5-50 pages typical). Fast = recon, ~600 слов — НЕ DR.
 export const EXA_RESEARCH_MODES: ServiceModeSpec[] = [
-  { key: "fast",     label: "Fast (recon)", price: "$0.10", eta: "3-7 мин" },
-  { key: "standard", label: "Standard ⭐",   price: "$0.50", eta: "10-20 мин" },
-  { key: "pro",      label: "Pro",          price: "$2.00", eta: "30-60 мин" },
+  { key: "fast",     label: "Fast (recon)", price: "≈ $0.05",      eta: "3-7 мин" },
+  { key: "standard", label: "Standard ⭐",   price: "≈ $0.05–$0.30", eta: "10-20 мин" },
+  { key: "pro",      label: "Pro",          price: "≈ $0.10–$1.00", eta: "30-60 мин" },
 ];
 
 // OpenAI Deep Research — настоящий o3/o4-mini-deep-research через OpenRouter,
@@ -77,53 +78,53 @@ export const DR_SERVICES: DrServiceMeta[] = [
   {
     key: "valyu",
     label: "Valyu Research",
-    price: "Standard $0.50 (рекомендуем) · Heavy $2.50 · Max $15",
-    when: "Полноценный async DR. ⚠ Fast ($0.10) — это быстрый recon, короткий, не глубокое исследование. Для DR-качества: Standard (10-20 мин) минимум, Heavy (90 мин с fact-verification) или Max (3ч, exhaustive). Лучший выбор для финансов, регуляторики, науки.",
+    price: "$0.10 – $15",
+    when: "Финансы, регуляторика, наука. SEC / FRED / arXiv / PubMed.",
     mode: "integrated",
     badge: "🏆 настоящий DR",
   },
   {
     key: "tavily",
     label: "Tavily Research",
-    price: "Pro $0.30 (рекомендуем) · Mini $0.05 — recon",
-    when: "ВНИМАНИЕ: Research API требует paid Tavily plan — наш ключ free-tier, вернёт 'usage limit'. ⚠ Mini — быстрый recon, не DR. Pro (5-15 мин) — настоящий DR. Сильный по веб-источникам и свежим данным. Если нужно сейчас — используйте Valyu или Exa.",
+    price: "$0.05 – $0.30",
+    when: "Свежий веб, новости. Требует paid Tavily plan.",
     mode: "integrated",
-    badge: "⚠ paid Tavily plan",
+    badge: "⚠ paid plan",
   },
   {
     key: "exa",
     label: "Exa Research",
-    price: "Standard $0.50 (рекомендуем) · Pro $2.00 · Fast $0.10 — recon",
-    when: "Агентский DR с семантическим поиском. ⚠ Fast ($0.10) — быстрая выжимка ~600 слов, НЕ deep research. Для DR-качества: Standard (10-20 мин) минимум, Pro (30-60 мин с structured output). Лучший для научных статей, блогов, similarity-исследований.",
+    price: "$0.10 – $2.00",
+    when: "Семантический поиск: научные статьи, блоги, похожие работы.",
     mode: "integrated",
   },
   {
     key: "perplexity",
     label: "Perplexity Sonar Pro",
-    price: "≈ $0.50–2.00 / прогон",
-    when: "LLM-исследование с цитатами. Универсальный, средняя глубина.",
+    price: "≈ $0.01 – $0.10",
+    when: "Быстрый LLM с веб-поиском, средняя глубина.",
     mode: "integrated",
   },
   {
     key: "openai",
     label: "OpenAI Deep Research",
-    price: "$0.50–$3 (2 режима)",
-    when: "Настоящий OpenAI Deep Research: o4-mini-DR ($0.50, 5-10 мин) или o3-DR ($3, 15-30 мин). Агентский поиск, fact-verification, длинный отчёт. Async — можно закрыть вкладку.",
+    price: "$0.50 – $3",
+    when: "Агентский DR с fact-verification, длинный отчёт.",
     mode: "integrated",
     badge: "🏆 настоящий DR",
   },
   {
     key: "claude",
     label: "Claude Sonnet 4.5 (online)",
-    price: "≈ $0.10–$1.00 + $0.004 за веб-поиск",
-    when: "ВНИМАНИЕ: настоящий Claude Research доступен только в claude.ai, не как отдельный API. Это лучшая API-альтернатива: Claude Sonnet 4.5 с веб-поиском через OpenRouter :online. Один синхронный вызов, без многошагового агентского цикла.",
+    price: "≈ $0.01 – $0.10",
+    when: "Длинный контекст, аккуратные цитаты. Не agentic — sync.",
     mode: "integrated",
   },
   {
     key: "gemini",
     label: "Gemini 2.5 Pro (online)",
-    price: "≈ $0.05–$0.50 + $0.004 за веб-поиск",
-    when: "ВНИМАНИЕ: настоящий Gemini Deep Research (тот что в блоге Google) — фича приложения, в API недоступна. Это лучшая API-альтернатива: Gemini 2.5 Pro с веб-поиском через OpenRouter :online. Один вызов, не агентский multi-step.",
+    price: "≈ $0.01 – $0.10",
+    when: "Веб-источники + сильное структурирование. Не agentic — sync.",
     mode: "integrated",
   },
 ];

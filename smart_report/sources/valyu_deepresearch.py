@@ -45,6 +45,27 @@ RESEARCH_MODE_ETA_MIN: dict[str, tuple[int, int]] = {
 }
 
 
+def _coerce_progress_pct(value: Any) -> Optional[int]:
+    """Valyu returns `progress` as `{"current_step": N, "total_steps": M}`.
+    Convert to int percentage 0-100. Other shapes (already int, or None)
+    are passed through. Anything unparseable becomes None.
+    """
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return int(value)
+    if isinstance(value, dict):
+        cur = value.get("current_step")
+        tot = value.get("total_steps")
+        if isinstance(cur, (int, float)) and isinstance(tot, (int, float)) and tot > 0:
+            return int(round(cur / tot * 100))
+        # Some backends use {pct: X}
+        pct = value.get("pct") or value.get("percent") or value.get("percentage")
+        if isinstance(pct, (int, float)):
+            return int(pct)
+    return None
+
+
 class ValyuResearchError(Exception):
     """Raised on permanent Valyu Research failure (4xx or job final-failed)."""
 
@@ -162,11 +183,26 @@ class ValyuResearchClient:
             state = "queued"
         else:
             state = "running"
+        # Valyu doesn't expose a top-level "current activity" string —
+        # instead it streams a `messages` array (chat-style {role, content}).
+        # Surface the LATEST assistant message as the live activity hint
+        # so the frontend can show "what the agent is doing right now".
+        latest_msg = d.get("message") or d.get("status_message")
+        if not latest_msg:
+            msgs = d.get("messages")
+            if isinstance(msgs, list):
+                for m in reversed(msgs):
+                    if isinstance(m, dict):
+                        content = m.get("content")
+                        if isinstance(content, str) and content.strip():
+                            # Keep it short for chat display
+                            latest_msg = content[:200].strip()
+                            break
         return ValyuResearchStatus(
             task_id=task_id,
             state=state,
-            progress_pct=d.get("progress") or d.get("progress_pct"),
-            message=d.get("message") or d.get("status_message"),
+            progress_pct=_coerce_progress_pct(d.get("progress") or d.get("progress_pct")),
+            message=latest_msg,
             raw=d,
         )
 
