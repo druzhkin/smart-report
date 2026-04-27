@@ -228,10 +228,37 @@ export default function Workspace() {
           const hasAnalysis = !!s.analysis;
           const hasUploads = (s.source_reports?.length || 0) > 0;
           const hasPrompt = !!s.research_prompt;
-          if (!hasPrompt) return ms;
-
           // Strip any leftover thinking placeholders.
           let next = ms.filter((m) => m.kind !== "thinking");
+
+          if (!hasPrompt) {
+            // Session has a raw_question but no research_prompt — generation
+            // was almost certainly interrupted (deploy / network / timeout).
+            // Tell the user and offer a one-click retry that hits
+            // /generate-prompt again on the same session.
+            if (!s.raw_question) return ms;
+            const userMsgExists = ms.some(
+              (m) => m.role === "user" && m.content?.trim() === s.raw_question.trim(),
+            );
+            const tag = `recovery-${Date.now()}`;
+            const out: ChatMessage[] = [...next];
+            if (!userMsgExists) {
+              out.push({
+                id: tag + "-q", role: "user", kind: "text", content: s.raw_question,
+              });
+            }
+            out.push({
+              id: tag, role: "system", kind: "text",
+              content:
+                "Кажется, генерация промта прервалась (контейнер перезапустился, или Sonnet таймаутнул). Промт на сервере не сохранён. Нажмите ниже чтобы запустить генерацию заново — деньги списываются только за успешный вызов.",
+            });
+            out.push({
+              id: tag + "-cta", role: "system", kind: "cta",
+              primary: "Сгенерировать промт заново →",
+              action: "retry-generate-prompt",
+            });
+            return out;
+          }
           const tag = `recovery-${Date.now()}`;
           if (hasFinal) {
             next = [
@@ -1176,6 +1203,57 @@ export default function Workspace() {
     actFinal();
   }, [push, actFinal]);
 
+  const retryGeneratePrompt = useCallback(async () => {
+    if (!sessionId || pending) return;
+    setPending(true);
+    push({
+      role: "system",
+      kind: "thinking",
+      traces: [
+        "повторно отправляю запрос в Sonnet",
+        "может занять до 15 минут на длинном вопросе",
+        "генерация research-промта",
+      ],
+      onDone: () => {},
+    });
+    try {
+      const pref = getPipelineModel();
+      const prompt = await generatePrompt(sessionId, pref);
+      setPromptData(prompt);
+      const s = await getSession(sessionId);
+      setCost(s.total_cost_rub || 0);
+      setMessages((ms) => ms.filter((m) => m.kind !== "thinking"));
+      const sections = prompt.expected_structure?.length ?? 0;
+      push({
+        role: "system",
+        kind: "text",
+        content: `✓ Промт сгенерирован (вторая попытка) — ${prompt.full_prompt.length} символов, ${sections} разделов.`,
+      });
+      push({
+        role: "system",
+        kind: "ref",
+        refKind: "prompt",
+        title: "Research-промт",
+        subtitle: `${sections} разделов · готов к копированию`,
+        accent: true,
+      });
+      push({ role: "system", kind: "dr-picker" });
+      setArtifact({ kind: "prompt", data: prompt });
+      setPhase(PHASE.PROMPT);
+    } catch (e) {
+      setMessages((ms) => ms.filter((m) => m.kind !== "thinking"));
+      const msg = e instanceof Error ? e.message : String(e);
+      push({
+        role: "system",
+        kind: "text",
+        content: `✗ Снова не получилось: ${msg}\n\nЕсли ошибка повторяется — попробуйте создать новую сессию через ⌘N или подождите 1-2 минуты.`,
+      });
+      showToast(`Ошибка: ${msg}`);
+    } finally {
+      setPending(false);
+    }
+  }, [sessionId, pending, push]);
+
   const onCta = useCallback(
     (action: string) => {
       if (pending) return;
@@ -1194,6 +1272,8 @@ export default function Workspace() {
         actFinal();
       } else if (action === "go-final-direct") {
         actFinalDirect();
+      } else if (action === "retry-generate-prompt") {
+        retryGeneratePrompt();
       }
     },
     [
@@ -1203,6 +1283,7 @@ export default function Workspace() {
       actTopup,
       actFinal,
       actFinalDirect,
+      retryGeneratePrompt,
     ]
   );
 
