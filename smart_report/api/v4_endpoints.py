@@ -653,6 +653,14 @@ async def auto_dr_status(session_id: str, request: Request, task_id: str) -> Aut
         error=poll.error,
     )
 
+    # Auto-clean orphaned pending_dr_jobs entry on terminal-failure states.
+    # Keeps the session list tidy and lets the user retry without manual cleanup.
+    if poll.state in {"failed", "cancelled"}:
+        session.pending_dr_jobs = [
+            j for j in (session.pending_dr_jobs or []) if j.get("task_id") != task_id
+        ]
+        _store.update(session)
+
     if poll.state == "completed" and poll.result is not None:
         # Idempotency: only append to source_reports if not already there.
         already = any(

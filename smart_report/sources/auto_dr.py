@@ -566,7 +566,17 @@ async def try_collect_async_research(
         from .llm_deepresearch import get_llm_research_task
         t = get_llm_research_task(task_id)
         if not t:
-            return AsyncResearchPoll(state="failed", error=f"task_id {task_id} not found in registry")
+            # In pending_dr_jobs but not in registry → task was lost.
+            # Most likely the container restarted between submit and now.
+            # The asyncio.Task is gone; OpenAI may have completed the call
+            # but we have no way to fetch the result. Spend is forfeit.
+            return AsyncResearchPoll(
+                state="failed",
+                error=(
+                    "Задача потеряна (вероятно, контейнер перезапустился). "
+                    "Деньги списаны, результат недоступен. Попробуйте запустить заново."
+                ),
+            )
         state = t.get("state", "running")
         if state == "running":
             elapsed = int((__import__("time").time() - t.get("started_at", 0)))
@@ -576,6 +586,8 @@ async def try_collect_async_research(
             )
         if state == "failed":
             return AsyncResearchPoll(state="failed", error=t.get("error") or "unknown")
+        if state == "cancelled":
+            return AsyncResearchPoll(state="cancelled", message="Отменено пользователем")
         if state == "completed":
             return AsyncResearchPoll(state="completed", result=t.get("result"))
         return AsyncResearchPoll(state=state)
