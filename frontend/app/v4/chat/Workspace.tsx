@@ -197,7 +197,12 @@ export default function Workspace() {
     }
   }, [sessionId]);
 
-  // On mount: restore session cost/phase from backend
+  // On mount: restore session cost/phase from backend AND rehydrate the chat
+  // if the server has data we don't show locally yet. This recovers from
+  // container-restart-during-call scenarios where the backend completed work
+  // (e.g. saved a research_prompt) but our awaited fetch was disconnected,
+  // so the user's chat shows them stuck on "thinking" — without rehydration
+  // the prompt would be invisible until they create a new session.
   useEffect(() => {
     const savedId = localStorage.getItem("sr-session-id-v2");
     if (!savedId) return;
@@ -207,6 +212,68 @@ export default function Workspace() {
         if (s.research_prompt) setPromptData(s.research_prompt);
         if (s.analysis) setAnalysisData(s.analysis);
         if (s.final_report) setFinalData(s.final_report);
+
+        // Rehydrate chat: figure out the FURTHEST phase the server reached,
+        // and ensure the chat shows the user it's done. We add ONE recovery
+        // line + a CTA to continue, so the user isn't stranded.
+        setMessages((ms) => {
+          // Avoid re-rehydrating: skip if we already have any 'recovery-' message.
+          if (ms.some((m) => m.id?.startsWith("recovery-"))) return ms;
+          // Also skip if the chat already shows a prompt-ref (success path).
+          if (ms.some((m) => m.kind === "ref" && m.refKind === "prompt")) return ms;
+          // Skip if there are no real messages (fresh load on a different device).
+          if (ms.length <= 1) return ms;
+
+          const hasFinal = !!s.final_report;
+          const hasAnalysis = !!s.analysis;
+          const hasUploads = (s.source_reports?.length || 0) > 0;
+          const hasPrompt = !!s.research_prompt;
+          if (!hasPrompt) return ms;
+
+          // Strip any leftover thinking placeholders.
+          let next = ms.filter((m) => m.kind !== "thinking");
+          const tag = `recovery-${Date.now()}`;
+          if (hasFinal) {
+            next = [
+              ...next,
+              { id: tag, role: "system", kind: "text",
+                content: "Сессия восстановлена. Финальный отчёт уже готов — открыть в правой панели." },
+              { id: tag + "-ref", role: "system", kind: "ref", refKind: "report",
+                title: "Финальный отчёт", subtitle: "восстановлен", accent: true },
+            ];
+            setPhase(PHASE.DONE);
+          } else if (hasAnalysis) {
+            next = [
+              ...next,
+              { id: tag, role: "system", kind: "text",
+                content: "Сессия восстановлена. Анализ есть — можно запускать синтез." },
+              { id: tag + "-cta", role: "system", kind: "cta",
+                primary: "Запустить синтез →", action: "go-final-direct" },
+            ];
+            setPhase(PHASE.CRITIQUE);
+          } else if (hasUploads) {
+            next = [
+              ...next,
+              { id: tag, role: "system", kind: "text",
+                content: `Сессия восстановлена. Загружено ${s.source_reports.length} отчёт(ов) — можно запускать анализ.` },
+              { id: tag + "-cta", role: "system", kind: "cta",
+                primary: "Запустить анализ →", action: "go-upload-stage" },
+            ];
+            setPhase(PHASE.UPLOAD);
+          } else {
+            // Has prompt only.
+            next = [
+              ...next,
+              { id: tag, role: "system", kind: "text",
+                content: `Сессия восстановлена. Промт сгенерирован (${s.research_prompt!.full_prompt.length} символов). Выберите DR-сервис ниже.` },
+              { id: tag + "-ref", role: "system", kind: "ref", refKind: "prompt",
+                title: "Research-промт", subtitle: "восстановлен · готов к копированию", accent: true },
+              { id: tag + "-picker", role: "system", kind: "dr-picker" },
+            ];
+            setPhase(PHASE.PROMPT);
+          }
+          return next;
+        });
       })
       .catch(() => {
         // Session not found on backend after restart — clear local id
