@@ -745,6 +745,26 @@ async def auto_dr_status(session_id: str, request: Request, task_id: str) -> Aut
         None,
     )
     if job is None:
+        # For LLM DR (openai/perplexity), the streaming runner moves the
+        # result into source_reports AND removes the pending entry on
+        # completion. So "not found in pending" + "matching source_report
+        # exists" = silently completed. Surface as state=completed so the
+        # frontend shows success instead of "task lost".
+        prefix = task_id[:8]
+        for svc_guess in ("openai", "perplexity"):
+            for u in (session.source_reports or []):
+                if u.filename in (
+                    f"auto_dr_{svc_guess}_{prefix}.md",
+                    f"auto_dr_{svc_guess}_{prefix}_partial.md",
+                ):
+                    return AutoDRStatusOut(
+                        task_id=task_id, state="completed",
+                        filename=u.filename,
+                        word_count=u.word_count,
+                        source_count=0,
+                        cost_usd=None,
+                        cost_rub=None,
+                    )
         raise HTTPException(status_code=404, detail=f"task_id {task_id} not found in this session")
 
     from ..sources.auto_dr import (
