@@ -562,7 +562,28 @@ export default function Workspace() {
           const delayMs = pollCount < 8 ? 15_000 : 30_000;
           setTimeout(tick, delayMs);
         } catch (e) {
-          if (!cancelled) setTimeout(tick, 30_000);
+          if (cancelled) return;
+          const msg = e instanceof Error ? e.message : String(e);
+          // 404 = task no longer in pending_dr_jobs on the server. Most likely
+          // a previous poll cleaned it (state=failed/cancelled), or the
+          // session was deleted. Stop polling — would spin forever otherwise.
+          if (msg.startsWith("404")) {
+            setActiveResearchTasks((arr) => arr.filter((t) => t.taskId !== taskId));
+            setMessages((ms) => [
+              ...ms,
+              {
+                id: `dr-lost-${taskId}`,
+                role: "system",
+                kind: "text",
+                content:
+                  `${svcLabel} (${mode}) недоступен — задача потеряна (вероятно, контейнер перезапустился во время выполнения). ` +
+                  `Деньги уже списаны, результат не дошёл. Запустите заново если нужно.`,
+              },
+            ]);
+            return;
+          }
+          // Other errors (network, 5xx): back off and retry.
+          setTimeout(tick, 30_000);
         }
       };
       // First poll after 10s
