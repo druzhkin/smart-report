@@ -597,6 +597,32 @@ export async function resumeAutoDR(
   );
 }
 
+export async function runAutoFollowup(
+  id: string,
+  opts: { service?: "valyu" | "exa"; mode?: string } = {}
+): Promise<AutoDRAsyncOut> {
+  if (STUB) {
+    return {
+      service: opts.service || "valyu",
+      mode: opts.mode || "standard",
+      task_id: `stub-fu-${Date.now()}`,
+      cost_usd: 0.50, cost_rub: 37.7,
+      eta_min_low: 15, eta_min_high: 30,
+      message: "Stub: followup standard ~15-30 мин",
+    };
+  }
+  return jv4<AutoDRAsyncOut>(
+    `/api/v4/sessions/${encodeURIComponent(id)}/auto-followup`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        service: opts.service || "valyu",
+        mode: opts.mode || "standard",
+      }),
+    }
+  );
+}
+
 export async function pollAutoDRStatus(id: string, taskId: string): Promise<AutoDRStatusOut> {
   if (STUB) {
     return {

@@ -22,6 +22,7 @@ import {
   synthesize,
   getSession,
   runAutoDR,
+  runAutoFollowup,
   pollAutoDRStatus,
   isAsyncOut,
   cancelSession,
@@ -161,7 +162,7 @@ export default function Workspace() {
   // pattern bug: single-valued state meant launching task #2 stopped
   // polling task #1, leaving the result orphaned in source_reports.)
   const [activeResearchTasks, setActiveResearchTasks] = useState<Array<{
-    taskId: string; service: string; mode: string;
+    taskId: string; service: string; mode: string; isFollowup?: boolean;
   }>>([]);
   // Live progress per task — populated by the polling effect on each tick.
   // Keyed by task_id. Used by the dr-progress artifact view to render
@@ -258,6 +259,7 @@ export default function Workspace() {
                 taskId: j.task_id,
                 service: j.service,
                 mode: j.mode || "standard",
+                isFollowup: !!j.is_followup,
               }));
             return additions.length ? [...arr, ...additions] : arr;
           });
@@ -533,7 +535,7 @@ export default function Workspace() {
     // Spawn pollers for new tasks.
     for (const task of activeResearchTasks) {
       if (pollersRef.current.has(task.taskId)) continue;
-      const { taskId, service, mode } = task;
+      const { taskId, service, mode, isFollowup } = task;
       const svcLabel =
         service === "valyu" ? "Valyu Research" :
         service === "tavily" ? "Tavily Research" :
@@ -574,6 +576,91 @@ export default function Workspace() {
           }));
           if (st.state === "completed") {
             const costRub = (st.cost_rub ?? 0).toFixed(2);
+            if (isFollowup) {
+              // Followup auto-flow: show completion + auto-trigger synthesize.
+              // No "Запустить анализ" CTA — user already paid for the full path.
+              setMessages((ms) => [
+                ...ms,
+                {
+                  id: `fu-done-${taskId}`,
+                  role: "system",
+                  kind: "text",
+                  content:
+                    `✓ Добор готов: ${st.source_count ?? "?"} источник(ов), ${st.word_count ?? 0} слов. ` +
+                    `Стоимость: $${(st.cost_usd ?? 0).toFixed(2)} (≈ ₽ ${costRub}).\n\n` +
+                    `Собираю финальный отчёт…`,
+                },
+                {
+                  id: `fu-done-ref-${taskId}`,
+                  role: "system",
+                  kind: "ref",
+                  refKind: "upload",
+                  title: `${svcLabel} (${mode}): добор`,
+                  subtitle: `${st.source_count ?? 0} источник(ов) · ${st.word_count ?? 0} слов · открыть содержимое →`,
+                  accent: true,
+                  sourceFilename: st.filename || undefined,
+                },
+              ]);
+              setActiveResearchTasks((arr) => arr.filter((t) => t.taskId !== taskId));
+              try {
+                const s = await getSession(sessionId);
+                setCost(s.total_cost_rub || 0);
+              } catch {}
+              // Auto-synthesize. setPending blocks UI inputs and the events
+              // long-poll picks up synthesizer progress messages.
+              setPending(true);
+              try {
+                const pref = getPipelineModel();
+                const final = await synthesize(sessionId, pref);
+                setFinalData(final);
+                const s = await getSession(sessionId);
+                setCost(s.total_cost_rub || 0);
+                setMessages((ms) => [
+                  ...ms,
+                  {
+                    id: `fu-final-${taskId}`,
+                    role: "system",
+                    kind: "text",
+                    content: "Финальный отчёт готов. Открыл справа — экспорт в шапке.",
+                  },
+                  {
+                    id: `fu-final-ref-${taskId}`,
+                    role: "system",
+                    kind: "ref",
+                    refKind: "report",
+                    title: final.executive_summary?.main_answer?.slice(0, 60) || "Финальный отчёт",
+                    subtitle: `${final.all_sources?.length ?? 0} источников · ₽ ${Math.round(s.total_cost_rub || 0)}`,
+                    accent: true,
+                  },
+                ]);
+                setPhase(PHASE.DONE);
+                setArtifact({ kind: "report", data: final });
+              } catch (e) {
+                const msg = e instanceof Error ? e.message : String(e);
+                setMessages((ms) => [
+                  ...ms,
+                  {
+                    id: `fu-synth-fail-${taskId}`,
+                    role: "system",
+                    kind: "text",
+                    content:
+                      `✗ Не удалось собрать финал: ${msg}\n\n` +
+                      `Добор сохранён в сессии. Нажмите ниже чтобы повторить синтез.`,
+                  },
+                  {
+                    id: `fu-synth-retry-${taskId}`,
+                    role: "system",
+                    kind: "cta",
+                    primary: "Повторить синтез →",
+                    action: "go-final-direct",
+                  },
+                ]);
+              } finally {
+                setPending(false);
+              }
+              return;
+            }
+            // Non-followup (initial DR) path — unchanged.
             setMessages((ms) => [
               ...ms,
               {
@@ -1328,43 +1415,109 @@ export default function Workspace() {
     }
   }, [sessionId, push]);
 
-  const actTopup = useCallback(() => {
+  const actTopup = useCallback(async () => {
+    if (!sessionId) {
+      showToast("Сессия не найдена");
+      return;
+    }
     push({
       role: "user",
       kind: "text",
       content: "Запускай followup — хочу закрыть пробелы",
     });
     const fu = analysisData?.followup_prompt;
-    if (fu) {
+    if (!fu) {
       push({
         role: "system",
         kind: "text",
-        content: `Followup-промт готов. Скопируйте его, запустите в DR, загрузите результат.`,
+        content:
+          "Followup-промт не сгенерирован — нечего запускать. Запустите ещё один DR вручную и загрузите результат.",
+      });
+      push({
+        role: "system",
+        kind: "cta",
+        primary: "Загрузить followup-файл вручную →",
+        action: "trigger-followup",
+      });
+      setPhase(PHASE.TOPUP);
+      return;
+    }
+    setPhase(PHASE.TOPUP);
+    try {
+      const res = await runAutoFollowup(sessionId, { service: "valyu", mode: "standard" });
+      const costRub = res.cost_rub.toFixed(2);
+      push({
+        role: "system",
+        kind: "text",
+        content:
+          `Запустил Valyu Standard на добор — закроет пробелы и противоречия из followup-промта.\n\n` +
+          `ETA ${res.eta_min_low}–${res.eta_min_high} мин · $${res.cost_usd.toFixed(2)} (≈ ₽ ${costRub}) уже списаны. ` +
+          `Можно закрыть вкладку — финальный отчёт соберу автоматически.`,
+      });
+      push({
+        role: "system",
+        kind: "ref",
+        refKind: "upload",
+        title: `Valyu Research (${res.mode}): добор`,
+        subtitle: `задача ${res.task_id.slice(0, 8)}… · ETA ${res.eta_min_low}–${res.eta_min_high} мин · ₽ ${costRub} · открыть прогресс →`,
+        accent: true,
+        taskId: res.task_id,
+      });
+      // Seed drProgress so the panel shows immediately.
+      setDrProgress((dp) => ({
+        ...dp,
+        [res.task_id]: {
+          service: res.service, mode: res.mode,
+          state: "running",
+          progress_pct: null, message: null,
+          poll_count: 0,
+          started_at: Math.floor(Date.now() / 1000),
+          last_polled_at: 0,
+        },
+      }));
+      setArtifact({ kind: "dr-progress", data: { taskId: res.task_id } });
+      setActiveResearchTasks((arr) => [
+        ...arr.filter((t) => t.taskId !== res.task_id),
+        { taskId: res.task_id, service: res.service, mode: res.mode, isFollowup: true },
+      ]);
+      try {
+        const s = await getSession(sessionId);
+        setCost(s.total_cost_rub || 0);
+      } catch {}
+      // Manual upload remains as escape hatch.
+      push({
+        role: "system",
+        kind: "cta",
+        primary: "Загрузить followup-файл вручную →",
+        action: "trigger-followup",
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      showToast(`Не удалось запустить добор: ${msg}`);
+      push({
+        role: "system",
+        kind: "text",
+        content:
+          `✗ Не удалось запустить Valyu Standard: ${msg}\n\n` +
+          `Можно запустить DR вручную: скопировать followup-промт, прогнать в DR-инструменте и загрузить результат.`,
       });
       push({
         role: "system",
         kind: "ref",
         refKind: "topup",
         title: "Followup-промт",
-        subtitle: `${fu.prompt.length.toLocaleString("ru-RU")} символов · ${fu.target_info || "готов к копированию"}`,
+        subtitle: `${fu.prompt.length.toLocaleString("ru-RU")} символов · готов к копированию`,
         accent: true,
       });
       setArtifact({ kind: "topup" });
-    } else {
       push({
         role: "system",
-        kind: "text",
-        content: "Запустите ещё один DR по оставшимся пробелам и загрузите результат.",
+        kind: "cta",
+        primary: "Загрузить followup-файл →",
+        action: "trigger-followup",
       });
     }
-    push({
-      role: "system",
-      kind: "cta",
-      primary: "Выбрать followup-файл →",
-      action: "trigger-followup",
-    });
-    setPhase(PHASE.TOPUP);
-  }, [push, analysisData]);
+  }, [sessionId, push, analysisData]);
 
   const actFollowup = useCallback(
     async (files: File[]) => {
