@@ -137,6 +137,22 @@ export type FinalReport = {
   metadata: Record<string, unknown>;
 };
 
+export type PendingDRJob = {
+  task_id: string;
+  service: string;            // "valyu" | "tavily" | "exa" | "openai" | "perplexity"
+  mode: string;
+  state?: string;             // "running" | "interrupted_with_partial" | "failed" | "cancelled"
+  cost_usd?: number;
+  cost_rub?: number;
+  submitted_at?: number;
+  partial_content?: string;
+  partial_chars?: number;
+  last_progress_at?: number;
+  interrupted_at?: number;
+  error?: string;
+  resumed_from?: string;
+};
+
 export type V4Session = {
   session_id: string;
   raw_question: string;
@@ -148,6 +164,7 @@ export type V4Session = {
   status: V4SessionStatus;
   created_at: string;
   total_cost_rub: number;
+  pending_dr_jobs?: PendingDRJob[];
 };
 
 export type V4Event = {
