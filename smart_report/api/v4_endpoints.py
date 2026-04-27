@@ -474,6 +474,8 @@ async def auto_dr(session_id: str, request: Request, payload: AutoDRIn):
         # Charge cost upfront — fixed-price job, billed regardless of completion.
         cost_rub = round(sub.cost_usd * _USD_RUB_RATE, 4)
         session.total_cost_rub = float(session.total_cost_rub or 0.0) + cost_rub
+        # For LLM DR (openai/perplexity), the streaming runner writes
+        # partial_content here. Pre-populate the fields it expects.
         session.pending_dr_jobs = list(session.pending_dr_jobs or []) + [{
             "task_id": sub.task_id,
             "service": payload.service,
@@ -481,6 +483,10 @@ async def auto_dr(session_id: str, request: Request, payload: AutoDRIn):
             "cost_usd": sub.cost_usd,
             "cost_rub": cost_rub,
             "submitted_at": time.time(),
+            "state": "running",
+            "partial_content": "",
+            "partial_chars": 0,
+            "last_progress_at": time.time(),
         }]
         _store.update(session)
 
@@ -578,17 +584,11 @@ async def auto_dr_cancel(session_id: str, request: Request, task_id: str) -> dic
 
     if svc in ("openai", "perplexity"):
         from ..sources.llm_deepresearch import cancel_openai_dr_task
-        # Same registry/asyncio.Task pattern for both — cancel works the same way.
-        ok = cancel_openai_dr_task(task_id)
-        if not ok:
-            raise HTTPException(
-                status_code=410,
-                detail=(
-                    "task not in in-process registry — likely the container "
-                    "restarted; the API spend is forfeit and the task is lost."
-                ),
-            )
-        cancel_kind = "hard"
+        # If the asyncio.Task is alive, .cancel() it (hard cancel). If it's
+        # not alive (e.g., already interrupted by container restart), just
+        # clean the pending_dr_jobs entry below — soft cancel.
+        alive = cancel_openai_dr_task(task_id)
+        cancel_kind = "hard" if alive else "soft"
     elif svc == "valyu":
         # Valyu's SDK supports cancel(task_id). Best-effort — swallow errors.
         import os
@@ -625,6 +625,112 @@ async def auto_dr_cancel(session_id: str, request: Request, task_id: str) -> dic
     return {"task_id": task_id, "state": "cancelled", "kind": cancel_kind}
 
 
+@router.post("/sessions/{session_id}/auto-dr-accept-partial")
+async def auto_dr_accept_partial(session_id: str, request: Request, task_id: str) -> dict:
+    """Accept a partial LLM DR result as a source_report.
+
+    Used when an LLM DR (OpenAI / Perplexity) was interrupted by container
+    restart and the user wants to keep the partial markdown rather than
+    re-submitting from scratch.
+    """
+    session = _get_owned(session_id, request)
+    from ..sources.llm_deepresearch import accept_partial_into_source_reports
+    ok = accept_partial_into_source_reports(session, task_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="task or partial_content not found")
+    _store.update(session)
+    emitter = _SessionEmitter(session_id)
+    emitter.emit("status", f"Частичный результат принят (task {task_id[:8]}…)",
+                 data={"task_id": task_id, "action": "accept_partial"})
+    return {"task_id": task_id, "ok": True}
+
+
+@router.post("/sessions/{session_id}/auto-dr-resume", response_model=AutoDRAsyncOut)
+async def auto_dr_resume(session_id: str, request: Request, task_id: str) -> AutoDRAsyncOut:
+    """Resume an interrupted LLM DR by submitting a continuation prompt.
+
+    Reads the partial_content + original mode/service, drops the old job
+    from pending_dr_jobs, submits a fresh task with a "continue from here"
+    prompt. New cost is charged.
+    """
+    session = _owned_with_cap(session_id, request)
+    job = next(
+        (j for j in (session.pending_dr_jobs or []) if j.get("task_id") == task_id),
+        None,
+    )
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"task_id {task_id} not found")
+    if job.get("service") not in ("openai", "perplexity"):
+        raise HTTPException(
+            status_code=400,
+            detail="resume is only available for openai / perplexity LLM DR tasks",
+        )
+
+    partial = (job.get("partial_content") or "").strip()
+    service = job.get("service")
+    mode = job.get("mode", "mini" if service == "openai" else "deep")
+
+    # Build a continuation prompt
+    raw_q = session.raw_question
+    if session.research_prompt and session.research_prompt.full_prompt:
+        raw_q = session.research_prompt.full_prompt
+    continue_prompt = (
+        f"{raw_q}\n\n"
+        f"## Continue from where the previous attempt left off\n"
+        f"The previous response was interrupted. The text so far is below — "
+        f"continue it without repeating, and produce a complete report.\n\n"
+        f"---\n\n{partial}"
+    )
+
+    # Drop the old job (so it's not double-counted)
+    session.pending_dr_jobs = [
+        j for j in (session.pending_dr_jobs or []) if j.get("task_id") != task_id
+    ]
+    _store.update(session)
+
+    # Submit a fresh one
+    from ..sources.auto_dr import submit_async_research, AutoDRError
+    try:
+        sub = await submit_async_research(
+            service, continue_prompt, mode=mode,
+            session_id=session_id, store=_store,
+        )
+    except AutoDRError as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+
+    cost_rub = round(sub.cost_usd * _USD_RUB_RATE, 4)
+    session.total_cost_rub = float(session.total_cost_rub or 0.0) + cost_rub
+    session.pending_dr_jobs = list(session.pending_dr_jobs or []) + [{
+        "task_id": sub.task_id,
+        "service": service,
+        "mode": mode,
+        "model": "(see job runner)",
+        "cost_usd": sub.cost_usd,
+        "cost_rub": cost_rub,
+        "submitted_at": time.time(),
+        "state": "running",
+        "partial_content": "",
+        "partial_chars": 0,
+        "last_progress_at": time.time(),
+        "resumed_from": task_id,
+    }]
+    _store.update(session)
+    emitter = _SessionEmitter(session_id)
+    emitter.emit("status", f"Возобновлено: новый task_id {sub.task_id[:8]}…",
+                 data={"original_task_id": task_id, "new_task_id": sub.task_id})
+
+    return AutoDRAsyncOut(
+        service=service, mode=mode, task_id=sub.task_id,
+        cost_usd=sub.cost_usd, cost_rub=cost_rub,
+        eta_min_low=sub.eta_min_low, eta_min_high=sub.eta_min_high,
+        message=(
+            f"Возобновлено как новая задача. ETA: "
+            f"{sub.eta_min_low}–{sub.eta_min_high} мин. Стоимость: "
+            f"${sub.cost_usd:.2f} (≈ ₽ {cost_rub:.2f}) — уже списана."
+        ),
+    )
+
+
 @router.get("/sessions/{session_id}/auto-dr-status", response_model=AutoDRStatusOut)
 async def auto_dr_status(session_id: str, request: Request, task_id: str) -> AutoDRStatusOut:
     """Poll the status of an async research job (Valyu Research).
@@ -641,11 +747,18 @@ async def auto_dr_status(session_id: str, request: Request, task_id: str) -> Aut
     if job is None:
         raise HTTPException(status_code=404, detail=f"task_id {task_id} not found in this session")
 
-    from ..sources.auto_dr import try_collect_async_research
-
-    poll = await try_collect_async_research(
-        task_id, service=job.get("service", "valyu"), mode=job.get("mode", "standard"),
+    from ..sources.auto_dr import (
+        try_collect_async_research, try_collect_async_research_from_session,
     )
+
+    svc = job.get("service", "valyu")
+    if svc in ("openai", "perplexity"):
+        # Durable LLM DR: state lives in session.pending_dr_jobs (PG-backed).
+        poll = try_collect_async_research_from_session(session, task_id)
+    else:
+        poll = await try_collect_async_research(
+            task_id, service=svc, mode=job.get("mode", "standard"),
+        )
 
     out = AutoDRStatusOut(
         task_id=task_id,

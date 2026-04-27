@@ -596,22 +596,17 @@ def test_auto_dr_status_completed_appends_to_source_reports(monkeypatch):
     assert sess["pending_dr_jobs"] == []
 
 
-def test_auto_dr_cancel_openai_marks_cancelled(monkeypatch):
+def test_auto_dr_cancel_openai_soft_cancel_when_no_live_task(monkeypatch):
+    """After container restart there's no live asyncio.Task, but the
+    endpoint must still clean the pending_dr_jobs entry (soft cancel).
+    Old behaviour returned 410; new behaviour returns 200 with kind=soft."""
     from smart_report.sources import auto_dr as auto_dr_mod
-    from smart_report.sources import llm_deepresearch as llm_dr_mod
 
     async def _fake_submit(service, question, *, mode="standard", session_id=None, store=None):
         return auto_dr_mod.AsyncResearchSubmission(
             task_id="oai-cancel-test", service="openai", mode="mini",
             cost_usd=0.50, eta_min_low=5, eta_min_high=10,
         )
-
-    # Pretend the task is in-flight in the registry.
-    llm_dr_mod._TASKS["oai-cancel-test"] = {
-        "state": "running", "service": "openai", "mode": "mini",
-        "model": "openai/o4-mini-deep-research",
-        "started_at": 0, "result": None, "error": None,
-    }
 
     monkeypatch.setattr(auto_dr_mod, "submit_async_research", _fake_submit)
 
@@ -625,13 +620,12 @@ def test_auto_dr_cancel_openai_marks_cancelled(monkeypatch):
     )
     r = client.post(f"/api/v4/sessions/{sid}/auto-dr-cancel?task_id=oai-cancel-test")
     assert r.status_code == 200, r.text
-    assert r.json()["state"] == "cancelled"
-    assert llm_dr_mod._TASKS["oai-cancel-test"]["state"] == "cancelled"
+    body = r.json()
+    assert body["state"] == "cancelled"
+    assert body["kind"] == "soft"  # no live task → soft
     # pending_dr_jobs entry removed
     sess = client.get(f"/api/v4/sessions/{sid}").json()
     assert all(j.get("task_id") != "oai-cancel-test" for j in (sess.get("pending_dr_jobs") or []))
-    # cleanup
-    llm_dr_mod._TASKS.pop("oai-cancel-test", None)
 
 
 def test_auto_dr_cancel_tavily_is_soft_cancel(monkeypatch):
@@ -691,6 +685,60 @@ def test_auto_dr_cancel_valyu_attempts_hard_cancel(monkeypatch):
     assert r.json()["state"] == "cancelled"
     # Without API key, soft-cancel; with key it'd be hard.
     assert r.json()["kind"] == "soft"
+
+
+def test_auto_dr_accept_partial_promotes_to_source_reports(monkeypatch):
+    """When LLM DR was interrupted with partial content, accepting it
+    moves partial_content to source_reports and removes the job entry."""
+    from smart_report.sources import auto_dr as auto_dr_mod
+
+    async def _fake_submit(service, question, *, mode="standard", session_id=None, store=None):
+        return auto_dr_mod.AsyncResearchSubmission(
+            task_id="oai-partial", service="openai", mode="mini",
+            cost_usd=0.50, eta_min_low=5, eta_min_high=10,
+        )
+
+    monkeypatch.setattr(auto_dr_mod, "submit_async_research", _fake_submit)
+
+    client = _authed_client()
+    sid = client.post(
+        "/api/v4/sessions", json={"question": "partial accept test"}
+    ).json()["session_id"]
+    client.post(
+        f"/api/v4/sessions/{sid}/auto-dr",
+        json={"service": "openai", "mode": "mini", "prompt": "x"},
+    )
+    # Simulate the streaming runner having flushed some partial content,
+    # then the container being killed → state=interrupted_with_partial
+    from smart_report.api import v4_endpoints as v4
+    s = v4._store.get(sid)
+    for j in s.pending_dr_jobs:
+        if j["task_id"] == "oai-partial":
+            j["partial_content"] = "# Partial DR result\n\nSome findings so far"
+            j["partial_chars"] = 41
+            j["state"] = "interrupted_with_partial"
+    v4._store.update(s)
+
+    r = client.post(f"/api/v4/sessions/{sid}/auto-dr-accept-partial?task_id=oai-partial")
+    assert r.status_code == 200, r.text
+
+    sess = client.get(f"/api/v4/sessions/{sid}").json()
+    # source_reports has the partial as an upload, with _partial suffix
+    assert any(
+        u["filename"] == "auto_dr_openai_oai-part_partial.md"
+        for u in sess["source_reports"]
+    )
+    # Job removed from pending_dr_jobs
+    assert all(j["task_id"] != "oai-partial" for j in (sess.get("pending_dr_jobs") or []))
+
+
+def test_auto_dr_accept_partial_404_when_no_partial():
+    client = _authed_client()
+    sid = client.post(
+        "/api/v4/sessions", json={"question": "test"}
+    ).json()["session_id"]
+    r = client.post(f"/api/v4/sessions/{sid}/auto-dr-accept-partial?task_id=ghost")
+    assert r.status_code == 404
 
 
 def test_auto_dr_cancel_404_for_unknown_task():

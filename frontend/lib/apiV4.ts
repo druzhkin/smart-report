@@ -552,6 +552,34 @@ export async function cancelAutoDR(id: string, taskId: string): Promise<{ task_i
   );
 }
 
+export async function acceptPartialAutoDR(
+  id: string, taskId: string,
+): Promise<{ task_id: string; ok: boolean }> {
+  if (STUB) return { task_id: taskId, ok: true };
+  return jv4(
+    `/api/v4/sessions/${encodeURIComponent(id)}/auto-dr-accept-partial?task_id=${encodeURIComponent(taskId)}`,
+    { method: "POST" }
+  );
+}
+
+export async function resumeAutoDR(
+  id: string, taskId: string,
+): Promise<AutoDRAsyncOut> {
+  if (STUB) {
+    return {
+      service: "openai", mode: "mini",
+      task_id: `stub-resumed-${Date.now()}`,
+      cost_usd: 0.50, cost_rub: 37.7,
+      eta_min_low: 5, eta_min_high: 10,
+      message: "Stub: resumed",
+    };
+  }
+  return jv4(
+    `/api/v4/sessions/${encodeURIComponent(id)}/auto-dr-resume?task_id=${encodeURIComponent(taskId)}`,
+    { method: "POST" }
+  );
+}
+
 export async function pollAutoDRStatus(id: string, taskId: string): Promise<AutoDRStatusOut> {
   if (STUB) {
     return {

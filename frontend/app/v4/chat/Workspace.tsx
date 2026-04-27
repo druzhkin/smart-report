@@ -26,6 +26,8 @@ import {
   isAsyncOut,
   cancelSession,
   cancelAutoDR,
+  acceptPartialAutoDR,
+  resumeAutoDR,
   deleteSession,
   getEvents,
   listSessions,
@@ -544,18 +546,47 @@ export default function Workspace() {
             return;
           }
           if (st.state === "failed" || st.state === "cancelled") {
-            setMessages((ms) => [
-              ...ms,
-              {
-                id: `dr-${st.state}-${taskId}`,
-                role: "system",
-                kind: "text",
-                content:
-                  st.state === "cancelled"
-                    ? `${svcLabel} (${mode}) отменён.`
-                    : `✗ ${svcLabel} (${mode}) не справился. ${st.error || st.message || ""}`,
-              },
-            ]);
+            // Special case: "interrupted_with_partial" — LLM DR was killed
+            // by container restart but its partial markdown is durable in PG.
+            // Show recovery actions (accept partial / resume) instead of a
+            // plain "failed" message.
+            const isPartial = st.error === "interrupted_with_partial";
+            if (isPartial) {
+              setMessages((ms) => [
+                ...ms,
+                {
+                  id: `dr-partial-${taskId}`,
+                  role: "system",
+                  kind: "text",
+                  content:
+                    `⚠ ${svcLabel} (${mode}) был прерван (контейнер перезапустился во время выполнения).\n\n` +
+                    `${st.message || "Частичный результат сохранён в сессии."}\n\n` +
+                    `Что делать с частичным результатом:`,
+                },
+                {
+                  id: `dr-partial-cta-${taskId}`,
+                  role: "system",
+                  kind: "cta",
+                  primary: "Принять частичный →",
+                  action: `accept-partial:${taskId}`,
+                  secondary: "Возобновить (новый запрос)",
+                  secondaryAction: `resume-partial:${taskId}`,
+                },
+              ]);
+            } else {
+              setMessages((ms) => [
+                ...ms,
+                {
+                  id: `dr-${st.state}-${taskId}`,
+                  role: "system",
+                  kind: "text",
+                  content:
+                    st.state === "cancelled"
+                      ? `${svcLabel} (${mode}) отменён.`
+                      : `✗ ${svcLabel} (${mode}) не справился. ${st.error || st.message || ""}`,
+                },
+              ]);
+            }
             setActiveResearchTasks((arr) => arr.filter((t) => t.taskId !== taskId));
             return;
           }
@@ -1362,6 +1393,51 @@ export default function Workspace() {
         actFinalDirect();
       } else if (action === "retry-generate-prompt") {
         retryGeneratePrompt();
+      } else if (action.startsWith("accept-partial:")) {
+        const tid = action.slice("accept-partial:".length);
+        if (!sessionId) return;
+        acceptPartialAutoDR(sessionId, tid)
+          .then(async () => {
+            const s = await getSession(sessionId);
+            setCost(s.total_cost_rub || 0);
+            push({
+              role: "system", kind: "text",
+              content: `✓ Частичный результат принят и добавлен в источники сессии. Можно запускать анализ.`,
+            });
+            push({
+              role: "system", kind: "cta",
+              primary: "Запустить анализ →",
+              action: "go-upload-stage",
+            });
+            setPhase(PHASE.UPLOAD);
+          })
+          .catch((e) => showToast(`Не удалось: ${e instanceof Error ? e.message : String(e)}`));
+      } else if (action.startsWith("resume-partial:")) {
+        const tid = action.slice("resume-partial:".length);
+        if (!sessionId) return;
+        resumeAutoDR(sessionId, tid)
+          .then(async (out) => {
+            const s = await getSession(sessionId);
+            setCost(s.total_cost_rub || 0);
+            push({
+              role: "system", kind: "text",
+              content: `✓ Возобновлено. ${out.message}`,
+            });
+            push({
+              role: "system", kind: "ref",
+              refKind: "upload",
+              title: `${out.service} ${out.mode}: возобновлено`,
+              subtitle: `новая задача ${out.task_id.slice(0, 8)}… · ETA ${out.eta_min_low}–${out.eta_min_high} мин`,
+              accent: true,
+              taskId: out.task_id,
+            });
+            setActiveResearchTasks((arr) => [
+              ...arr.filter((t) => t.taskId !== out.task_id),
+              { taskId: out.task_id, service: out.service, mode: out.mode },
+            ]);
+            setArtifact({ kind: "dr-progress", data: { taskId: out.task_id } });
+          })
+          .catch((e) => showToast(`Не удалось возобновить: ${e instanceof Error ? e.message : String(e)}`));
       }
     },
     [

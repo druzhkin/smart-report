@@ -90,6 +90,28 @@ async def _run_job(job: Job) -> None:
         job.mark_status("error", error=f"{type(err).__name__}: {err}")
 
 
+# ---------- startup hooks ----------
+
+
+@app.on_event("startup")
+async def _reconcile_orphaned_dr_on_startup() -> None:
+    """Mark in-flight LLM DR tasks (OpenAI / Perplexity) from the previous
+    container generation as `interrupted_with_partial`. Their
+    partial_content was persisted to PG every ~5s during the streaming
+    runner, so the user can either accept it as-is or resubmit a
+    continuation. Without this hook, those jobs would stay in `running`
+    state forever (no asyncio.Task is alive to update them).
+    """
+    try:
+        from .v4_endpoints import _store
+        from ..sources.llm_deepresearch import reconcile_orphaned_dr_jobs
+        n = reconcile_orphaned_dr_jobs(_store)
+        if n:
+            log.info("startup: marked %d orphaned LLM DR job(s) as interrupted", n)
+    except Exception as e:
+        log.warning("startup reconcile failed (non-fatal): %s", e)
+
+
 # ---------- endpoints ----------
 
 

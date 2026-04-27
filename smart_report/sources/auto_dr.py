@@ -584,33 +584,99 @@ async def try_collect_async_research(
         )
 
     if service in ("openai", "perplexity"):
+        # New durable model: state lives in session.pending_dr_jobs
+        # (PG-backed). Caller passes the session via try_collect_with_session
+        # — for the legacy signature we have no session, so fall back to
+        # the in-memory live-task signal.
         from .llm_deepresearch import get_llm_research_task
         t = get_llm_research_task(task_id)
-        if not t:
+        svc_label = "OpenAI Deep Research" if service == "openai" else "Perplexity Deep Research"
+        if t is None:
+            # Neither alive locally nor visible in this caller's view — caller
+            # should query the session itself (try_collect_with_session below).
             return AsyncResearchPoll(
                 state="failed",
                 error=(
-                    "Задача потеряна (вероятно, контейнер перезапустился). "
-                    "Деньги списаны, результат недоступен. Попробуйте запустить заново."
+                    f"{svc_label}: задача не активна локально. "
+                    "Используйте /auto-dr-status (он проверит сессию)."
                 ),
             )
-        state = t.get("state", "running")
-        svc_label = "OpenAI Deep Research" if service == "openai" else "Perplexity Deep Research"
-        if state == "running":
-            elapsed = int((__import__("time").time() - t.get("started_at", 0)))
-            return AsyncResearchPoll(
-                state="running",
-                message=f"{svc_label} работает уже {elapsed}с",
-            )
-        if state == "failed":
-            return AsyncResearchPoll(state="failed", error=t.get("error") or "unknown")
-        if state == "cancelled":
-            return AsyncResearchPoll(state="cancelled", message="Отменено пользователем")
-        if state == "completed":
-            return AsyncResearchPoll(state="completed", result=t.get("result"))
-        return AsyncResearchPoll(state=state)
+        return AsyncResearchPoll(
+            state="running",
+            message=f"{svc_label} в работе",
+        )
 
     return AsyncResearchPoll(state="failed", error=f"unknown service {service!r}")
+
+
+def try_collect_async_research_from_session(
+    session: Any,
+    task_id: str,
+) -> AsyncResearchPoll:
+    """Durable variant: reads task state from `session.pending_dr_jobs`.
+
+    Used for openai / perplexity (LLM DR via OpenRouter), where the state
+    is persisted in PG by the streaming runner. Survives container restart:
+    the partial_content is durable.
+
+    Returns one of:
+      * state=running with message + progress chars (in-flight)
+      * state=interrupted_with_partial (orphaned by restart) with partial info
+      * state=failed (terminal failure with error)
+      * state=cancelled (user cancel)
+      * state=completed — but this branch normally doesn't fire because the
+        runner removes the job from pending_dr_jobs on completion AND adds
+        the upload to source_reports. So caller sees it as "no job here,
+        new source_report exists".
+    """
+    job = next(
+        (j for j in (session.pending_dr_jobs or []) if j.get("task_id") == task_id),
+        None,
+    )
+    if job is None:
+        # Either completed (already moved) or never existed.
+        return AsyncResearchPoll(
+            state="failed",
+            error="task not found in pending_dr_jobs",
+        )
+
+    state = job.get("state") or "running"
+    service = job.get("service", "llm")
+    svc_label = (
+        "OpenAI Deep Research" if service == "openai"
+        else "Perplexity Deep Research" if service == "perplexity"
+        else service
+    )
+    partial = job.get("partial_content") or ""
+    chars = job.get("partial_chars", len(partial))
+    last_at = job.get("last_progress_at", 0)
+
+    if state == "running":
+        # Build a human-readable progress message with last activity.
+        ago = int(__import__("time").time() - last_at) if last_at else None
+        msg = f"{svc_label}: получено {chars:,} символов"
+        if ago is not None and ago > 0:
+            msg += f", последний прогресс {ago}с назад"
+        return AsyncResearchPoll(state="running", message=msg)
+
+    if state == "interrupted_with_partial":
+        return AsyncResearchPoll(
+            state="failed",  # Surface as failed to existing pollers; UI handles partial separately
+            message=(
+                f"{svc_label} прерван (контейнер перезапустился). "
+                f"Частичный результат: {chars:,} символов. "
+                "Откройте панель прогресса справа: «принять частичное» или «возобновить»."
+            ),
+            error="interrupted_with_partial",
+        )
+
+    if state == "failed":
+        return AsyncResearchPoll(state="failed", error=job.get("error") or "unknown")
+
+    if state == "cancelled":
+        return AsyncResearchPoll(state="cancelled", message="Отменено пользователем")
+
+    return AsyncResearchPoll(state=state)
 
 
 async def cancel_async_research(task_id: str, *, service: str = "valyu") -> None:
