@@ -161,6 +161,27 @@ export default function Workspace() {
   const [activeResearchTasks, setActiveResearchTasks] = useState<Array<{
     taskId: string; service: string; mode: string;
   }>>([]);
+  // Live progress per task — populated by the polling effect on each tick.
+  // Keyed by task_id. Used by the dr-progress artifact view to render
+  // streaming progress (state, %, latest agent message, elapsed time).
+  const [drProgress, setDrProgress] = useState<Record<string, {
+    service: string;
+    mode: string;
+    state: string;
+    progress_pct: number | null;
+    message: string | null;
+    poll_count: number;
+    started_at: number;          // unix seconds, set on first push
+    last_polled_at: number;
+  }>>({});
+  // Trigger re-render once a second while the dr-progress artifact is open
+  // so the «прошло X с» clock updates smoothly between polls.
+  const [, setProgressTick] = useState(0);
+  useEffect(() => {
+    if (artifact?.kind !== "dr-progress") return;
+    const t = setInterval(() => setProgressTick((n) => (n + 1) % 1000), 1000);
+    return () => clearInterval(t);
+  }, [artifact?.kind]);
 
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     if (typeof window === "undefined") return "light";
@@ -450,13 +471,36 @@ export default function Workspace() {
         service === "openai" ? "OpenAI Deep Research" : service;
       let cancelled = false;
       let pollCount = 0;
+      const startedAt = Math.floor(Date.now() / 1000);
       pollersRef.current.set(taskId, () => { cancelled = true; });
+      // Seed drProgress so the artifact panel has something to show
+      // before the first poll comes back.
+      setDrProgress((m) => ({
+        ...m,
+        [taskId]: {
+          service, mode, state: "running",
+          progress_pct: null, message: null,
+          poll_count: 0, started_at: startedAt, last_polled_at: 0,
+        },
+      }));
       const tick = async () => {
         if (cancelled) return;
         pollCount += 1;
         try {
           const st = await pollAutoDRStatus(sessionId, taskId);
           if (cancelled) return;
+          // Update live progress state for the artifact viewer.
+          setDrProgress((m) => ({
+            ...m,
+            [taskId]: {
+              service, mode, state: st.state,
+              progress_pct: st.progress_pct,
+              message: st.message,
+              poll_count: pollCount,
+              started_at: startedAt,
+              last_polled_at: Math.floor(Date.now() / 1000),
+            },
+          }));
           if (st.state === "completed") {
             const costRub = (st.cost_rub ?? 0).toFixed(2);
             setMessages((ms) => [
@@ -912,9 +956,12 @@ export default function Workspace() {
             kind: "ref",
             refKind: "upload",
             title: `${serviceLabel} (${res.mode})`,
-            subtitle: `задача ${res.task_id.slice(0, 8)}… · ETA ${res.eta_min_low}–${res.eta_min_high} мин · ₽ ${costRub}`,
+            subtitle: `задача ${res.task_id.slice(0, 8)}… · ETA ${res.eta_min_low}–${res.eta_min_high} мин · ₽ ${costRub} · открыть прогресс →`,
             accent: true,
+            taskId: res.task_id,
           });
+          // Auto-open the progress panel so user sees streaming live.
+          setArtifact({ kind: "dr-progress", data: { taskId: res.task_id } });
           // Track this task_id; the polling effect below will pick it up.
           setActiveResearchTasks((arr) => [
             ...arr.filter((t) => t.taskId !== res.task_id),
@@ -1395,7 +1442,9 @@ export default function Workspace() {
             active={isActive}
             accent={m.accent}
             onClick={() => {
-              if (m.sourceFilename) {
+              if (m.taskId) {
+                setArtifact({ kind: "dr-progress", data: { taskId: m.taskId } });
+              } else if (m.sourceFilename) {
                 viewSourceContent(m.sourceFilename);
               } else {
                 setArtifact({ kind: m.refKind as Artifact["kind"] });
@@ -1474,6 +1523,38 @@ export default function Workspace() {
             выбрать файлы
           </button>
         ),
+      };
+    }
+    if (artifact.kind === "dr-progress") {
+      const tid = (artifact.data as { taskId?: string } | undefined)?.taskId || "";
+      const p = drProgress[tid];
+      const svcLabel =
+        p?.service === "valyu" ? "Valyu Research" :
+        p?.service === "exa" ? "Exa Research" :
+        p?.service === "tavily" ? "Tavily Research" :
+        p?.service === "openai" ? "OpenAI Deep Research" :
+        p?.service || "Research";
+      return {
+        kind: "Прогресс",
+        title: `${svcLabel} (${p?.mode || "?"})`,
+        actions: tid ? (
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={async () => {
+              try {
+                await cancelAutoDR(sessionId!, tid);
+                setActiveResearchTasks((arr) => arr.filter((t) => t.taskId !== tid));
+                setArtifact(null);
+                showToast("DR отменён");
+              } catch (e) {
+                showToast(`Не удалось: ${e instanceof Error ? e.message : String(e)}`);
+              }
+            }}
+          >
+            отменить
+          </button>
+        ) : null,
       };
     }
     if (artifact.kind === "source-md") {
@@ -2158,6 +2239,63 @@ export default function Workspace() {
                   )}
                 </div>
               )}
+              {artifact.kind === "dr-progress" && (() => {
+                const tid = (artifact.data as { taskId?: string } | undefined)?.taskId || "";
+                const p = drProgress[tid];
+                if (!p) {
+                  return (
+                    <div style={{ padding: 24, color: "var(--ink-3)" }}>
+                      Запускаю задачу… первый poll через 10с.
+                    </div>
+                  );
+                }
+                const elapsed = Math.max(0, Math.floor(Date.now() / 1000) - p.started_at);
+                const elapsedLabel = elapsed < 60
+                  ? `${elapsed}с`
+                  : `${Math.floor(elapsed / 60)}м ${elapsed % 60}с`;
+                const lastPolledAgo = p.last_polled_at
+                  ? Math.floor(Date.now() / 1000) - p.last_polled_at
+                  : null;
+                const stateBadge =
+                  p.state === "running" ? "● выполняется" :
+                  p.state === "queued" ? "○ в очереди" :
+                  p.state === "completed" ? "✓ готово" :
+                  p.state === "cancelled" ? "✕ отменено" :
+                  p.state === "failed" ? "✗ ошибка" : p.state;
+                return (
+                  <div className="dr-progress-view">
+                    <div className="dr-progress-state">{stateBadge}</div>
+                    {p.progress_pct != null && (
+                      <div className="dr-progress-bar-wrap">
+                        <div className="dr-progress-bar-bg">
+                          <div
+                            className="dr-progress-bar-fill"
+                            style={{ width: `${Math.min(100, Math.max(0, p.progress_pct))}%` }}
+                          />
+                        </div>
+                        <div className="dr-progress-bar-pct">{p.progress_pct}%</div>
+                      </div>
+                    )}
+                    <div className="dr-progress-meta">
+                      <div>прошло: <b>{elapsedLabel}</b></div>
+                      <div>опросов: <b>{p.poll_count}</b></div>
+                      {lastPolledAgo !== null && (
+                        <div>последний poll: <b>{lastPolledAgo}с назад</b></div>
+                      )}
+                    </div>
+                    {p.message && (
+                      <div className="dr-progress-message">
+                        <div className="dr-progress-message-label">Текущая активность агента:</div>
+                        <div className="dr-progress-message-text">{p.message}</div>
+                      </div>
+                    )}
+                    <div className="dr-progress-tip">
+                      💡 Можно закрыть вкладку — задача продолжит выполняться на стороне сервиса.
+                      Когда будет готово, отчёт появится в чате автоматически.
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           </section>
         )}

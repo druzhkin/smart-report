@@ -976,6 +976,85 @@
   line-height: 1;
 }
 
+/* === DR progress viewer (live polling display) === */
+.ws-root .dr-progress-view {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.ws-root .dr-progress-state {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--ink);
+  letter-spacing: 0.02em;
+}
+.ws-root .dr-progress-bar-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.ws-root .dr-progress-bar-bg {
+  flex: 1;
+  height: 6px;
+  background: var(--paper-2);
+  border: 1px solid var(--rule);
+  overflow: hidden;
+}
+.ws-root .dr-progress-bar-fill {
+  height: 100%;
+  background: var(--accent, #c69749);
+  transition: width 0.4s ease-out;
+}
+.ws-root .dr-progress-bar-pct {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-2);
+  min-width: 36px;
+  text-align: right;
+}
+.ws-root .dr-progress-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.ws-root .dr-progress-meta b {
+  color: var(--ink);
+  font-weight: 600;
+}
+.ws-root .dr-progress-message {
+  border-left: 2px solid var(--accent, #c69749);
+  background: var(--paper-2);
+  padding: 10px 14px;
+}
+.ws-root .dr-progress-message-label {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--ink-3);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+.ws-root .dr-progress-message-text {
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--ink);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+.ws-root .dr-progress-tip {
+  font-family: var(--sans);
+  font-size: 12px;
+  color: var(--ink-3);
+  font-style: italic;
+  line-height: 1.5;
+  padding-top: 12px;
+  border-top: 1px solid var(--rule);
+}
+
 /* === Source markdown viewer (auto-DR result) === */
 .ws-root .source-md-view {
   padding: 18px 24px;

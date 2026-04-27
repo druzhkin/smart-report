@@ -32,6 +32,9 @@ export interface ChatMessage {
   // When set, ref-click opens the source-md viewer instead of the
   // generic upload-stage placeholder.
   sourceFilename?: string;
+  // Running DR ref: task_id of an in-flight async research task.
+  // When set, ref-click opens the dr-progress viewer with live polling.
+  taskId?: string;
 }
 
 export interface Session {
@@ -52,7 +55,7 @@ export interface Project {
 }
 
 export interface Artifact {
-  kind: "prompt" | "upload" | "upload-stage" | "critique" | "topup" | "report" | "source-md";
+  kind: "prompt" | "upload" | "upload-stage" | "critique" | "topup" | "report" | "source-md" | "dr-progress";
   // Real API data payload (present when connected to backend)
   data?: unknown;
 }
