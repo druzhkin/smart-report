@@ -62,6 +62,33 @@ def _authed_client():
     return c
 
 
+def _await_long_task(client, sid: str, task_id: str, timeout: float = 5.0) -> dict:
+    """Poll /long-task-status until terminal, return the final status body.
+
+    Used by tests that submit /analyze or /synthesize and need the
+    background asyncio.Task to finish before asserting on results.
+    With LLM stubs the task usually completes within the first few
+    polls; the timeout is a guardrail.
+    """
+    import time
+    deadline = time.monotonic() + timeout
+    last = None
+    while time.monotonic() < deadline:
+        r = client.get(
+            f"/api/v4/sessions/{sid}/long-task-status",
+            params={"task_id": task_id},
+        )
+        assert r.status_code == 200, r.text
+        last = r.json()
+        if last["state"] in ("completed", "failed"):
+            return last
+        time.sleep(0.02)
+    raise AssertionError(
+        f"long-task {task_id} did not reach terminal state in {timeout}s; "
+        f"last poll: {last}"
+    )
+
+
 @pytest.fixture
 def mock_llm(monkeypatch):
     from smart_report import prompt_master as pm_module
@@ -257,16 +284,28 @@ def test_v4_full_cycle(monkeypatch, tmp_path):
     assert uploaded[1]["detected_tool"] in {"claude", "other"}
 
     r = client.post(f"/api/v4/sessions/{sid}/analyze")
-    assert r.status_code == 200, r.text
-    analysis = r.json()
+    assert r.status_code == 202, r.text
+    task = r.json()
+    assert task["phase"] == "analyze"
+    assert task["state"] == "running"
+    status = _await_long_task(client, sid, task["task_id"])
+    assert status["state"] == "completed", status
+    # Result lives on the session, not in the 202 body.
+    sess = client.get(f"/api/v4/sessions/{sid}").json()
+    analysis = sess["analysis"]
     assert len(analysis["consensus"]) == 1
     assert len(analysis["conflicts"]) == 1
     assert len(analysis["gaps"]) == 1
     assert len(analysis["followup_prompts"]) == 1
 
     r = client.post(f"/api/v4/sessions/{sid}/synthesize")
-    assert r.status_code == 200, r.text
-    final = r.json()
+    assert r.status_code == 202, r.text
+    task = r.json()
+    assert task["phase"] == "synthesize"
+    status = _await_long_task(client, sid, task["task_id"])
+    assert status["state"] == "completed", status
+    sess = client.get(f"/api/v4/sessions/{sid}").json()
+    final = sess["final_report"]
     assert final["session_id"] == sid
     assert final["executive_summary"]["main_answer"]
     assert final["executive_summary"]["ranking"].startswith("Продукт")
@@ -776,3 +815,92 @@ def test_track_b_endpoints_are_wired():
     # export before final_report exists → 409
     r = client.get(f"/api/v4/sessions/{sid}/export", params={"format": "md"})
     assert r.status_code == 409, r.text
+
+
+def test_long_task_status_404_for_unknown_task():
+    """Polling with a bogus task_id returns 404, not silent fallthrough."""
+    client = _authed_client()
+    sid = client.post(
+        "/api/v4/sessions", json={"question": "long-task 404 test"}
+    ).json()["session_id"]
+    r = client.get(
+        f"/api/v4/sessions/{sid}/long-task-status",
+        params={"task_id": "neverexisted"},
+    )
+    assert r.status_code == 404
+
+
+def test_concurrent_analyze_rejected_with_409(monkeypatch):
+    """Submitting /analyze twice while one is in flight returns 409."""
+    from smart_report import analyzer as analyzer_module
+    from smart_report import intake as intake_module
+    from smart_report import prompt_master as pm_module
+
+    # Stall the analyzer LLM so the first task stays "running" while we
+    # fire the second submission.
+    import asyncio as _asyncio
+
+    async def _slow_analyzer(*a, **kw):
+        await _asyncio.sleep(2.0)  # long enough for second POST to arrive
+        return LLMResult(
+            text=json.dumps(
+                {
+                    "consensus": [],
+                    "conflicts": [],
+                    "gaps": [],
+                    "followup_prompts": [],
+                    "all_numeric_facts": [],
+                    "all_qualitative_facts": [],
+                    "high_relevance_facts": [],
+                    "fact_coverage_target": 0,
+                },
+                ensure_ascii=False,
+            ),
+            cost_rub=0.0,
+        )
+
+    async def _intake_stub(*a, **kw):
+        return LLMResult(
+            text=json.dumps({"numeric_facts": [], "qualitative_facts": [], "claims": []}),
+            cost_rub=0.0,
+        )
+
+    async def _pm_stub(*a, **kw):
+        return LLMResult(
+            text=json.dumps(
+                {
+                    "full_prompt": "X" * 250,
+                    "reasoning": "r",
+                    "expected_structure": ["s1"],
+                    "key_entities": ["PIK"],
+                    "tips_for_search": "Perplexity",
+                },
+                ensure_ascii=False,
+            ),
+            cost_rub=0.0,
+        )
+
+    monkeypatch.setattr(analyzer_module, "call_json", _slow_analyzer)
+    monkeypatch.setattr(intake_module, "call_json", _intake_stub)
+    monkeypatch.setattr(pm_module, "call_json", _pm_stub)
+
+    client = _authed_client()
+    sid = client.post(
+        "/api/v4/sessions", json={"question": "concurrent test"}
+    ).json()["session_id"]
+    client.post(f"/api/v4/sessions/{sid}/generate-prompt")
+    client.post(
+        f"/api/v4/sessions/{sid}/upload-reports",
+        files=[("files", ("a.md", b"# report a", "text/markdown"))],
+    )
+
+    r1 = client.post(f"/api/v4/sessions/{sid}/analyze")
+    assert r1.status_code == 202, r1.text
+    task_id_1 = r1.json()["task_id"]
+
+    r2 = client.post(f"/api/v4/sessions/{sid}/analyze")
+    assert r2.status_code == 409, r2.text
+    assert task_id_1 in r2.json()["detail"]
+
+    # Drain the first task so module-level state is clean for the next test.
+    _await_long_task(client, sid, task_id_1, timeout=5.0)

@@ -607,6 +607,16 @@ class V4Session(_V4Base):
     # service / mode / cost was used.
     pending_dr_jobs: list[dict] = Field(default_factory=list)
 
+    # Long-running orchestrator tasks (analyze / synthesize) launched as
+    # asyncio.create_task() — so the HTTP endpoint returns 202 + task_id
+    # in <1s instead of waiting 60-300s and dying on Cloudflare/Railway's
+    # 100s proxy timeout. State machine: running → completed | failed.
+    # Entry shape: {task_id, phase, state, started_at, completed_at,
+    # error, model_preference}. Live asyncio.Task handles live in
+    # _LONG_TASK_REGISTRY (in-memory); this list is the durable mirror
+    # so reads survive container restarts.
+    pending_long_tasks: list[dict] = Field(default_factory=list)
+
 
 V4Session.model_rebuild()
 FinalReport.model_rebuild()

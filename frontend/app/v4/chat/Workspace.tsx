@@ -255,6 +255,30 @@ export default function Workspace() {
         // poller is watching. The polling effect picks these up via
         // activeResearchTasks change. drProgress is seeded so the panel
         // doesn't show "Запускаю задачу…" while waiting for first poll.
+        // Resume polling for an in-flight analyze/synthesize task — when the
+        // user F5'd mid-LLM-call, the backend keeps running but the local
+        // promise that was awaiting it is gone. We re-invoke the API
+        // wrapper which detects the existing task via the 409 path and
+        // resumes polling, then dispatches the result to local state on
+        // completion. Without this, only completed runs are recovered;
+        // mid-flight ones strand the UI on the previous phase.
+        const runningLongTasks = (s.pending_long_tasks || []).filter(
+          (t) => t.state === "running",
+        );
+        for (const lt of runningLongTasks) {
+          if (lt.phase === "analyze" && !s.analysis) {
+            const pref = (lt.model_preference as "sonnet" | "opus" | undefined) ?? undefined;
+            analyze(savedId, pref)
+              .then((a) => { setAnalysisData(a); setPhase(PHASE.CRITIQUE); })
+              .catch((e) => console.warn("analyze resume failed", e));
+          } else if (lt.phase === "synthesize" && !s.final_report) {
+            const pref = (lt.model_preference as "sonnet" | "opus" | undefined) ?? undefined;
+            synthesize(savedId, pref)
+              .then((f) => { setFinalData(f); setPhase(PHASE.DONE); })
+              .catch((e) => console.warn("synthesize resume failed", e));
+          }
+        }
+
         const runningJobs = (s.pending_dr_jobs || []).filter(
           (j: any) => (j.state || "running") === "running"
         );

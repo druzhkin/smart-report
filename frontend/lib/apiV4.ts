@@ -153,6 +153,35 @@ export type PendingDRJob = {
   resumed_from?: string;
 };
 
+export type LongTaskPhase = "analyze" | "synthesize" | "export-pptx";
+export type LongTaskState = "running" | "completed" | "failed";
+
+export type LongTaskOut = {
+  task_id: string;
+  phase: LongTaskPhase;
+  state: "running";
+  started_at: string;
+};
+
+export type LongTaskStatusOut = {
+  task_id: string;
+  phase: LongTaskPhase;
+  state: LongTaskState;
+  started_at: string;
+  completed_at: string | null;
+  error: string | null;
+};
+
+export type PendingLongTask = {
+  task_id: string;
+  phase: LongTaskPhase;
+  state: LongTaskState;
+  started_at: string;
+  completed_at?: string | null;
+  error?: string | null;
+  model_preference?: string | null;
+};
+
 export type V4Session = {
   session_id: string;
   raw_question: string;
@@ -165,6 +194,7 @@ export type V4Session = {
   created_at: string;
   total_cost_rub: number;
   pending_dr_jobs?: PendingDRJob[];
+  pending_long_tasks?: PendingLongTask[];
 };
 
 export type V4Event = {
@@ -295,6 +325,89 @@ export async function uploadReports(
   return res.json();
 }
 
+// -- Long-task primitives (fire+poll for /analyze, /synthesize) -----------
+// Backend returns 202 + task_id; the actual LLM call runs in a background
+// task on the server. Frontend polls /long-task-status until terminal,
+// then re-fetches the session to read the real payload.
+
+export async function startAnalyze(
+  id: string, modelPreference?: "sonnet" | "opus",
+): Promise<LongTaskOut> {
+  const body = modelPreference
+    ? JSON.stringify({ model_preference: modelPreference })
+    : undefined;
+  return jv4<LongTaskOut>(
+    `/api/v4/sessions/${encodeURIComponent(id)}/analyze`,
+    { method: "POST", body },
+  );
+}
+
+export async function startSynthesize(
+  id: string, modelPreference?: "sonnet" | "opus",
+): Promise<LongTaskOut> {
+  const body = modelPreference
+    ? JSON.stringify({ model_preference: modelPreference })
+    : undefined;
+  return jv4<LongTaskOut>(
+    `/api/v4/sessions/${encodeURIComponent(id)}/synthesize`,
+    { method: "POST", body },
+  );
+}
+
+export async function pollLongTaskStatus(
+  id: string, taskId: string,
+): Promise<LongTaskStatusOut> {
+  return jv4<LongTaskStatusOut>(
+    `/api/v4/sessions/${encodeURIComponent(id)}/long-task-status?task_id=${encodeURIComponent(taskId)}`,
+  );
+}
+
+/** Submit a long task and resolve when it terminates.
+ *
+ * Polls every `intervalMs` (default 5s). Caps at `timeoutMs` (default 1h)
+ * to prevent runaway loops if a task gets stuck — at which point it
+ * throws so the UI can show a recovery banner. Server-side state is
+ * preserved in `session.pending_long_tasks` so an F5 reload during a
+ * long task picks up where polling left off.
+ *
+ * On 409 from the start endpoint (task already running for this phase),
+ * extracts the existing task_id from the error detail and polls that
+ * instead of failing.
+ */
+async function _runLongTask(
+  start: () => Promise<LongTaskOut>,
+  poll: (taskId: string) => Promise<LongTaskStatusOut>,
+  opts: { intervalMs?: number; timeoutMs?: number } = {},
+): Promise<LongTaskStatusOut> {
+  const intervalMs = opts.intervalMs ?? 5_000;
+  const timeoutMs = opts.timeoutMs ?? 3_600_000; // 1h
+
+  let taskId: string;
+  try {
+    const submitted = await start();
+    taskId = submitted.task_id;
+  } catch (e: unknown) {
+    // Resume an in-flight task on 409 — backend embeds task_id in detail.
+    const msg = e instanceof Error ? e.message : String(e);
+    const match = msg.match(/task_id=([0-9a-f]{32})/i);
+    if (msg.includes("409") && match) {
+      taskId = match[1];
+    } else {
+      throw e;
+    }
+  }
+
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const status = await poll(taskId);
+    if (status.state === "completed" || status.state === "failed") {
+      return status;
+    }
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  throw new Error(`long task ${taskId} did not terminate within ${timeoutMs}ms`);
+}
+
 export async function analyze(id: string, modelPreference?: "sonnet" | "opus"): Promise<AnalysisOutput> {
   if (STUB) {
     await new Promise((r) => setTimeout(r, 1200));
@@ -311,11 +424,18 @@ export async function analyze(id: string, modelPreference?: "sonnet" | "opus"): 
     }
     return STUB_ANALYSIS;
   }
-  const body = modelPreference ? JSON.stringify({ model_preference: modelPreference }) : undefined;
-  return jv4<AnalysisOutput>(
-    `/api/v4/sessions/${encodeURIComponent(id)}/analyze`,
-    { method: "POST", body }
+  const status = await _runLongTask(
+    () => startAnalyze(id, modelPreference),
+    (tid) => pollLongTaskStatus(id, tid),
   );
+  if (status.state !== "completed") {
+    throw new Error(status.error || `analyze ${status.task_id} failed`);
+  }
+  const session = await getSession(id);
+  if (!session.analysis) {
+    throw new Error(`analyze ${status.task_id} completed but session.analysis is null`);
+  }
+  return session.analysis;
 }
 
 export async function uploadFollowup(
@@ -378,11 +498,18 @@ export async function synthesize(id: string, modelPreference?: "sonnet" | "opus"
     }
     return fr;
   }
-  const body = modelPreference ? JSON.stringify({ model_preference: modelPreference }) : undefined;
-  return jv4<FinalReport>(
-    `/api/v4/sessions/${encodeURIComponent(id)}/synthesize`,
-    { method: "POST", body }
+  const status = await _runLongTask(
+    () => startSynthesize(id, modelPreference),
+    (tid) => pollLongTaskStatus(id, tid),
   );
+  if (status.state !== "completed") {
+    throw new Error(status.error || `synthesize ${status.task_id} failed`);
+  }
+  const session = await getSession(id);
+  if (!session.final_report) {
+    throw new Error(`synthesize ${status.task_id} completed but session.final_report is null`);
+  }
+  return session.final_report;
 }
 
 export async function getSession(id: string): Promise<V4Session> {
@@ -639,6 +766,47 @@ export async function pollAutoDRStatus(id: string, taskId: string): Promise<Auto
 
 export function exportUrl(id: string, format: string): string {
   return `${V4_BASE}/api/v4/sessions/${encodeURIComponent(id)}/export?format=${encodeURIComponent(format)}`;
+}
+
+// -- Gamma PPTX (Gamma API integration, replaces stub) --------------------
+// Real PPTX generation: 1-3 min. Uses the long-task pattern.
+
+export async function startExportGammaPptx(id: string): Promise<LongTaskOut> {
+  if (STUB) {
+    return {
+      task_id: `stub-gamma-${Date.now()}`,
+      phase: "export-pptx",
+      state: "running",
+      started_at: new Date().toISOString(),
+    };
+  }
+  return jv4<LongTaskOut>(
+    `/api/v4/sessions/${encodeURIComponent(id)}/export-gamma-pptx`,
+    { method: "POST" },
+  );
+}
+
+/** Submit a Gamma PPTX generation and resolve when the file is ready.
+ *
+ * Returns the absolute download URL. Caller should `window.open()` or
+ * `<a href>` it. On Gamma failure (no API key, no credits, etc.) the
+ * underlying long-task transitions to `failed` and this throws with
+ * the recorded error message.
+ */
+export async function generateGammaPptx(id: string): Promise<string> {
+  if (STUB) {
+    await new Promise((r) => setTimeout(r, 800));
+    return exportUrl(id, "gamma-pptx-real");
+  }
+  const status = await _runLongTask(
+    () => startExportGammaPptx(id),
+    (tid) => pollLongTaskStatus(id, tid),
+    { intervalMs: 5000, timeoutMs: 600_000 },
+  );
+  if (status.state !== "completed") {
+    throw new Error(status.error || `gamma-pptx ${status.task_id} failed`);
+  }
+  return exportUrl(id, "gamma-pptx-real");
 }
 
 export const STUB_ENABLED = STUB;

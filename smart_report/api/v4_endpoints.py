@@ -135,6 +135,232 @@ class ModelPreferenceIn(BaseModel):
     model_preference: Literal["sonnet", "opus"] | None = None
 
 
+# ---- long-running task pattern (analyze / synthesize) ---------------------
+# These orchestrator phases take 60-1800s on real prod data, but Cloudflare
+# and Railway proxies kill HTTP connections at 100s. The endpoint returns
+# 202 + task_id within <1s; the asyncio.Task runs in the background and
+# writes terminal state to session.pending_long_tasks (PG-backed). Frontend
+# polls /long-task-status for the verdict; the actual analysis/final_report
+# payload lives on the session itself once the task completes.
+
+# Long tasks run on a dedicated event loop in a daemon thread, NOT on the
+# request-handler loop. Two reasons: (a) Starlette/anyio task groups cancel
+# fire-and-forget children when the parent request ends, killing
+# /analyze /synthesize mid-flight in TestClient and any "graceful shutdown"
+# scenario; (b) keeping LLM/DB work off the request loop avoids competing
+# with /events long-poll and /long-task-status latency budgets.
+#
+# Registry maps task_id → concurrent.futures.Future so we can probe
+# liveness with .done() from any thread without crossing event-loop
+# boundaries.
+import concurrent.futures as _cf
+import threading as _threading
+
+_LONG_TASK_REGISTRY: dict[str, "_cf.Future"] = {}
+_BG_LOOP: asyncio.AbstractEventLoop | None = None
+_BG_LOOP_LOCK = _threading.Lock()
+
+
+def _get_bg_loop() -> asyncio.AbstractEventLoop:
+    """Return the long-task event loop, lazily starting it on first use.
+
+    Loop runs on a daemon thread, so it dies with the process. Handles
+    re-creation if a prior loop got closed (e.g. test fixtures in some
+    setups close all loops between tests).
+    """
+    global _BG_LOOP
+    with _BG_LOOP_LOCK:
+        if _BG_LOOP is None or _BG_LOOP.is_closed():
+            loop = asyncio.new_event_loop()
+
+            def _run_loop() -> None:
+                asyncio.set_event_loop(loop)
+                try:
+                    loop.run_forever()
+                finally:
+                    loop.close()
+
+            t = _threading.Thread(
+                target=_run_loop, daemon=True, name="v4-long-tasks-loop"
+            )
+            t.start()
+            _BG_LOOP = loop
+        return _BG_LOOP
+
+
+class LongTaskOut(BaseModel):
+    """202 Accepted body returned by /analyze and /synthesize."""
+    task_id: str
+    phase: Literal["analyze", "synthesize", "export-pptx"]
+    state: Literal["running"] = "running"
+    started_at: str  # ISO8601 UTC
+
+
+class LongTaskStatusOut(BaseModel):
+    task_id: str
+    phase: Literal["analyze", "synthesize", "export-pptx"]
+    state: Literal["running", "completed", "failed"]
+    started_at: str
+    completed_at: str | None = None
+    error: str | None = None
+
+
+def _now_iso() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat()
+
+
+async def _run_long_task(
+    session_id: str,
+    task_id: str,
+    phase: str,
+    coro,
+) -> None:
+    """Wrapper that runs *coro* and records terminal state on the session.
+
+    Catches BaseException (incl. CancelledError) so the durable
+    pending_long_tasks entry always gets a verdict; without this a
+    cancellation would leave the row stuck on `running` until reaped.
+    """
+    terminal: dict[str, Any] = {
+        "state": "failed",
+        "error": "task did not record terminal state",
+    }
+    try:
+        await coro
+        terminal = {"state": "completed", "error": None}
+        log.info(
+            "long-task %s phase=%s session=%s completed",
+            task_id, phase, session_id,
+        )
+    except asyncio.CancelledError:
+        terminal = {"state": "failed", "error": "task cancelled"}
+        log.warning(
+            "long-task %s phase=%s session=%s cancelled",
+            task_id, phase, session_id,
+        )
+    except BaseException as e:  # noqa: BLE001 — we re-record below
+        terminal = {"state": "failed", "error": f"{type(e).__name__}: {e}"}
+        log.exception(
+            "long-task %s phase=%s session=%s failed",
+            task_id, phase, session_id,
+        )
+    finally:
+        # Mirror terminal state to the durable list so subsequent polls
+        # (and post-restart polls) see the verdict. _store.update is
+        # sync DB I/O; on a non-request loop run_in_executor is fine.
+        try:
+            session = _store.get(session_id)
+            updated = False
+            for entry in session.pending_long_tasks or []:
+                if entry.get("task_id") == task_id:
+                    entry["state"] = terminal["state"]
+                    entry["error"] = terminal["error"]
+                    entry["completed_at"] = _now_iso()
+                    updated = True
+                    break
+            if updated:
+                await asyncio.get_event_loop().run_in_executor(
+                    None, _store.update, session
+                )
+        except Exception:
+            log.exception(
+                "long-task %s: failed to record terminal state on session %s",
+                task_id, session_id,
+            )
+
+
+def _has_running_long_task(session: V4Session, phase: str) -> str | None:
+    """Return the task_id of an in-flight task for *phase*, or None."""
+    for entry in session.pending_long_tasks or []:
+        if entry.get("phase") == phase and entry.get("state") == "running":
+            tid = entry.get("task_id")
+            fut = _LONG_TASK_REGISTRY.get(tid)
+            if fut is not None and not fut.done():
+                return tid
+    return None
+
+
+def _reap_stale_running_tasks(session: V4Session) -> bool:
+    """Mark `running` entries with no live future as `failed`.
+
+    Called on every status poll and submission. Necessary because Railway
+    redeploys reset the in-memory registry but leave PG entries in
+    `running` forever. Returns True if any entry was updated.
+    """
+    changed = False
+    for entry in session.pending_long_tasks or []:
+        if entry.get("state") != "running":
+            continue
+        tid = entry.get("task_id")
+        fut = _LONG_TASK_REGISTRY.get(tid)
+        if fut is None or fut.done():
+            entry["state"] = "failed"
+            entry["error"] = (
+                entry.get("error")
+                or "container restart killed the task — re-run from the UI"
+            )
+            entry["completed_at"] = _now_iso()
+            _LONG_TASK_REGISTRY.pop(tid, None)
+            changed = True
+    return changed
+
+
+def _start_long_task(
+    session: V4Session,
+    *,
+    phase: Literal["analyze", "synthesize", "export-pptx"],
+    model_preference: str | None,
+    coro_factory,
+) -> LongTaskOut:
+    """Submit a long-running orchestrator phase to the background loop.
+
+    *coro_factory* is a zero-arg callable that returns the coroutine to run.
+    The coroutine is scheduled on a dedicated daemon-thread event loop —
+    NOT on the request handler's loop — so request lifecycle does not
+    cancel it.
+    """
+    if _reap_stale_running_tasks(session):
+        _store.update(session)
+
+    in_flight = _has_running_long_task(session, phase)
+    if in_flight is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"{phase} already running for this session "
+                f"(task_id={in_flight}); poll /long-task-status or wait"
+            ),
+        )
+
+    task_id = uuid.uuid4().hex
+    started_at = _now_iso()
+    entry = {
+        "task_id": task_id,
+        "phase": phase,
+        "state": "running",
+        "started_at": started_at,
+        "completed_at": None,
+        "error": None,
+        "model_preference": model_preference,
+    }
+    session.pending_long_tasks = list(session.pending_long_tasks or []) + [entry]
+    _store.update(session)
+
+    fut = asyncio.run_coroutine_threadsafe(
+        _run_long_task(session.session_id, task_id, phase, coro_factory()),
+        _get_bg_loop(),
+    )
+    _LONG_TASK_REGISTRY[task_id] = fut
+
+    return LongTaskOut(
+        task_id=task_id,
+        phase=phase,
+        state="running",
+        started_at=started_at,
+    )
+
+
 # ---- endpoints ----
 
 
@@ -333,18 +559,41 @@ async def upload_followup(
     return await _upload_markdown(session_id, files, dest="followup")
 
 
-@router.post("/sessions/{session_id}/analyze", response_model=AnalysisOutput)
-async def analyze(session_id: str, request: Request, payload: ModelPreferenceIn | None = None) -> AnalysisOutput:
-    _owned_with_cap(session_id, request)
-    orch = V4Orchestrator(_store, emitter=_SessionEmitter(session_id))
+@router.post(
+    "/sessions/{session_id}/analyze",
+    response_model=LongTaskOut,
+    status_code=202,
+)
+async def analyze(
+    session_id: str, request: Request, payload: ModelPreferenceIn | None = None
+) -> LongTaskOut:
+    """Submit the analyzer phase as a background task.
+
+    Returns 202 + task_id within <1s. The actual analyzer LLM call runs
+    in an asyncio.Task; clients poll GET /long-task-status?task_id=...
+    until state="completed", then read the AnalysisOutput from the
+    session via GET /sessions/{id}.
+
+    Pre-flight checks (cost cap, source_reports presence) run synchronously
+    here so a missing-input misconfiguration surfaces as 400 instead of
+    a deferred 'failed' verdict the user has to poll for.
+    """
+    session = _owned_with_cap(session_id, request)
+    if not session.source_reports:
+        raise HTTPException(
+            status_code=400,
+            detail="no source_reports to analyze — upload reports first",
+        )
     model_preference = payload.model_preference if payload else None
-    try:
-        return await orch.analyze(session_id, model_preference=model_preference)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-    except Exception as e:
-        log.exception("v4 analyze failed for %s", session_id)
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}") from e
+    orch = V4Orchestrator(_store, emitter=_SessionEmitter(session_id))
+    return _start_long_task(
+        session,
+        phase="analyze",
+        model_preference=model_preference,
+        coro_factory=lambda: orch.analyze(
+            session_id, model_preference=model_preference
+        ),
+    )
 
 
 class AutoDRIn(BaseModel):
@@ -930,19 +1179,80 @@ async def auto_dr_status(session_id: str, request: Request, task_id: str) -> Aut
     return out
 
 
-@router.post("/sessions/{session_id}/synthesize", response_model=FinalReport)
-async def synthesize(session_id: str, request: Request, payload: ModelPreferenceIn | None = None) -> FinalReport:
-    _owned_with_cap(session_id, request)
-    orch = V4Orchestrator(_store, emitter=_SessionEmitter(session_id))
+@router.post(
+    "/sessions/{session_id}/synthesize",
+    response_model=LongTaskOut,
+    status_code=202,
+)
+async def synthesize(
+    session_id: str, request: Request, payload: ModelPreferenceIn | None = None
+) -> LongTaskOut:
+    """Submit the synthesizer phase as a background task.
+
+    Returns 202 + task_id within <1s. The synthesizer LLM call (often
+    300-1800s on real prod data, 30+ minutes on retry-loops) runs in
+    an asyncio.Task. Clients poll GET /long-task-status?task_id=...
+    and read the FinalReport from session.final_report on completion.
+    """
+    session = _owned_with_cap(session_id, request)
+    if session.analysis is None:
+        raise HTTPException(
+            status_code=400,
+            detail="analyze must run before synthesize",
+        )
     model_preference = payload.model_preference if payload else None
-    try:
-        return await orch.synthesize(session_id, model_preference=model_preference)
-    except ValueError as e:
-        log.exception("v4 synthesize ValueError for %s", session_id)
-        raise HTTPException(status_code=400, detail=f"ValueError: {e}") from e
-    except Exception as e:
-        log.exception("v4 synthesize failed for %s", session_id)
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}") from e
+    orch = V4Orchestrator(_store, emitter=_SessionEmitter(session_id))
+    return _start_long_task(
+        session,
+        phase="synthesize",
+        model_preference=model_preference,
+        coro_factory=lambda: orch.synthesize(
+            session_id, model_preference=model_preference
+        ),
+    )
+
+
+@router.get(
+    "/sessions/{session_id}/long-task-status",
+    response_model=LongTaskStatusOut,
+)
+async def long_task_status(
+    session_id: str, task_id: str, request: Request
+) -> LongTaskStatusOut:
+    """Poll the verdict for an /analyze or /synthesize background task.
+
+    Returns the task's current state. On state="completed", clients
+    should fetch GET /sessions/{id} to read the actual analysis or
+    final_report payload. Live progress messages are surfaced via the
+    existing /events long-poll, not via this endpoint.
+
+    Reaps stale `running` entries (tasks killed by a container restart)
+    before responding, so post-redeploy polls observe `failed` instead
+    of being stuck on `running` forever.
+    """
+    session = _get_owned(session_id, request)
+    if _reap_stale_running_tasks(session):
+        await asyncio.to_thread(_store.update, session)
+    entry = next(
+        (
+            e for e in (session.pending_long_tasks or [])
+            if e.get("task_id") == task_id
+        ),
+        None,
+    )
+    if entry is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"task_id {task_id} not found on this session",
+        )
+    return LongTaskStatusOut(
+        task_id=entry["task_id"],
+        phase=entry["phase"],
+        state=entry["state"],
+        started_at=entry["started_at"],
+        completed_at=entry.get("completed_at"),
+        error=entry.get("error"),
+    )
 
 
 # ---- Phase 2 Step 2.4 — Iterative Retrieval (manual loop) ----
@@ -1139,7 +1449,11 @@ async def get_events(session_id: str, request: Request, since: int = 0, timeout:
     }
 
 
-_EXPORT_FORMATS = {"md", "json", "docx", "pptx", "onepager", "gamma-pptx", "gamma-pdf"}
+_EXPORT_FORMATS = {
+    "md", "json", "docx", "pptx", "onepager",
+    "gamma-pptx", "gamma-pdf",
+    "gamma-pptx-real",  # served from disk after export-gamma-pptx finishes
+}
 
 
 @router.get("/sessions/{session_id}/export")
@@ -1157,6 +1471,28 @@ async def export_session(session_id: str, request: Request, format: str = "md") 
         )
 
     out_dir = _session_artefact_dir(session_id)
+
+    # Real Gamma-generated PPTX is produced by the async export-gamma-pptx
+    # endpoint (1-3 min generation). The /export route only serves the
+    # already-downloaded file; if missing, point the caller at the async
+    # endpoint instead of trying to render synchronously.
+    if format == "gamma-pptx-real":
+        out_path = out_dir / "gamma_report.pptx"
+        if not out_path.exists():
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    "Gamma PPTX not generated yet for this session — "
+                    "POST /sessions/{id}/export-gamma-pptx first and poll "
+                    "/long-task-status until completed"
+                ),
+            )
+        return FileResponse(
+            str(out_path),
+            media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            filename="gamma_report.pptx",
+        )
+
     filename, writer, media_type = _export_handler(format)
     if format == "docx":
         # Use auto-selecting renderer (Node.js docx-js preferred, python-docx fallback)
@@ -1170,6 +1506,45 @@ async def export_session(session_id: str, request: Request, format: str = "md") 
         str(out_path),
         media_type=media_type,
         filename=filename,
+    )
+
+
+@router.post(
+    "/sessions/{session_id}/export-gamma-pptx",
+    response_model=LongTaskOut,
+    status_code=202,
+)
+async def export_gamma_pptx(
+    session_id: str, request: Request
+) -> LongTaskOut:
+    """Submit a Gamma-API PPTX generation as a background task.
+
+    Returns 202 + task_id within <1s. Gamma generates the deck in 1-3
+    minutes; the task downloads the result to runs_dir/v4_{sid}/
+    gamma_report.pptx. Clients then call GET /export?format=gamma-pptx-real
+    to download the file.
+
+    Requires GAMMA_API_KEY in env. If unset, the task fails with a
+    clear error in the long-task-status response.
+    """
+    session = _get_owned(session_id, request)
+    if session.final_report is None:
+        raise HTTPException(
+            status_code=409,
+            detail="no final_report on session — run /synthesize first",
+        )
+
+    out_dir = _session_artefact_dir(session_id)
+    dest = out_dir / "gamma_report.pptx"
+    final_report = session.final_report
+
+    from ..exporters.gamma_pptx import generate_pptx as _generate_pptx
+
+    return _start_long_task(
+        session,
+        phase="export-pptx",
+        model_preference=None,
+        coro_factory=lambda: _generate_pptx(final_report, dest),
     )
 
 
@@ -1275,6 +1650,7 @@ def _export_handler(format: str):
         return ("gamma-pptx.json", write_gamma_pptx_stub, "application/json")
     if format == "gamma-pdf":
         return ("gamma-pdf.json", write_gamma_pdf_stub, "application/json")
+    # gamma-pptx-real is served by export_session itself (file-only, no writer).
     raise HTTPException(status_code=400, detail=f"unknown format {format!r}")
 
 

@@ -15,7 +15,7 @@
 
 import { useState } from "react";
 import type { FinalReport } from "@/lib/apiV4";
-import { exportUrl } from "@/lib/apiV4";
+import { exportUrl, generateGammaPptx } from "@/lib/apiV4";
 import { Download, Plus, ChevronDown } from "lucide-react";
 
 export function FinalReportBlock({
@@ -474,9 +474,28 @@ function inlineFormat(text: string): string {
 
 function ExportMenu({ sessionId }: { sessionId: string }) {
   const [open, setOpen] = useState(false);
+  const [gammaState, setGammaState] = useState<"idle" | "generating" | "error">("idle");
+  const [gammaError, setGammaError] = useState<string | null>(null);
+
+  const handleGammaPptx = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    setGammaState("generating");
+    setGammaError(null);
+    try {
+      const url = await generateGammaPptx(sessionId);
+      window.open(url, "_blank", "noopener,noreferrer");
+      setGammaState("idle");
+      setOpen(false);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setGammaError(msg);
+      setGammaState("error");
+    }
+  };
+
   const formats = [
     { f: "docx", label: "Microsoft Word (.docx)" },
-    { f: "pptx", label: "PowerPoint (.pptx)" },
+    { f: "pptx", label: "PowerPoint (.pptx) — простой" },
     { f: "md", label: "Markdown (.md)" },
     { f: "pdf", label: "PDF (print-ready)" },
     { f: "html", label: "HTML" },
@@ -538,6 +557,46 @@ function ExportMenu({ sessionId }: { sessionId: string }) {
                 <span>{fmt.label}</span>
               </a>
             ))}
+            <button
+              type="button"
+              onClick={handleGammaPptx}
+              disabled={gammaState === "generating"}
+              style={{
+                display: "grid",
+                gridTemplateColumns: "56px 1fr",
+                gap: 8,
+                padding: "8px 10px",
+                borderRadius: 8,
+                fontSize: 13,
+                textAlign: "left",
+                background: "transparent",
+                border: "none",
+                color: "var(--vc-text)",
+                cursor: gammaState === "generating" ? "wait" : "pointer",
+                width: "100%",
+                opacity: gammaState === "generating" ? 0.6 : 1,
+              }}
+            >
+              <span className="vc-mono" style={{ fontSize: 11 }}>
+                ✨gamma
+              </span>
+              <span>
+                {gammaState === "generating"
+                  ? "Gamma собирает презентацию (1-3 мин)…"
+                  : "Gamma PPTX (с дизайном)"}
+              </span>
+            </button>
+            {gammaState === "error" && gammaError && (
+              <div
+                style={{
+                  padding: "6px 10px",
+                  fontSize: 11,
+                  color: "var(--vc-warning, #c44)",
+                }}
+              >
+                Gamma: {gammaError}
+              </div>
+            )}
           </div>
         </>
       )}
