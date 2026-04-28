@@ -200,7 +200,7 @@ def _get_owned(session_id: str, request: Request):
 # $50/30d default — enough for ~25 Standard Valyu Research runs ($0.50 each)
 # or ~3 Heavy ($2.50). Override via env var for stricter prod policy.
 _USER_MONTHLY_CAP_USD: float = float(os.environ.get("USER_MONTHLY_CAP_USD", "50.0"))
-_USD_RUB_RATE: float = 75.4
+from ..config import USD_RUB_RATE as _USD_RUB_RATE  # single source of truth
 
 
 def _user_monthly_spend_usd(email: str) -> float:

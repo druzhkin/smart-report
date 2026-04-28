@@ -26,9 +26,9 @@ _logger = logging.getLogger(__name__)
 # Note: name is intentionally _logger, not _log — the latter is already
 # a private helper function defined further down in this module.
 
-# USD → RUB exchange rate used for cost conversion.
-# OpenRouter bills in USD; we display in RUB for the analyst dashboard.
-_USD_TO_RUB: float = 90.0
+# USD → RUB exchange rate. Imported from smart_report.config so all paths
+# (LLM gateway, DR providers, cost-cap accounting) use the same number.
+from .config import USD_RUB_RATE as _USD_TO_RUB
 
 
 # v4.5 Phase 3 Step 3.1 Task 1.4 — httpx retry shim (Run 1 finding 4).

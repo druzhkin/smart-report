@@ -30,6 +30,12 @@ PERPLEXITY_MODEL = os.getenv("PERPLEXITY_MODEL", "sonar-pro")
 MAX_PARALLEL_CELLS = int(os.getenv("MAX_PARALLEL_CELLS", "4"))
 REQUEST_TIMEOUT_S = float(os.getenv("REQUEST_TIMEOUT_S", "120"))
 
+# Single source of truth for USD→RUB conversion. Override via env var if the
+# CBR rate drifts; previously hardcoded in 3 different files at 75.4, 90.0,
+# and 95.0 simultaneously — same dollar billed as different rubles depending
+# on which path charged it.
+USD_RUB_RATE: float = float(os.getenv("USD_RUB_RATE", "95.0"))
+
 # Role → temperature
 ROLE_TEMPERATURE: dict[str, float] = {
     "planner": 0.0,

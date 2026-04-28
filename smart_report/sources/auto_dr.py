@@ -50,7 +50,7 @@ class AutoDRError(RuntimeError):
     """
 
 
-_USD_RUB_RATE: float = 75.4
+from ..config import USD_RUB_RATE as _USD_RUB_RATE  # single source of truth
 
 
 async def run_auto_dr(
