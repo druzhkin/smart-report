@@ -85,11 +85,25 @@ async def analyze_reports(
         mock=mock,
         model=model,
     )
+    print(
+        f"[analyzer-post] LLM returned dict_keys={list(data.keys())[:6] if isinstance(data, dict) else type(data).__name__} "
+        f"coercing → AnalysisOutput",
+        flush=True,
+    )
 
     out = _coerce_analysis(data)
+    print(
+        f"[analyzer-post] coerced: consensus={len(out.consensus)} conflicts={len(out.conflicts)} "
+        f"gaps={len(out.gaps)} unverified={len(out.unverified_numbers)} → aggregating facts",
+        flush=True,
+    )
 
     # v4.5: aggregate facts from NormalizedReports (if intake was run)
     out = _aggregate_facts(out, normalized_reports or [])
+    print(
+        f"[analyzer-post] facts aggregated; about to emit 'Анализ готов'",
+        flush=True,
+    )
 
     em.emit(
         "analyzer",

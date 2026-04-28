@@ -182,10 +182,25 @@ class V4Orchestrator:
             mock=self.mock,
             model=models["analyzer"],
         )
+        print(
+            f"[orch-analyze] session={session_id} analyze_reports returned; "
+            f"writing session.analysis (PG)",
+            flush=True,
+        )
         session.analysis = analysis
         session.status = "analyzed"
         self.store.update(session)
+        print(
+            f"[orch-analyze] session={session_id} store.update OK; "
+            f"accumulating cost ₽{cost_rub:.2f}",
+            flush=True,
+        )
         session = self._accumulate_cost(session, cost_rub)
+        print(
+            f"[orch-analyze] session={session_id} DONE total_cost_rub={session.total_cost_rub} "
+            f"returning to client (status=analyzed)",
+            flush=True,
+        )
         return analysis
 
     # --- step 3: Synthesizer ---
