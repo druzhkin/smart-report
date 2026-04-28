@@ -295,13 +295,38 @@ export default function Workspace() {
         // Rehydrate chat: figure out the FURTHEST phase the server reached,
         // and ensure the chat shows the user it's done. We add ONE recovery
         // line + a CTA to continue, so the user isn't stranded.
+        //
+        // 2026-04-28 fix: previously skipped rehydrate when the chat had
+        // any prompt-ref. That broke recovery from "long /analyze hits the
+        // proxy 100s timeout, response never reaches client, user F5s, but
+        // chat still shows 'Анализирую…' forever". Now we ONLY skip when
+        // the LOCAL chat phase is consistent with server status — i.e. the
+        // user is in steady state. Otherwise we force a recovery banner
+        // matching the server's furthest reached phase.
+        const localPhase =
+          (typeof window !== "undefined" ? localStorage.getItem("sr-phase-v2") : null) || phase;
+        const serverStatus = s.status;
+        // Map server status → expected MINIMUM local phase. If local lags
+        // behind, we must rehydrate.
+        const phaseRank: Record<string, number> = {
+          "start": 0, "prompt": 1, "upload": 2, "critique": 3, "topup": 4, "done": 5,
+        };
+        const expectedMinPhase =
+          serverStatus === "synthesized" ? "done" :
+          serverStatus === "dobor_uploaded" ? "topup" :
+          serverStatus === "analyzed" ? "critique" :
+          serverStatus === "reports_uploaded" ? "upload" :
+          serverStatus === "prompt_ready" ? "prompt" :
+          "start";
+        const phaseLags = (phaseRank[localPhase] ?? 0) < (phaseRank[expectedMinPhase] ?? 0);
+
         setMessages((ms) => {
           // Avoid re-rehydrating: skip if we already have any 'recovery-' message.
           if (ms.some((m) => m.id?.startsWith("recovery-"))) return ms;
-          // Also skip if the chat already shows a prompt-ref (success path).
-          if (ms.some((m) => m.kind === "ref" && m.refKind === "prompt")) return ms;
+          // Skip when local phase is consistent with server (steady-state F5).
+          if (!phaseLags && ms.some((m) => m.kind === "ref" && m.refKind === "prompt")) return ms;
           // Skip if there are no real messages (fresh load on a different device).
-          if (ms.length <= 1) return ms;
+          if (ms.length <= 1 && !phaseLags) return ms;
 
           const hasFinal = !!s.final_report;
           const hasAnalysis = !!s.analysis;
