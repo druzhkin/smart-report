@@ -182,9 +182,9 @@ async def test_accumulate_cost_helper_rounds_to_4dp():
     session = store.get("rounding-test")
 
     # Add a third that doesn't round cleanly
-    session = orch._accumulate_cost(session, 0.12345)
-    session = orch._accumulate_cost(session, 0.12345)
-    session = orch._accumulate_cost(session, 0.12345)
+    session = await orch._accumulate_cost(session, 0.12345)
+    session = await orch._accumulate_cost(session, 0.12345)
+    session = await orch._accumulate_cost(session, 0.12345)
 
     # 3 * 0.12345 = 0.37035; rounded to 4dp at each step
     assert session.total_cost_rub == pytest.approx(0.3704, abs=1e-4)
@@ -199,11 +199,11 @@ async def test_accumulate_cost_ignores_zero_and_negative():
     store.create(session_id="zero-test", raw_question="q")
     session = store.get("zero-test")
 
-    session = orch._accumulate_cost(session, 0.0)
+    session = await orch._accumulate_cost(session, 0.0)
     assert session.total_cost_rub == 0.0
 
-    session = orch._accumulate_cost(session, -1.0)
+    session = await orch._accumulate_cost(session, -1.0)
     assert session.total_cost_rub == 0.0
 
-    session = orch._accumulate_cost(session, 0.5)
+    session = await orch._accumulate_cost(session, 0.5)
     assert session.total_cost_rub == pytest.approx(0.5, abs=1e-4)

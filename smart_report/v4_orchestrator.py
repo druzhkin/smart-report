@@ -13,6 +13,7 @@ Session state between pauses lives in V4Session, held by V4SessionStore.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -93,6 +94,23 @@ class V4SessionStore:
     def all(self) -> list[V4Session]:
         return list(self._sessions.values())
 
+    def monthly_spend_rub(self, email: str, days: int = 30) -> float:
+        """In-memory equivalent of PgV4SessionStore.monthly_spend_rub —
+        kept here so the cost-cap callsite is store-agnostic."""
+        from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+        cutoff = _dt.now(_tz.utc) - _td(days=days)
+        total = 0.0
+        for s in self._sessions.values():
+            if getattr(s, "user_email", None) != email:
+                continue
+            created = s.created_at
+            if hasattr(created, "tzinfo") and created.tzinfo is None:
+                created = created.replace(tzinfo=_tz.utc)
+            if created < cutoff:
+                continue
+            total += float(s.total_cost_rub or 0.0)
+        return total
+
     def delete(self, session_id: str) -> None:
         """Remove session if present. No-op if missing — idempotent."""
         self._sessions.pop(session_id, None)
@@ -130,8 +148,8 @@ class V4Orchestrator:
         )
         session.research_prompt = prompt
         session.status = "prompt_ready"
-        self.store.update(session)
-        session = self._accumulate_cost(session, cost_rub)
+        await asyncio.to_thread(self.store.update, session)
+        session = await self._accumulate_cost(session, cost_rub)
         return prompt
 
     # --- step 2: Analyzer ---
@@ -150,7 +168,7 @@ class V4Orchestrator:
                 "upload reports first"
             )
         session.status = "reports_uploaded"
-        self.store.update(session)
+        await asyncio.to_thread(self.store.update, session)
 
         print(
             f"[orch-analyze] session={session_id} starting; sources={len(session.source_reports)} "
@@ -189,13 +207,13 @@ class V4Orchestrator:
         )
         session.analysis = analysis
         session.status = "analyzed"
-        self.store.update(session)
+        await asyncio.to_thread(self.store.update, session)
         print(
             f"[orch-analyze] session={session_id} store.update OK; "
             f"accumulating cost ₽{cost_rub:.2f}",
             flush=True,
         )
-        session = self._accumulate_cost(session, cost_rub)
+        session = await self._accumulate_cost(session, cost_rub)
         print(
             f"[orch-analyze] session={session_id} DONE total_cost_rub={session.total_cost_rub} "
             f"returning to client (status=analyzed)",
@@ -214,7 +232,7 @@ class V4Orchestrator:
         if followup:
             session.followup_reports = list(followup)
             session.status = "dobor_uploaded"
-            self.store.update(session)
+            await asyncio.to_thread(self.store.update, session)
         if session.analysis is None:
             raise ValueError(
                 f"session {session_id}: analyze must run before synthesize"
@@ -230,7 +248,7 @@ class V4Orchestrator:
             mock=self.mock,
             model=models["synthesizer"],
         )
-        session = self._accumulate_cost(session, cost_rub)
+        session = await self._accumulate_cost(session, cost_rub)
 
         # Step 3b: bibliography post-processing
         final, _ = generate_bibliography(final)
@@ -240,7 +258,7 @@ class V4Orchestrator:
         # Any subsequent retries mutate `final` in-place and re-commit.
         session.final_report = final
         session.status = "synthesized"
-        self.store.update(session)
+        await asyncio.to_thread(self.store.update, session)
         self.emitter.emit(
             "bibliography",
             "Bibliography generated",
@@ -291,12 +309,12 @@ class V4Orchestrator:
                         mock=self.mock,
                         model=models["synthesizer"],
                     )
-                    session = self._accumulate_cost(session, cost_rub_retry)
+                    session = await self._accumulate_cost(session, cost_rub_retry)
                     final_retry, _ = generate_bibliography(final_retry)
                     coverage_report = audit_fact_coverage(session.analysis, final_retry)
                     final = final_retry
                     session.final_report = final
-                    self.store.update(session)
+                    await asyncio.to_thread(self.store.update, session)
                 except Exception as e:
                     self.emitter.emit("synthesizer", f"Coverage retry failed: {e!r} — keeping first pass", data={})
 
@@ -307,7 +325,7 @@ class V4Orchestrator:
             "verdict": coverage_report.verdict,
             "detail": coverage_report.detail,
         }
-        self.store.update(session)
+        await asyncio.to_thread(self.store.update, session)
 
         print(f"[orch-synth] session={session_id} 3e consistency critic starting", flush=True)
         # Step 3e: Consistency Critic loop (max 1 retry, best-effort)
@@ -331,7 +349,7 @@ class V4Orchestrator:
                         consistency_feedback=consistency,
                         model=models["synthesizer"],
                     )
-                    session = self._accumulate_cost(session, cost_rub_c)
+                    session = await self._accumulate_cost(session, cost_rub_c)
                     final, _ = generate_bibliography(final)
                     consistency = await validate_consistency(
                         final,
@@ -341,14 +359,14 @@ class V4Orchestrator:
                         model=models["critic"],
                     )
                     session.final_report = final
-                    self.store.update(session)
+                    await asyncio.to_thread(self.store.update, session)
                 except Exception as e:
                     self.emitter.emit("synthesizer", f"Consistency retry failed: {e!r} — keeping current", data={})
             final.metadata["consistency_check"] = consistency.model_dump()
         except Exception as e:
             self.emitter.emit("critic", f"Consistency check failed: {e!r} — skipping", data={})
             final.metadata["consistency_check"] = {"error": str(e), "overall_verdict": "skipped"}
-        self.store.update(session)
+        await asyncio.to_thread(self.store.update, session)
 
         # Step 3f: Language lint (Track 3) — retry above LINT_WARNING_RETRY_THRESHOLD, best-effort
         lint_warnings = lint_output_language(full_report_text(final))
@@ -373,12 +391,12 @@ class V4Orchestrator:
                     language_feedback=[w.model_dump() for w in lint_warnings],
                     model=models["synthesizer"],
                 )
-                session = self._accumulate_cost(session, cost_rub_l)
+                session = await self._accumulate_cost(session, cost_rub_l)
                 final_l, _ = generate_bibliography(final_l)
                 lint_warnings = lint_output_language(full_report_text(final_l))
                 final = final_l
                 session.final_report = final
-                self.store.update(session)
+                await asyncio.to_thread(self.store.update, session)
             except Exception as e:
                 self.emitter.emit("orchestrator", f"Language retry failed: {e!r} — keeping current", data={})
 
@@ -414,7 +432,7 @@ class V4Orchestrator:
 
         session.final_report = final
         session.status = "synthesized"
-        self.store.update(session)
+        await asyncio.to_thread(self.store.update, session)
         print(
             f"[orch-synth] session={session_id} DONE total_cost_rub={session.total_cost_rub} "
             f"sources={len(final.all_sources)} status=synthesized",
@@ -426,17 +444,19 @@ class V4Orchestrator:
     # See _attach_evidence_gaps below.
 
     # --- cost accounting ---
-    def _accumulate_cost(self, session: V4Session, llm_result_cost_rub: float) -> V4Session:
+    async def _accumulate_cost(self, session: V4Session, llm_result_cost_rub: float) -> V4Session:
         """Add a single LLM-call cost to the session total.
 
-        llm.py currently logs cost per call into runs/<ts>/llm_log.jsonl but does
-        not expose a process-level meter. Track B or a follow-up should wire the
-        real value in; for now this helper is the single place where that
-        integration lands, so callers already talk to the right API.
+        Async because the underlying store.update is a sync DB write —
+        wrapping in asyncio.to_thread keeps the event loop free for
+        other handlers (events long-poll, auto-dr-status polls) while
+        the JSONB upsert is in flight. Previously synthesize/analyze's
+        ~12 store.update calls each blocked the loop for 200-500ms,
+        starving concurrent requests.
         """
         if llm_result_cost_rub and llm_result_cost_rub > 0:
             session.total_cost_rub = round(session.total_cost_rub + llm_result_cost_rub, 4)
-            self.store.update(session)
+            await asyncio.to_thread(self.store.update, session)
         return session
 
 

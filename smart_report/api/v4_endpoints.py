@@ -204,22 +204,12 @@ from ..config import USD_RUB_RATE as _USD_RUB_RATE  # single source of truth
 
 
 def _user_monthly_spend_usd(email: str) -> float:
-    """Sum total_cost_rub across the user's sessions in the last 30 days,
-    convert to USD. Uses store.all() — fine for demo scale (sub-1k sessions).
-    For real scale move this to a SQL aggregate."""
-    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
-    cutoff = _dt.now(_tz.utc) - _td(days=30)
-    total_rub = 0.0
-    for s in _store.all():
-        if getattr(s, "user_email", None) != email:
-            continue
-        created = s.created_at
-        # store may give a tz-naive datetime depending on backend
-        if hasattr(created, "tzinfo") and created.tzinfo is None:
-            created = created.replace(tzinfo=_tz.utc)
-        if created < cutoff:
-            continue
-        total_rub += float(s.total_cost_rub or 0.0)
+    """Cost-cap pre-flight. Was a full-table scan + pydantic parse of EVERY
+    session payload (5-30 sec block on 20+ sessions of 1-2MB each). Now
+    uses store.monthly_spend_rub which is a single SQL aggregate
+    (PG-backed) or a small in-memory loop (unit tests). Returns USD.
+    """
+    total_rub = _store.monthly_spend_rub(email, days=30)
     return total_rub / _USD_RUB_RATE
 
 
