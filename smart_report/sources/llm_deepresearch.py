@@ -52,15 +52,31 @@ _logger = logging.getLogger(__name__)
 # Model catalogues
 # ---------------------------------------------------------------------------
 
-# OpenAI Deep Research via OpenRouter.
+# OpenAI Deep Research. Model id stays in OpenRouter form ('openai/...');
+# the streamer strips the prefix when routing direct to OpenAI.
 OPENAI_DR_MODELS: dict[str, tuple[str, float, int, int]] = {
     "mini":     ("openai/o4-mini-deep-research", 0.50, 5, 10),
     "standard": ("openai/o3-deep-research",      3.00, 15, 30),
 }
 
+# Per-token prices for direct OpenAI Responses API billing (cost computed
+# from usage tokens at completion). OpenRouter path returns its own
+# `usage.cost` and skips this table. Source: OpenAI pricing page, 2026-04.
+OPENAI_DR_TOKEN_PRICES_USD: dict[str, tuple[float, float]] = {
+    # (input_per_token, output_per_token)
+    "o4-mini-deep-research": (2.00 / 1_000_000, 8.00 / 1_000_000),
+    "o3-deep-research":      (10.00 / 1_000_000, 40.00 / 1_000_000),
+}
+
 # Perplexity sonar-deep-research via OpenRouter.
+# Pricing 2026-04 (docs.perplexity.ai/getting-started/pricing): token-based
+# ($2/$8 per 1M in/out + $5/1k searches + $6-$14 per 1k requests by context
+# size). A typical deep call lands $0.50-$3.00. We charge a $1.00 estimate
+# upfront; _finalise reconciles to the real OpenRouter usage.cost when the
+# stream completes. Underestimating means the user can submit, then the
+# debit grows post-completion — by design.
 PERPLEXITY_DR_MODELS: dict[str, tuple[str, float, int, int]] = {
-    "deep": ("perplexity/sonar-deep-research", 0.10, 5, 15),
+    "deep": ("perplexity/sonar-deep-research", 1.00, 5, 15),
 }
 
 
@@ -182,7 +198,7 @@ def _submit_llm_dr(
 
 _FLUSH_EVERY_SECONDS = 5.0
 _FLUSH_EVERY_CHARS = 1000
-_USD_RUB_RATE = 95.0  # 2026-04 actual ~95 RUB/USD; was hardcoded 75.4 (stale)
+from ..config import USD_RUB_RATE as _USD_RUB_RATE  # single source of truth
 _AUTO_RESUBMIT_PARTIAL_THRESHOLD = 200  # interrupted tasks with fewer chars are auto-restarted on container boot
 
 
@@ -241,7 +257,18 @@ async def _run_streaming_dr(
             _logger.warning("dr task %s: flush failed: %s", task_id, e)
 
     async def _finalise(state: str, *, error: Optional[str] = None) -> None:
-        """Write terminal state. For 'completed', also append to source_reports."""
+        """Write terminal state. For 'completed', also append to source_reports.
+
+        Reconciles billed cost: at submit we debited an estimate from
+        OPENAI_DR_MODELS / PERPLEXITY_DR_MODELS. The streamer captures the
+        actual cost (OpenRouter `usage.cost`, or token×price for OpenAI
+        direct). At terminal state we replace the job's stored estimate
+        with the actual and apply the delta to session.total_cost_rub —
+        without this the user is billed the estimate forever even though
+        the real cost is known. Reconciliation only fires when
+        cost_usd_total > 0 (provider returned usage); otherwise we keep
+        the estimate to stay conservative.
+        """
         from smart_report.models import UploadedMarkdown
 
         text = "".join(accumulated).strip()
@@ -260,6 +287,28 @@ async def _run_streaming_dr(
         if job is None:
             _logger.warning("dr task %s: finalise — job not in pending_dr_jobs", task_id)
             return
+
+        # Reconcile billed cost against actual reported cost.
+        # Applies on every terminal state (completed/failed/cancelled/
+        # interrupted_with_partial) so partial work that consumed tokens
+        # is also billed accurately.
+        if cost_usd_total > 0:
+            est_usd = float(job.get("cost_usd") or 0.0)
+            delta_usd = cost_usd_total - est_usd
+            actual_rub = round(cost_usd_total * _USD_RUB_RATE, 4)
+            delta_rub = round(delta_usd * _USD_RUB_RATE, 4)
+            job["cost_usd"] = round(cost_usd_total, 6)
+            job["cost_rub"] = actual_rub
+            job["cost_estimate_usd"] = est_usd  # keep audit trail
+            session.total_cost_rub = round(
+                float(session.total_cost_rub or 0.0) + delta_rub, 4
+            )
+            print(
+                f"[dr-cost-reconcile] task_id={task_id} service={service} "
+                f"est=${est_usd:.4f} actual=${cost_usd_total:.4f} "
+                f"delta=${delta_usd:+.4f} (₽{delta_rub:+.2f})",
+                flush=True,
+            )
 
         if state == "completed" and text:
             # Build upload + add to source_reports + remove from pending
@@ -310,8 +359,19 @@ async def _run_streaming_dr(
         {"role": "user", "content": question},
     ]
 
+    # Route OpenAI DR direct to OpenAI Responses API when OPENAI_API_KEY is
+    # set (saves the 5% OpenRouter margin). Perplexity and the OpenRouter
+    # fallback for OpenAI continue through chat-completions.
+    use_direct_openai = (
+        service == "openai" and bool(os.environ.get("OPENAI_API_KEY"))
+    )
+    stream_iter = (
+        _stream_openai_responses(model_id, messages)
+        if use_direct_openai
+        else _stream_openrouter_chat(model_id, messages)
+    )
     try:
-        async for chunk in _stream_openrouter_chat(model_id, messages):
+        async for chunk in stream_iter:
             if chunk.get("delta"):
                 accumulated.append(chunk["delta"])
                 await _flush()
@@ -409,6 +469,95 @@ async def _stream_openrouter_chat(
                 usage = obj.get("usage")
                 if isinstance(usage, dict) and usage.get("cost") is not None:
                     yield {"cost_usd": float(usage["cost"])}
+
+
+# ---------------------------------------------------------------------------
+# OpenAI Responses API streaming — direct path for o3/o4-mini deep-research
+# ---------------------------------------------------------------------------
+
+
+def _strip_openrouter_prefix(model_id: str) -> str:
+    """OpenRouter ids look like 'openai/o4-mini-deep-research'; the OpenAI
+    Responses API expects the bare 'o4-mini-deep-research' form."""
+    if model_id.startswith("openai/"):
+        return model_id[len("openai/"):]
+    return model_id
+
+
+async def _stream_openai_responses(
+    model_id: str, messages: list[dict],
+) -> AsyncIterator[dict]:
+    """Stream from OpenAI Responses API for deep-research models.
+
+    Yields ``{"delta": "<text>"}`` chunks per ``response.output_text.delta``
+    event and a single ``{"cost_usd": <float>}`` at completion (computed
+    from ``usage.input_tokens`` / ``usage.output_tokens`` × per-model price
+    in ``OPENAI_DR_TOKEN_PRICES_USD``).
+
+    Required tool: ``web_search_preview``. Deep-research models 400 if
+    no data source is supplied — they are agents, not text generators.
+    """
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY not set")
+    direct_model = _strip_openrouter_prefix(model_id)
+
+    payload = {
+        "model": direct_model,
+        "input": messages,
+        "tools": [{"type": "web_search_preview"}],
+        "stream": True,
+    }
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    timeout = httpx.Timeout(connect=30.0, read=2400.0, write=30.0, pool=30.0)
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        async with client.stream(
+            "POST", "https://api.openai.com/v1/responses",
+            headers=headers, json=payload,
+        ) as response:
+            if response.status_code >= 400:
+                body = await response.aread()
+                raise RuntimeError(
+                    f"OpenAI Responses HTTP {response.status_code}: "
+                    f"{body.decode('utf-8','replace')[:500]}"
+                )
+            current_event: Optional[str] = None
+            async for line in response.aiter_lines():
+                if not line:
+                    current_event = None
+                    continue
+                if line.startswith("event:"):
+                    current_event = line[len("event:"):].strip()
+                    continue
+                if not line.startswith("data:"):
+                    continue
+                data = line[len("data:"):].strip()
+                if not data or data == "[DONE]":
+                    continue
+                try:
+                    obj = _json.loads(data)
+                except _json.JSONDecodeError:
+                    continue
+                et = current_event or obj.get("type")
+                if et == "response.output_text.delta":
+                    delta = obj.get("delta")
+                    if delta:
+                        yield {"delta": delta}
+                elif et == "response.completed":
+                    usage = (obj.get("response") or {}).get("usage") or {}
+                    in_tok = int(usage.get("input_tokens") or 0)
+                    out_tok = int(usage.get("output_tokens") or 0)
+                    prices = OPENAI_DR_TOKEN_PRICES_USD.get(direct_model)
+                    if prices:
+                        cost = in_tok * prices[0] + out_tok * prices[1]
+                        yield {"cost_usd": float(cost)}
+                elif et == "error":
+                    msg = obj.get("message") or _json.dumps(obj)[:300]
+                    raise RuntimeError(f"OpenAI Responses API error: {msg}")
 
 
 # ---------------------------------------------------------------------------
