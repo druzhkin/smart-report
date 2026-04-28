@@ -898,10 +898,12 @@ async def auto_dr_status(session_id: str, request: Request, task_id: str) -> Aut
         already = any(
             u.filename == poll.result.upload.filename for u in (bucket or [])
         )
-        # Rewrite filename for followup tasks so they don't collide with
-        # initial-DR auto_dr_<svc>_<id>.md naming and so the chat UI can
-        # distinguish them (auto_followup_ prefix).
-        if is_followup and poll.result.upload.filename.startswith("auto_dr_"):
+        # Rewrite filename for ANY followup result to a uniform
+        # `auto_followup_<svc>_<id>.md` form. Valyu's wrapper produces
+        # `valyu_research_<mode>_<id>.md` and the LLM-DR path produces
+        # `auto_dr_<svc>_<id>.md` — both get normalised so the chat UI
+        # shows a "followup" prefix consistently.
+        if is_followup:
             poll.result.upload.filename = f"auto_followup_{job.get('service','svc')}_{task_id[:8]}.md"
             already = any(u.filename == poll.result.upload.filename for u in (bucket or []))
         if not already:

@@ -907,7 +907,12 @@ export default function Workspace() {
       setSourceContent({ filename, content: "Загружаю содержимое…" });
       try {
         const s = await getSession(sessionId);
-        const found = (s.source_reports || []).find((u: any) => u.filename === filename);
+        // Search BOTH buckets — followup auto-DR results live in
+        // followup_reports, not source_reports. Without this, clicking
+        // the "добор" ref-card silently fails with "файл не найден".
+        const found =
+          (s.source_reports || []).find((u: any) => u.filename === filename) ||
+          (s.followup_reports || []).find((u: any) => u.filename === filename);
         if (found && typeof found.content === "string") {
           setSourceContent({ filename, content: found.content });
         } else {
