@@ -309,7 +309,7 @@ export default function Workspace() {
         // Map server status → expected MINIMUM local phase. If local lags
         // behind, we must rehydrate.
         const phaseRank: Record<string, number> = {
-          "start": 0, "prompt": 1, "upload": 2, "critique": 3, "topup": 4, "done": 5,
+          "start": 0, "prompt": 1, "upload": 2, "critique": 3, "topup": 4, "final": 4, "done": 5,
         };
         const expectedMinPhase =
           serverStatus === "synthesized" ? "done" :
@@ -320,9 +320,35 @@ export default function Workspace() {
           "start";
         const phaseLags = (phaseRank[localPhase] ?? 0) < (phaseRank[expectedMinPhase] ?? 0);
 
+        // FORCE phase + artifact correction outside setMessages so it fires
+        // regardless of message-list state. Previously this lived inside
+        // setMessages and was gated by an early-return when the chat had
+        // any "recovery-*" message — but the user can hit a SECOND timeout
+        // (analyze recovery banner exists, then synthesize times out too)
+        // and the second-stage correction never landed.
+        if (phaseLags) {
+          if (s.final_report) {
+            setPhase(PHASE.DONE);
+            setArtifact({ kind: "report", data: s.final_report });
+            setPending(false);
+          } else if (s.analysis) {
+            setPhase(PHASE.CRITIQUE);
+            setArtifact({ kind: "critique", data: s.analysis });
+            setPending(false);
+          }
+        }
+
         setMessages((ms) => {
           // Avoid re-rehydrating: skip if we already have any 'recovery-' message.
-          if (ms.some((m) => m.id?.startsWith("recovery-"))) return ms;
+          // EXCEPTION: when phase still lags after a previous recovery (user
+          // advanced via CTA, hit a second proxy timeout, F5'd again), drop
+          // the old recovery messages and produce a fresh banner matching the
+          // current server state.
+          const hasRecovery = ms.some((m) => m.id?.startsWith("recovery-"));
+          if (hasRecovery && !phaseLags) return ms;
+          if (hasRecovery && phaseLags) {
+            ms = ms.filter((m) => !m.id?.startsWith("recovery-"));
+          }
           // Skip when local phase is consistent with server (steady-state F5).
           if (!phaseLags && ms.some((m) => m.kind === "ref" && m.refKind === "prompt")) return ms;
           // Skip if there are no real messages (fresh load on a different device).
