@@ -17,11 +17,44 @@ export function Cite({ n, openSource }: CiteProps) {
   );
 }
 
+// Evidence-grade tag rendering. Synthesizer prompts the LLM to mark every
+// claim with [STRONG] / [MODERATE] / [WEAK] / [SPECULATIVE] inline. Reading
+// "[STRONG] По данным…" everywhere kills flow — replace with a small
+// coloured dot at the start, and the original word becomes a tooltip.
+const GRADE_STYLE: Record<string, { color: string; title: string }> = {
+  STRONG: { color: "#16a34a", title: "STRONG: первичный источник (ЦБ, Росстат, peer-review)" },
+  MODERATE: { color: "#2563eb", title: "MODERATE: авторитетный consultancy/industry report" },
+  WEAK: { color: "#d97706", title: "WEAK: secondary analysis (РБК, Forbes, Коммерсантъ)" },
+  SPECULATIVE: { color: "#dc2626", title: "SPECULATIVE: авторский синтез / экспертная оценка" },
+};
+
 export function renderWithCites(text: string, openSource: (n: number) => void): ReactNode {
-  const parts = text.split(/(\[\d+\])/g);
+  // Combined regex captures: numeric cite [N], grade-tag [STRONG|...].
+  const parts = text.split(/(\[\d+\]|\[(?:STRONG|MODERATE|WEAK|SPECULATIVE)\])/g);
   return parts.map((part, i) => {
-    const m = part.match(/\[(\d+)\]/);
-    if (m) return <Cite key={i} n={+m[1]} openSource={openSource} />;
+    const num = part.match(/^\[(\d+)\]$/);
+    if (num) return <Cite key={i} n={+num[1]} openSource={openSource} />;
+    const grade = part.match(/^\[(STRONG|MODERATE|WEAK|SPECULATIVE)\]$/);
+    if (grade) {
+      const g = GRADE_STYLE[grade[1]];
+      return (
+        <span
+          key={i}
+          title={g.title}
+          aria-label={grade[1]}
+          style={{
+            display: "inline-block",
+            width: 8,
+            height: 8,
+            borderRadius: "50%",
+            backgroundColor: g.color,
+            marginRight: 4,
+            verticalAlign: "middle",
+            cursor: "help",
+          }}
+        />
+      );
+    }
     return <Fragment key={i}>{part}</Fragment>;
   });
 }

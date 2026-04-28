@@ -291,11 +291,11 @@ export function ReportArtifact({ finalReport, openSource }: ReportArtifactProps)
                 margin: "8px 0 16px 0",
               }}
             >
-              {executive_summary.main_answer}
+              {renderWithCites(executive_summary.main_answer, openSource)}
             </p>
             {executive_summary.confidence_note && (
               <p style={{ color: "var(--ink-3)", fontSize: 12, fontFamily: "var(--mono)", letterSpacing: "0.02em" }}>
-                {executive_summary.confidence_note}
+                {renderWithCites(executive_summary.confidence_note, openSource)}
               </p>
             )}
             {executive_summary.top_findings?.length > 0 && (
@@ -314,7 +314,7 @@ export function ReportArtifact({ finalReport, openSource }: ReportArtifactProps)
                 </div>
                 <ol style={{ paddingLeft: 20, margin: 0, fontSize: 13, lineHeight: 1.6 }}>
                   {executive_summary.top_findings.map((f, i) => (
-                    <li key={i} style={{ marginBottom: 6 }}>{f}</li>
+                    <li key={i} style={{ marginBottom: 6 }}>{renderWithCites(f, openSource)}</li>
                   ))}
                 </ol>
               </div>
@@ -361,7 +361,7 @@ export function ReportArtifact({ finalReport, openSource }: ReportArtifactProps)
               <h2>Согласия между источниками</h2>
               <div style={{ fontSize: 13, lineHeight: 1.7, color: "var(--ink-2)" }}>
                 {consensus_section.split("\n\n").map((para, i) => (
-                  <p key={i}>{para}</p>
+                  <p key={i}>{renderWithCites(para, openSource)}</p>
                 ))}
               </div>
             </section>
@@ -373,7 +373,7 @@ export function ReportArtifact({ finalReport, openSource }: ReportArtifactProps)
               <h2>Ключевые противоречия</h2>
               <div style={{ fontSize: 13, lineHeight: 1.7, color: "var(--ink-2)" }}>
                 {conflicts_section.split("\n\n").map((para, i) => (
-                  <p key={i}>{para}</p>
+                  <p key={i}>{renderWithCites(para, openSource)}</p>
                 ))}
               </div>
             </section>
@@ -385,7 +385,7 @@ export function ReportArtifact({ finalReport, openSource }: ReportArtifactProps)
               <h2>Закрытые пробелы</h2>
               <div style={{ fontSize: 13, lineHeight: 1.7, color: "var(--ink-2)" }}>
                 {gaps_filled_section.split("\n\n").map((para, i) => (
-                  <p key={i}>{para}</p>
+                  <p key={i}>{renderWithCites(para, openSource)}</p>
                 ))}
               </div>
             </section>

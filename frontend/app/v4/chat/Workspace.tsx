@@ -2873,7 +2873,7 @@ export default function Workspace() {
                 <>
                   <a
                     className="export-item"
-                    href={`${process.env.NEXT_PUBLIC_V4_API_BASE || "http://localhost:8010"}/api/v4/sessions/${sessionId}/export?format=md`}
+                    href={`/api/v4/sessions/${sessionId}/export?format=md`}
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={() => setExportOpen(false)}
@@ -2885,7 +2885,7 @@ export default function Workspace() {
                   </a>
                   <a
                     className="export-item"
-                    href={`${process.env.NEXT_PUBLIC_V4_API_BASE || "http://localhost:8010"}/api/v4/sessions/${sessionId}/export?format=docx`}
+                    href={`/api/v4/sessions/${sessionId}/export?format=docx`}
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={() => setExportOpen(false)}
@@ -2897,7 +2897,7 @@ export default function Workspace() {
                   </a>
                   <a
                     className="export-item"
-                    href={`${process.env.NEXT_PUBLIC_V4_API_BASE || "http://localhost:8010"}/api/v4/sessions/${sessionId}/export?format=json`}
+                    href={`/api/v4/sessions/${sessionId}/export?format=json`}
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={() => setExportOpen(false)}
