@@ -184,16 +184,37 @@ async def call_json(
         "X-Title": "smart-report-mvp-v3",
     }
 
+    # Backend observability: print() at entry/exit so Railway logs show
+    # what the synthesizer/analyzer is actually doing during the long
+    # silent stretches between event emits. uvicorn access log only
+    # records HTTP requests, not the slow LLM calls inside them — so a
+    # hung synthesize looked identical to a working one until this print.
+    msgs_chars = sum(len(m.get("content", "")) for m in messages)
+    print(
+        f"[llm-call] role={role} model={model_id} temp={temp} "
+        f"in_chars={msgs_chars} max_tokens={kwargs.get('max_tokens', 'default')} starting…",
+        flush=True,
+    )
+
     async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT_S) as client:
         # Step 3.1 Task 1.4: retry shim around the transport so a
         # transient JSONDecodeError / ConnectError / 5xx no longer
         # vaporises a paid LLM call (Run 1 cost $0.47 to this exact bug).
-        data = await _post_with_retry(
-            client,
-            f"{OPENROUTER_BASE_URL}/chat/completions",
-            headers=headers,
-            json=payload,
-        )
+        try:
+            data = await _post_with_retry(
+                client,
+                f"{OPENROUTER_BASE_URL}/chat/completions",
+                headers=headers,
+                json=payload,
+            )
+        except Exception as e:
+            elapsed = time.monotonic() - t0
+            print(
+                f"[llm-call] role={role} model={model_id} FAILED after {elapsed:.1f}s: "
+                f"{type(e).__name__}: {str(e)[:200]}",
+                flush=True,
+            )
+            raise
 
     text = data["choices"][0]["message"]["content"]
     usage = data.get("usage", {}) or {}
@@ -202,6 +223,11 @@ async def call_json(
     cost_rub: float = round(cost_usd * _USD_TO_RUB, 4) if cost_usd else 0.0
     tokens_in: int | None = usage.get("prompt_tokens")
     tokens_out: int | None = usage.get("completion_tokens")
+    print(
+        f"[llm-call] role={role} model={model_id} OK in {latency:.1f}s "
+        f"tokens_in={tokens_in} tokens_out={tokens_out} cost=${cost_usd or 0:.4f}",
+        flush=True,
+    )
     _log(
         log_dir,
         role,

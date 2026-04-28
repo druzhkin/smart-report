@@ -152,6 +152,12 @@ class V4Orchestrator:
         session.status = "reports_uploaded"
         self.store.update(session)
 
+        print(
+            f"[orch-analyze] session={session_id} starting; sources={len(session.source_reports)} "
+            f"(normalize → analyzer LLM → followup_prompt)",
+            flush=True,
+        )
+
         # v4.5: normalize each source report (extract citations + numeric/qualitative facts)
         research_prompt_text = (
             session.research_prompt.full_prompt if session.research_prompt else session.raw_question
@@ -199,6 +205,7 @@ class V4Orchestrator:
                 f"session {session_id}: analyze must run before synthesize"
             )
 
+        print(f"[orch-synth] session={session_id} 3a: first synthesis pass starting", flush=True)
         # Step 3a: first synthesis pass
         models = models_for_preference(model_preference)
         final, cost_rub = await synthesize_final_report(
@@ -228,8 +235,15 @@ class V4Orchestrator:
             },
         )
 
+        print(f"[orch-synth] session={session_id} 3a done, 3c coverage audit", flush=True)
         # Step 3c: data coverage audit
         coverage_report: CoverageReport = audit_fact_coverage(session.analysis, final)
+        print(
+            f"[orch-synth] session={session_id} coverage verdict={coverage_report.verdict} "
+            f"facts={coverage_report.facts_in_final}/{coverage_report.high_relevance_total} "
+            f"({coverage_report.coverage_pct:.0f}%)",
+            flush=True,
+        )
         self.emitter.emit(
             "data_audit",
             f"Coverage audit: {coverage_report.verdict}",
@@ -243,6 +257,7 @@ class V4Orchestrator:
 
         # Step 3d: one retry on coverage failure (best-effort — don't nuke first pass)
         if coverage_report.verdict in ("poor", "critical_failure") and not self.mock:
+            print(f"[orch-synth] session={session_id} 3d coverage retry triggered", flush=True)
             feedback = build_retry_feedback(coverage_report)
             if feedback and session.analysis.high_relevance_facts:
                 self.emitter.emit(
@@ -279,6 +294,7 @@ class V4Orchestrator:
         }
         self.store.update(session)
 
+        print(f"[orch-synth] session={session_id} 3e consistency critic starting", flush=True)
         # Step 3e: Consistency Critic loop (max 1 retry, best-effort)
         try:
             consistency = await validate_consistency(
@@ -288,7 +304,9 @@ class V4Orchestrator:
                 mock=self.mock,
                 model=models["critic"],
             )
+            print(f"[orch-synth] session={session_id} consistency verdict={consistency.overall_verdict}", flush=True)
             if consistency.overall_verdict == "critical_failure":
+                print(f"[orch-synth] session={session_id} consistency retry triggered", flush=True)
                 try:
                     final, cost_rub_c = await synthesize_final_report(
                         session,
@@ -319,7 +337,13 @@ class V4Orchestrator:
 
         # Step 3f: Language lint (Track 3) — retry above LINT_WARNING_RETRY_THRESHOLD, best-effort
         lint_warnings = lint_output_language(full_report_text(final))
+        print(
+            f"[orch-synth] session={session_id} 3f language lint: {len(lint_warnings)} warnings "
+            f"(threshold={LINT_WARNING_RETRY_THRESHOLD})",
+            flush=True,
+        )
         if len(lint_warnings) > LINT_WARNING_RETRY_THRESHOLD and not self.mock:
+            print(f"[orch-synth] session={session_id} 3f language retry triggered", flush=True)
             self.emitter.emit(
                 "orchestrator",
                 f"Language lint: {len(lint_warnings)} warnings — retrying Synthesizer",
@@ -376,6 +400,11 @@ class V4Orchestrator:
         session.final_report = final
         session.status = "synthesized"
         self.store.update(session)
+        print(
+            f"[orch-synth] session={session_id} DONE total_cost_rub={session.total_cost_rub} "
+            f"sources={len(final.all_sources)} status=synthesized",
+            flush=True,
+        )
         return final
 
     # --- gap detection helper exposed at module level for cleaner testing ---
