@@ -28,7 +28,12 @@ PERPLEXITY_MODEL = os.getenv("PERPLEXITY_MODEL", "sonar-pro")
 
 # ---- Orchestration constants ----------------------------------------------
 MAX_PARALLEL_CELLS = int(os.getenv("MAX_PARALLEL_CELLS", "4"))
-REQUEST_TIMEOUT_S = float(os.getenv("REQUEST_TIMEOUT_S", "120"))
+# Was 120s — synthesizer LLM calls (32k-token JSON responses on Russian
+# content) routinely run 60-180s and were timing out mid-stream on slow
+# upstream days. 300s gives Sonnet/Opus headroom while still bounding
+# worst-case retry budget (5 attempts × 300s = 25 min absolute max per
+# call, in practice <2 min).
+REQUEST_TIMEOUT_S = float(os.getenv("REQUEST_TIMEOUT_S", "300"))
 
 # Single source of truth for USD→RUB conversion. Override via env var if the
 # CBR rate drifts; previously hardcoded in 3 different files at 75.4, 90.0,

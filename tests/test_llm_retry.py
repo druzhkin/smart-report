@@ -145,31 +145,32 @@ async def test_does_not_retry_on_429():
 
 @pytest.mark.asyncio
 async def test_max_retries_exhausted():
-    """Three transient failures in a row → raises the last exception."""
+    """All transient failures in a row → raises the last exception."""
     err = httpx.ConnectError("persistent failure")
-    client = _build_client_with_responses([err, err, err])
+    client = _build_client_with_responses([err] * _MAX_TRANSPORT_ATTEMPTS)
 
     with patch("smart_report.llm.asyncio.sleep", new=AsyncMock()):
         with pytest.raises(httpx.ConnectError):
             await _post_with_retry(client, "url", headers={}, json={})
-    assert client.post.await_count == _MAX_TRANSPORT_ATTEMPTS  # exactly 3
+    assert client.post.await_count == _MAX_TRANSPORT_ATTEMPTS
 
 
 @pytest.mark.asyncio
 async def test_backoff_timing_exponential():
-    """Sleep durations between attempts must follow 1s → 2s pattern
-    (not 4s — that's after attempt 3 which would never sleep since
-    the loop exits).
-    """
+    """Sleep durations between attempts must follow exponential pattern
+    1s → 2s → 4s → … with N-1 sleeps for N attempts (last failure
+    raises without sleeping)."""
     err = httpx.ConnectError("fail")
-    client = _build_client_with_responses([err, err, err])
+    client = _build_client_with_responses([err] * _MAX_TRANSPORT_ATTEMPTS)
 
     with patch("smart_report.llm.asyncio.sleep", new=AsyncMock()) as mock_sleep:
         with pytest.raises(httpx.ConnectError):
             await _post_with_retry(client, "url", headers={}, json={})
 
-    # 3 attempts → 2 sleeps between them; the third failure raises
+    # N attempts → N-1 sleeps between them; the final failure raises
     # before any further sleep.
-    assert mock_sleep.await_count == 2
+    expected_sleeps = _MAX_TRANSPORT_ATTEMPTS - 1
+    assert mock_sleep.await_count == expected_sleeps
     durations = [call.args[0] for call in mock_sleep.await_args_list]
-    assert durations == [_BACKOFF_BASE_SEC, _BACKOFF_BASE_SEC * 2]
+    expected_durations = [_BACKOFF_BASE_SEC * (2 ** i) for i in range(expected_sleeps)]
+    assert durations == expected_durations

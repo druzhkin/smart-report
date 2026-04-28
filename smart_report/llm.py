@@ -38,8 +38,13 @@ from .config import USD_RUB_RATE as _USD_TO_RUB
 # exponential backoff (1s, 2s, 4s). 4xx errors are NOT retried —
 # they are expected failures (auth, payment, rate-limit) where retry
 # would either succeed for a wrong reason or amplify rate-limiting.
-_MAX_TRANSPORT_ATTEMPTS = 3
-_BACKOFF_BASE_SEC = 1.0  # attempts use 1s, 2s, 4s
+_MAX_TRANSPORT_ATTEMPTS = 5
+_BACKOFF_BASE_SEC = 1.0  # attempts use 1s, 2s, 4s, 8s, 16s (31s total)
+# 2026-04-28 (prod incident sess 57bce0807778): synthesize hung because
+# OpenRouter dropped chunked body mid-stream multiple times in a row
+# (JSONDecodeError + RemoteProtocolError). 3 attempts wasn't enough on
+# bad upstream-cdn days. 5 attempts × 120s timeout × 31s backoff = max
+# ~10 min per LLM call (still bounded by REQUEST_TIMEOUT_S × attempts).
 
 
 async def _post_with_retry(
@@ -75,6 +80,11 @@ async def _post_with_retry(
             if 400 <= e.response.status_code < 500:
                 raise
             last_exc = e
+            print(
+                f"[or-retry] attempt {attempt+1}/{_MAX_TRANSPORT_ATTEMPTS} "
+                f"failed: HTTP {e.response.status_code}",
+                flush=True,
+            )
             _logger.warning(
                 "OpenRouter POST attempt %d/%d failed with HTTP %d — retrying",
                 attempt + 1,
@@ -89,6 +99,11 @@ async def _post_with_retry(
             _json.JSONDecodeError,
         ) as e:
             last_exc = e
+            print(
+                f"[or-retry] attempt {attempt+1}/{_MAX_TRANSPORT_ATTEMPTS} "
+                f"failed: {type(e).__name__}: {str(e)[:200]}",
+                flush=True,
+            )
             _logger.warning(
                 "OpenRouter POST attempt %d/%d failed with %s: %s — retrying",
                 attempt + 1,
