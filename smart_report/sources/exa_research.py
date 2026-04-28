@@ -25,10 +25,18 @@ from .valyu_deepresearch import _coerce_progress_pct
 
 ExaResearchModel = Literal["exa-research-fast", "exa-research", "exa-research-pro"]
 
+# 2026-04: exa.ai/pricing repriced to per-1k-requests for Search /
+# Deep Search / Deep-Reasoning Search ($7/$12/$15 per 1k = ~$0.007 /
+# $0.012 / $0.015 each), plus $1/1k pages contents. Old per-call
+# tiers (fast/research/pro) are an approximation tied to roughly
+# Search vs Deep Search vs Deep-Reasoning + Contents. Exa SDK does
+# not return actual cost in research-completion responses → these
+# estimates stand. Numbers below are realistic averages including
+# typical contents fetches. Worth re-verifying every quarter.
 RESEARCH_MODEL_PRICE_USD: dict[str, float] = {
-    "exa-research-fast": 0.10,
-    "exa-research":      0.50,
-    "exa-research-pro":  2.00,
+    "exa-research-fast": 0.05,    # Search + small contents
+    "exa-research":      0.20,    # Deep Search + contents pages
+    "exa-research-pro":  0.50,    # Deep-Reasoning Search + many contents
 }
 
 RESEARCH_MODEL_ETA_MIN: dict[str, tuple[int, int]] = {

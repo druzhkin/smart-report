@@ -26,10 +26,16 @@ from .valyu_deepresearch import _coerce_progress_pct
 
 TavilyResearchModel = Literal["mini", "pro", "auto"]
 
+# 2026-04 (docs.tavily.com/documentation/api-credits): credit-based,
+# $0.008/credit. Mini = 4-110 credits/call ($0.032-$0.880), Pro =
+# 15-250 credits/call ($0.120-$2.000). Cost varies with depth, so these
+# are mid-range estimates. Tavily SDK does NOT return actual cost in the
+# response, so reconciliation isn't possible — the user is billed the
+# estimate. If estimates drift consistently, raise these values.
 RESEARCH_MODEL_PRICE_USD: dict[str, float] = {
-    "mini": 0.05,
-    "pro":  0.30,
-    "auto": 0.20,   # mid-point estimate; varies
+    "mini": 0.20,   # mid-range; was understated $0.05
+    "pro":  0.60,   # mid-range; was understated $0.30
+    "auto": 0.40,   # mid-range; was understated $0.20
 }
 
 RESEARCH_MODEL_ETA_MIN: dict[str, tuple[int, int]] = {
