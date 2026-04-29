@@ -830,6 +830,52 @@ def test_long_task_status_404_for_unknown_task():
     assert r.status_code == 404
 
 
+def test_stale_synthesize_task_with_persisted_report_reaps_as_completed():
+    """A restart after final_report commit must not strand/mark synthesize failed."""
+    from smart_report.models import ExecutiveSummaryV4, FinalReport
+
+    client = _authed_client()
+    sid = client.post(
+        "/api/v4/sessions", json={"question": "stale synthesize task test"}
+    ).json()["session_id"]
+    session = v4._store.get(sid)
+    session.final_report = FinalReport(
+        session_id=sid,
+        question=session.raw_question,
+        executive_summary=ExecutiveSummaryV4(main_answer="done"),
+    )
+    session.status = "synthesized"
+    session.pending_long_tasks = [
+        {
+            "task_id": "stale-synth",
+            "phase": "synthesize",
+            "state": "running",
+            "started_at": v4._now_iso(),
+            "completed_at": None,
+            "error": None,
+            "model_preference": "opus",
+        }
+    ]
+    v4._store.update(session)
+    v4._LONG_TASK_REGISTRY.pop("stale-synth", None)
+
+    r = client.get(
+        f"/api/v4/sessions/{sid}/long-task-status",
+        params={"task_id": "stale-synth"},
+    )
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["state"] == "completed"
+    assert body["error"] is None
+
+    r = client.get(f"/api/v4/sessions/{sid}/final-report")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["final_report"]["session_id"] == sid
+    assert "source_reports" not in body
+
+
 def test_concurrent_analyze_rejected_with_409(monkeypatch):
     """Submitting /analyze twice while one is in flight returns 409."""
     from smart_report import analyzer as analyzer_module

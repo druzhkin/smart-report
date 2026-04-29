@@ -21,6 +21,7 @@ import {
   uploadFollowup,
   synthesize,
   getSession,
+  getFinalReport,
   runAutoDR,
   runAutoFollowup,
   pollAutoDRStatus,
@@ -696,8 +697,8 @@ export default function Workspace() {
                 const pref = getPipelineModel();
                 const final = await synthesize(sessionId, pref);
                 setFinalData(final);
-                const s = await getSession(sessionId);
-                setCost(s.total_cost_rub || 0);
+                const finalState = await getFinalReport(sessionId);
+                setCost(finalState.total_cost_rub || 0);
                 setMessages((ms) => [
                   ...ms,
                   {
@@ -712,7 +713,7 @@ export default function Workspace() {
                     kind: "ref",
                     refKind: "report",
                     title: final.executive_summary?.main_answer?.slice(0, 60) || "Финальный отчёт",
-                    subtitle: `${final.all_sources?.length ?? 0} источников · ₽ ${Math.round(s.total_cost_rub || 0)}`,
+                    subtitle: `${final.all_sources?.length ?? 0} источников · ₽ ${Math.round(finalState.total_cost_rub || 0)}`,
                     accent: true,
                   },
                 ]);
@@ -1639,8 +1640,8 @@ export default function Workspace() {
         const final = await synthesize(sessionId, pref);
         setFinalData(final);
 
-        const s = await getSession(sessionId);
-        setCost(s.total_cost_rub || 0);
+        const finalState = await getFinalReport(sessionId);
+        setCost(finalState.total_cost_rub || 0);
 
         setMessages((ms) => ms.filter((m) => m.kind !== "thinking"));
         push({
@@ -1653,7 +1654,7 @@ export default function Workspace() {
           kind: "ref",
           refKind: "report",
           title: final.executive_summary?.main_answer?.slice(0, 60) || "Финальный отчёт",
-          subtitle: `${final.all_sources?.length ?? 0} источников · ₽ ${Math.round(s.total_cost_rub || 0)}`,
+          subtitle: `${final.all_sources?.length ?? 0} источников · ₽ ${Math.round(finalState.total_cost_rub || 0)}`,
           accent: true,
         });
         setPhase(PHASE.DONE);
@@ -1692,8 +1693,8 @@ export default function Workspace() {
       const final = await synthesize(sessionId, pref);
       setFinalData(final);
 
-      const s = await getSession(sessionId);
-      setCost(s.total_cost_rub || 0);
+      const finalState = await getFinalReport(sessionId);
+      setCost(finalState.total_cost_rub || 0);
 
       setMessages((ms) => ms.filter((m) => m.kind !== "thinking"));
       push({
@@ -1706,7 +1707,7 @@ export default function Workspace() {
         kind: "ref",
         refKind: "report",
         title: final.executive_summary?.main_answer?.slice(0, 60) || "Финальный отчёт",
-        subtitle: `${final.all_sources?.length ?? 0} источников · ₽ ${Math.round(s.total_cost_rub || 0)}`,
+        subtitle: `${final.all_sources?.length ?? 0} источников · ₽ ${Math.round(finalState.total_cost_rub || 0)}`,
         accent: true,
       });
       setPhase(PHASE.DONE);

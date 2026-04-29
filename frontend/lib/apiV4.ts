@@ -182,6 +182,12 @@ export type PendingLongTask = {
   model_preference?: string | null;
 };
 
+export type FinalReportOut = {
+  final_report: FinalReport;
+  total_cost_rub: number;
+  status: V4SessionStatus;
+};
+
 export type V4Session = {
   session_id: string;
   raw_question: string;
@@ -505,11 +511,11 @@ export async function synthesize(id: string, modelPreference?: "sonnet" | "opus"
   if (status.state !== "completed") {
     throw new Error(status.error || `synthesize ${status.task_id} failed`);
   }
-  const session = await getSession(id);
-  if (!session.final_report) {
+  const final = await getFinalReport(id);
+  if (!final.final_report) {
     throw new Error(`synthesize ${status.task_id} completed but session.final_report is null`);
   }
-  return session.final_report;
+  return final.final_report;
 }
 
 export async function getSession(id: string): Promise<V4Session> {
@@ -521,6 +527,21 @@ export async function getSession(id: string): Promise<V4Session> {
     return stubSession(id, "");
   }
   return jv4<V4Session>(`/api/v4/sessions/${encodeURIComponent(id)}`);
+}
+
+export async function getFinalReport(id: string): Promise<FinalReportOut> {
+  if (STUB) {
+    const session = await getSession(id);
+    if (!session.final_report) {
+      throw new Error(`session ${id} has no final_report yet`);
+    }
+    return {
+      final_report: session.final_report,
+      total_cost_rub: session.total_cost_rub,
+      status: session.status,
+    };
+  }
+  return jv4<FinalReportOut>(`/api/v4/sessions/${encodeURIComponent(id)}/final-report`);
 }
 
 export async function getEvents(

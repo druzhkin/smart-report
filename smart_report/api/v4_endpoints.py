@@ -281,6 +281,21 @@ def _has_running_long_task(session: V4Session, phase: str) -> str | None:
     return None
 
 
+def _phase_result_is_persisted(session: V4Session, phase: str) -> bool:
+    """Return True when a long-task's durable output is already on session.
+
+    Railway/container restarts can happen after the orchestrator commits
+    analysis/final_report but before _run_long_task records the terminal
+    pending_long_tasks verdict. In that case the in-memory Future is gone,
+    but the task did not fail; the persisted artifact is the source of truth.
+    """
+    if phase == "analyze":
+        return session.analysis is not None
+    if phase == "synthesize":
+        return session.final_report is not None
+    return False
+
+
 def _reap_stale_running_tasks(session: V4Session) -> bool:
     """Mark `running` entries with no live future as `failed`.
 
@@ -295,11 +310,15 @@ def _reap_stale_running_tasks(session: V4Session) -> bool:
         tid = entry.get("task_id")
         fut = _LONG_TASK_REGISTRY.get(tid)
         if fut is None or fut.done():
-            entry["state"] = "failed"
-            entry["error"] = (
-                entry.get("error")
-                or "container restart killed the task — re-run from the UI"
-            )
+            if _phase_result_is_persisted(session, entry.get("phase", "")):
+                entry["state"] = "completed"
+                entry["error"] = None
+            else:
+                entry["state"] = "failed"
+                entry["error"] = (
+                    entry.get("error")
+                    or "container restart killed the task — re-run from the UI"
+                )
             entry["completed_at"] = _now_iso()
             _LONG_TASK_REGISTRY.pop(tid, None)
             changed = True
@@ -1418,6 +1437,28 @@ async def get_quality_grade(session_id: str, request: Request) -> dict:
     from ..quality_grade import compute_quality_grade
     session = _get_owned(session_id, request)
     return compute_quality_grade(session).to_dict()
+
+
+@router.get("/sessions/{session_id}/final-report")
+async def get_final_report(session_id: str, request: Request) -> dict:
+    """Return only the final report and current cost, not full session JSON.
+
+    Full V4Session payloads include source_reports/followup_reports content.
+    On production Deep Research runs those markdown bodies can be large enough
+    that fetching the entire session after synthesize makes the UI look stuck
+    even though the final_report has already been persisted.
+    """
+    session = _get_owned(session_id, request)
+    if session.final_report is None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"session {session_id} has no final_report yet",
+        )
+    return {
+        "final_report": session.final_report.model_dump(mode="json"),
+        "total_cost_rub": session.total_cost_rub,
+        "status": session.status,
+    }
 
 
 @router.get("/sessions/{session_id}")
