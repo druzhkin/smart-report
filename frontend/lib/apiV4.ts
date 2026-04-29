@@ -237,7 +237,18 @@ async function jv4<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`${res.status} ${res.statusText}: ${text}`);
+    let detail = text;
+    try {
+      const parsed = JSON.parse(text);
+      if (typeof parsed?.detail === "string") detail = parsed.detail;
+    } catch {}
+    if (res.status === 402) {
+      throw new Error(
+        `402 Payment Required: ${detail || "monthly spending limit reached"}. ` +
+        "Повышен месячный лимит или повторите действие после обновления деплоя."
+      );
+    }
+    throw new Error(`${res.status} ${res.statusText}: ${detail}`);
   }
   return res.json();
 }

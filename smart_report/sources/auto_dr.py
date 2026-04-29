@@ -654,6 +654,22 @@ def try_collect_async_research_from_session(
     if state == "running":
         # Build a human-readable progress message with last activity.
         ago = int(__import__("time").time() - last_at) if last_at else None
+        if service in ("openai", "perplexity"):
+            from .llm_deepresearch import get_llm_research_task
+            stale_after_s = int(__import__("os").environ.get("LLM_DR_STALE_AFTER_S", "300"))
+            live_task = get_llm_research_task(task_id)
+            if live_task is None and ago is not None and ago > stale_after_s:
+                job["state"] = "interrupted_with_partial"
+                job["interrupted_at"] = __import__("time").time()
+                msg = (
+                    f"{svc_label} прерван: live task отсутствует, последний прогресс "
+                    f"{ago}с назад. Частичный результат: {chars:,} символов."
+                )
+                return AsyncResearchPoll(
+                    state="failed",
+                    message=msg,
+                    error="interrupted_with_partial",
+                )
         msg = f"{svc_label}: получено {chars:,} символов"
         if ago is not None and ago > 0:
             msg += f", последний прогресс {ago}с назад"

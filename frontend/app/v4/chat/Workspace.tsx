@@ -540,11 +540,11 @@ export default function Workspace() {
     return () => window.removeEventListener("keydown", onKey);
   }, [activeCite]);
 
-  // ===== Cost-cap pre-warning =====
-  // Backend cap is $1/user/30d (USER_MONTHLY_CAP_USD). At ~75₽/$ that is
-  // ~75₽ → warn at 60₽ (80%). One warning per day per browser.
-  const COST_WARN_THRESHOLD_RUB = 60;
-  const COST_CAP_RUB = 75;
+  // ===== Cost visibility warning =====
+  // This is a local-session spend warning only. The backend enforces a
+  // rolling 30-day per-user cap, so showing a fake exact monthly cap here
+  // misled users when /analyze returned 402 after several prior sessions.
+  const COST_WARN_THRESHOLD_RUB = 30_000;
   useEffect(() => {
     if (!cost || cost < COST_WARN_THRESHOLD_RUB) return;
     const today = new Date().toISOString().slice(0, 10);
@@ -553,7 +553,7 @@ export default function Workspace() {
     if (localStorage.getItem(key) === today) return;
     localStorage.setItem(key, today);
     showToast(
-      `Внимание: потрачено ₽ ${Math.round(cost)} из ₽ ${COST_CAP_RUB} месячного лимита. После лимита /generate /analyze /synth ответят 402.`,
+      `Внимание: текущая сессия уже стоит около ₽ ${Math.round(cost)}. Backend также считает общий 30-дневный лимит пользователя.`,
       undefined,
       9000
     );

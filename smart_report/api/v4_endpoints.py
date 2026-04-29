@@ -440,11 +440,12 @@ def _get_owned(session_id: str, request: Request):
 
 
 # Cost cap — prevent abuse where a signed-up user spends unbounded LLM money.
-# Read from env so ops can adjust without redeploy. Default $1.00/user/30d
-# = ~2 reports — generous demo allowance, not real product pricing.
-# $50/30d default — enough for ~25 Standard Valyu Research runs ($0.50 each)
-# or ~3 Heavy ($2.50). Override via env var for stricter prod policy.
-_USER_MONTHLY_CAP_USD: float = float(os.environ.get("USER_MONTHLY_CAP_USD", "50.0"))
+# Read from env so ops can adjust without redeploy.
+# $500/30d default — this is an internal MVP, not a public self-serve SaaS.
+# A low demo cap caused a paid DR run to complete, then blocked /analyze with
+# 402, leaving the UI looking "stuck". Override USER_MONTHLY_CAP_USD in Railway
+# for stricter public-demo policy. Set <=0 to disable the cap explicitly.
+_USER_MONTHLY_CAP_USD: float = float(os.environ.get("USER_MONTHLY_CAP_USD", "500.0"))
 from ..config import USD_RUB_RATE as _USD_RUB_RATE  # single source of truth
 
 
@@ -465,6 +466,8 @@ def _enforce_cost_cap(email: str) -> None:
     LLM-spending entry points. Lightweight cheap reads (whoami) stay free.
     """
     spent = _user_monthly_spend_usd(email)
+    if _USER_MONTHLY_CAP_USD <= 0:
+        return
     if spent >= _USER_MONTHLY_CAP_USD:
         raise HTTPException(
             status_code=402,
@@ -734,7 +737,10 @@ async def auto_dr(session_id: str, request: Request, payload: AutoDRIn):
         session.total_cost_rub = float(session.total_cost_rub or 0.0) + cost_rub
         # For LLM DR (openai/perplexity), the streaming runner writes
         # partial_content here. Pre-populate the fields it expects.
-        session.pending_dr_jobs = list(session.pending_dr_jobs or []) + [{
+        existing_jobs = list(session.pending_dr_jobs or [])
+        existing_ids = {j.get("task_id") for j in existing_jobs}
+        if sub.task_id not in existing_ids:
+            existing_jobs.append({
             "task_id": sub.task_id,
             "service": payload.service,
             "mode": mode,
@@ -745,7 +751,8 @@ async def auto_dr(session_id: str, request: Request, payload: AutoDRIn):
             "partial_content": "",
             "partial_chars": 0,
             "last_progress_at": time.time(),
-        }]
+            })
+        session.pending_dr_jobs = existing_jobs
         _store.update(session)
 
         emitter.emit(
@@ -1142,10 +1149,12 @@ async def auto_dr_status(session_id: str, request: Request, task_id: str) -> Aut
 
     # Auto-clean orphaned pending_dr_jobs entry on terminal-failure states.
     # Keeps the session list tidy and lets the user retry without manual cleanup.
-    if poll.state in {"failed", "cancelled"}:
+    if poll.state in {"failed", "cancelled"} and poll.error != "interrupted_with_partial":
         session.pending_dr_jobs = [
             j for j in (session.pending_dr_jobs or []) if j.get("task_id") != task_id
         ]
+        _store.update(session)
+    elif poll.error == "interrupted_with_partial":
         _store.update(session)
 
     if poll.state == "completed" and poll.result is not None:
