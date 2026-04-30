@@ -219,7 +219,7 @@ def _render_client_evidence_snapshot(doc: Document, report: PremiumReportDocumen
     rows = [
         ["Покрытие источниками", f"{report.source_count} источников"],
         ["Числовая база", f"{report.numeric_fact_count} числовых фактов"],
-        ["Факт-к-source связка", "Ключевые утверждения сопровождаются ссылками и вынесены в приложения."],
+        ["Связка факт-источник", "Ключевые утверждения сопровождаются ссылками и вынесены в приложения."],
         ["Ограничения", "Неполные или спорные данные явно отмечены в разделах рисков и ограничений."],
     ]
     _render_key_value_table(doc, rows)
@@ -510,15 +510,13 @@ def _deliverables(report: PremiumReportDocument) -> str:
     deliverables = report.plan.deliverables
     names = []
     if deliverables.require_docx:
-        names.append("DOCX")
+        names.append("DOCX-отчёт")
     if deliverables.require_pdf:
         names.append("PDF")
     if deliverables.require_pptx:
-        names.append("PPTX")
+        names.append("PPTX-презентация")
     if deliverables.require_data_pack:
-        names.append("data pack")
-    if deliverables.require_qa_audit:
-        names.append("QA-аудит")
+        names.append("пакет данных")
     return ", ".join(names)
 
 

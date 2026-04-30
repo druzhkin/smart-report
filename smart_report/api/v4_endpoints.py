@@ -2877,7 +2877,7 @@ def _artifact_qa_manifest_summary(artifact_qa: dict) -> dict[str, Any]:
 
 def _premium_artifact_qa(report_path: Path, deck_path: Path, out_dir: Path) -> dict:
     try:
-        from scripts.premium_artifact_qa import run_qa
+        from smart_report.exporters.premium.artifact_qa import run_qa
 
         return run_qa(
             docx_path=report_path,

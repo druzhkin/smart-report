@@ -20,6 +20,7 @@ PAPER = "F7F4EE"
 LINE = "D9DEE7"
 RED = "B42318"
 GREEN = "027A48"
+INTERNAL_TEXT_MARKERS = ("[STRONG]", "[MODERATE]", "[WEAK]", "[SPECULATIVE]")
 
 
 def render_premium_pptx(
@@ -75,21 +76,22 @@ def _executive_answer(prs, layout, document: PremiumReportDocument) -> None:
     slide = prs.slides.add_slide(layout)
     _title(slide, "Короткий ответ")
     answer = _first_block_body(document.sections, "executive_summary", "Короткий ответ")
-    _textbox(slide, 0.7, 1.25, 7.2, 1.45, answer or document.plan.decision_context, 18, INK, bold=True)
+    headline = _clean_for_slide(answer or document.plan.decision_context, 180)
+    _textbox(slide, 0.7, 1.18, 11.55, 1.02, headline, 17, INK, bold=True)
     _table(
         slide,
         0.7,
-        3.15,
-        5.9,
-        2.45,
+        2.65,
+        11.6,
+        2.35,
         ["Фокус решения", "Следствие"],
         [
             ["Доказательства", f"{document.source_count} источников / {document.numeric_fact_count} фактов"],
-            ["Порог качества", document.plan.quality_bar],
+            ["Уровень доверия", _client_confidence_label(document)],
             ["Материалы", _deliverables(document)],
         ],
     )
-    _callout(slide, 7.1, 3.1, 4.9, 2.5, document.plan.decision_context)
+    _callout(slide, 0.7, 5.45, 11.6, 0.72, _clean_for_slide(document.plan.decision_context, 170))
     _footer(slide, 2)
 
 
@@ -398,6 +400,8 @@ def _decision_implication(block: PremiumPreparedBlock) -> str:
 
 def _clean_for_slide(value: str, limit: int) -> str:
     text = " ".join(str(value or "").replace("\n", " ").split())
+    for marker in INTERNAL_TEXT_MARKERS:
+        text = text.replace(marker, "").strip()
     if len(text) <= limit:
         return text
     return text[: max(0, limit - 1)].rstrip(" ,.;:") + "…"
@@ -413,9 +417,7 @@ def _deliverables(document: PremiumReportDocument) -> str:
     if deliverables.require_pdf:
         names.append("PDF")
     if deliverables.require_data_pack:
-        names.append("data pack")
-    if deliverables.require_qa_audit:
-        names.append("QA-аудит")
+        names.append("пакет данных")
     return ", ".join(names)
 
 
