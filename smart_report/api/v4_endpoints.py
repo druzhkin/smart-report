@@ -35,6 +35,7 @@ import zipfile
 from pathlib import Path
 from typing import Any, Literal
 
+import httpx
 from fastapi import APIRouter, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
@@ -508,6 +509,32 @@ def _owned_with_cap(session_id: str, request: Request):
     return session
 
 
+def _upstream_http_exception(exc: Exception) -> HTTPException | None:
+    """Map provider client failures to actionable HTTP statuses.
+
+    OpenRouter 401/402/429 are not internal API bugs. If we mask them as 500,
+    the frontend cannot show the user the actual fix: auth, credits, or retry.
+    """
+    if not isinstance(exc, httpx.HTTPStatusError):
+        return None
+    status = exc.response.status_code
+    if status not in {401, 402, 429}:
+        return None
+    upstream_detail = exc.response.text[:500] if exc.response is not None else str(exc)
+    if status == 401:
+        detail = "LLM provider authentication failed. Check OPENROUTER_API_KEY."
+    elif status == 402:
+        detail = (
+            "LLM provider returned 402 Payment Required. "
+            "Add OpenRouter credits or lower the selected model cost."
+        )
+    else:
+        detail = "LLM provider rate limit reached. Retry later or switch model/provider."
+    if upstream_detail:
+        detail = f"{detail} Upstream detail: {upstream_detail}"
+    return HTTPException(status_code=status, detail=detail)
+
+
 @router.post("/sessions", response_model=CreateSessionOut)
 async def create_session(payload: CreateSessionIn, request: Request) -> CreateSessionOut:
     # Auth required — closes the anonymous-session bypass that let direct
@@ -569,6 +596,10 @@ async def generate_prompt(session_id: str, request: Request, payload: ModelPrefe
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
+        upstream = _upstream_http_exception(e)
+        if upstream is not None:
+            log.warning("v4 generate_prompt upstream client failure for %s: %s", session_id, upstream.detail)
+            raise upstream from e
         log.exception("v4 generate_prompt failed for %s", session_id)
         raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}") from e
 

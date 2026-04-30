@@ -9,7 +9,7 @@ from io import BytesIO
 import pytest
 
 pytest.importorskip("fastapi")
-pytest.importorskip("httpx")
+httpx = pytest.importorskip("httpx")
 
 from fastapi.testclient import TestClient
 
@@ -160,6 +160,24 @@ def test_generate_prompt_404_on_unknown_session():
     client = _authed_client()
     r = client.post("/api/v4/sessions/no-such-id/generate-prompt")
     assert r.status_code == 404
+
+
+def test_generate_prompt_preserves_openrouter_402(monkeypatch):
+    from smart_report import prompt_master as pm_module
+
+    async def _fail_402(*args, **kwargs):
+        request = httpx.Request("POST", "https://openrouter.ai/api/v1/chat/completions")
+        response = httpx.Response(402, request=request, text="insufficient credits")
+        raise httpx.HTTPStatusError("402 Payment Required", request=request, response=response)
+
+    monkeypatch.setattr(pm_module, "call_json", _fail_402)
+    client = _authed_client()
+    sid = client.post("/api/v4/sessions", json={"question": "market analysis please"}).json()["session_id"]
+
+    r = client.post(f"/api/v4/sessions/{sid}/generate-prompt")
+
+    assert r.status_code == 402
+    assert "OpenRouter credits" in r.json()["detail"]
 
 
 def test_get_session_after_prompt_generation(mock_llm):
