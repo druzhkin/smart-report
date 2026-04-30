@@ -1,0 +1,19 @@
+{
+  "tasks": [
+    {
+      "label": "ev-competitive-strategy",
+      "fixture_json": "../tests/fixtures/comparison_runs/2026-04-25/q1_ev_smart_report.json",
+      "package_zip": "../output/golden/ev-competitive-strategy/premium_delivery_package.zip"
+    },
+    {
+      "label": "moscow-real-estate-market",
+      "fixture_json": "../tests/fixtures/comparison_runs/2026-04-25/q2_moscow_re_smart_report.json",
+      "package_zip": "../output/golden/moscow-real-estate-market/premium_delivery_package.zip"
+    },
+    {
+      "label": "eu-dac-regulatory",
+      "fixture_json": "../tests/fixtures/comparison_runs/2026-04-25/q3_eu_dac_smart_report.json",
+      "package_zip": "../output/golden/eu-dac-regulatory/premium_delivery_package.zip"
+    }
+  ]
+}

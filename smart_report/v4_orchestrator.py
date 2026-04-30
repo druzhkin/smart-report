@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from .analytic_depth import build_analytic_depth_plan
 from .events import EventEmitter, NullEmitter
 from .models import (
     AnalysisOutput,
@@ -175,6 +176,22 @@ class V4Orchestrator:
             f"(normalize → analyzer LLM → followup_prompt)",
             flush=True,
         )
+        initial_depth = build_analytic_depth_plan(session.raw_question)
+        self.emitter.emit(
+            "analytic_depth",
+            (
+                "Initial investigation map prepared: "
+                f"{len(initial_depth.root.children)} branches, "
+                f"{len(initial_depth.benchmark_questions)} benchmark questions."
+            ),
+            data={
+                "stage": "initial_plan",
+                "domain_hint": initial_depth.domain_hint,
+                "branches": len(initial_depth.root.children),
+                "benchmark_questions": len(initial_depth.benchmark_questions),
+                "methods": initial_depth.root.methods,
+            },
+        )
 
         # v4.5: normalize each source report (extract citations + numeric/qualitative facts)
         research_prompt_text = (
@@ -199,6 +216,31 @@ class V4Orchestrator:
             log_dir=self.log_dir,
             mock=self.mock,
             model=models["analyzer"],
+        )
+        depth_plan = build_analytic_depth_plan(session.raw_question, analysis=analysis)
+        self.emitter.emit(
+            "analytic_depth",
+            (
+                "Analytical depth map updated: "
+                f"{len(depth_plan.hypotheses)} hypotheses, "
+                f"{len(depth_plan.evidence_probes)} evidence probes, "
+                f"{len(depth_plan.research_leads)} research leads."
+            ),
+            data={
+                "stage": "post_analysis_plan",
+                "domain_hint": depth_plan.domain_hint,
+                "branches": len(depth_plan.root.children),
+                "hypotheses": len(depth_plan.hypotheses),
+                "evidence_probes": len(depth_plan.evidence_probes),
+                "research_leads": len(depth_plan.research_leads),
+                "disconfirming_probes": sum(
+                    1 for probe in depth_plan.evidence_probes if probe.disconfirming
+                ),
+                "must_leads": sum(
+                    1 for lead in depth_plan.research_leads if lead.priority == "must"
+                ),
+                "lead_kinds": [lead.kind for lead in depth_plan.research_leads[:6]],
+            },
         )
         print(
             f"[orch-analyze] session={session_id} analyze_reports returned; "

@@ -55,7 +55,16 @@ export interface Project {
 }
 
 export interface Artifact {
-  kind: "prompt" | "upload" | "upload-stage" | "critique" | "topup" | "report" | "source-md" | "dr-progress";
+  kind:
+    | "prompt"
+    | "upload"
+    | "upload-stage"
+    | "critique"
+    | "topup"
+    | "report"
+    | "source-md"
+    | "dr-progress"
+    | "premium-status";
   // Real API data payload (present when connected to backend)
   data?: unknown;
 }

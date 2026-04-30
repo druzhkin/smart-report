@@ -28,9 +28,38 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Optional
 
-from .v4_to_report import v4_to_report_dict
+from .client_readiness import ClientReadiness, ReadinessIssue, assess_client_readiness
+from .client_view import contains_client_leak, sanitize_final_report
+from .docx_js_bridge import (
+    NodeNotFoundError,
+    NodeRenderError,
+    is_node_available,
+    render_docx_js,
+)
+from .docx_v4_consulting import render_consulting_docx
+from .premium import (
+    PremiumAppendixSpec,
+    PremiumAudience,
+    PremiumBlockKind,
+    PremiumDeckSlideSpec,
+    PremiumDeliverableSpec,
+    PremiumEvidenceRequirement,
+    PremiumPreparedBlock,
+    PremiumPreparedSection,
+    PremiumReadiness,
+    PremiumReadinessIssue,
+    PremiumReportDocument,
+    PremiumReportPlan,
+    PremiumReportType,
+    PremiumSectionSpec,
+    PremiumVisualSpec,
+    assemble_premium_report_document,
+    assess_premium_readiness,
+    build_premium_report_plan,
+    render_premium_docx,
+    render_premium_pptx,
+)
 from .render import (
     render_markdown,
     write_docx,
@@ -41,13 +70,7 @@ from .render import (
     write_onepager_html,
     write_pptx,
 )
-from .docx_v4_consulting import render_consulting_docx
-from .docx_js_bridge import (
-    render_docx_js,
-    is_node_available,
-    NodeNotFoundError,
-    NodeRenderError,
-)
+from .v4_to_report import v4_to_report_dict
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +78,7 @@ logger = logging.getLogger(__name__)
 def render_docx(
     report,
     path: Path,
-    chart_dir: Optional[Path] = None,
+    chart_dir: Path | None = None,
     *,
     prefer: str = "node",
 ) -> Path:
@@ -103,8 +126,33 @@ __all__ = [
     "write_pptx",
     "render_consulting_docx",
     "render_docx_js",
+    "ClientReadiness",
+    "ReadinessIssue",
+    "assess_client_readiness",
+    "contains_client_leak",
     "render_docx",
+    "sanitize_final_report",
     "is_node_available",
     "NodeNotFoundError",
     "NodeRenderError",
+    "PremiumAppendixSpec",
+    "PremiumAudience",
+    "PremiumBlockKind",
+    "PremiumDeckSlideSpec",
+    "PremiumDeliverableSpec",
+    "PremiumEvidenceRequirement",
+    "PremiumPreparedBlock",
+    "PremiumPreparedSection",
+    "PremiumReportDocument",
+    "PremiumReportPlan",
+    "PremiumReportType",
+    "PremiumReadiness",
+    "PremiumReadinessIssue",
+    "PremiumSectionSpec",
+    "PremiumVisualSpec",
+    "assemble_premium_report_document",
+    "assess_premium_readiness",
+    "build_premium_report_plan",
+    "render_premium_docx",
+    "render_premium_pptx",
 ]

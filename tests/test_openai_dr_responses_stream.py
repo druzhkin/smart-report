@@ -318,3 +318,62 @@ def test_finalise_keeps_estimate_when_no_cost_chunk(monkeypatch) -> None:
     final = store.get(sid)
     # Estimate untouched — total_cost_rub unchanged
     assert abs(final.total_cost_rub - estimate_rub) < 0.01
+
+
+def test_finalise_routes_followup_jobs_to_followup_reports(monkeypatch) -> None:
+    """Follow-up/analytic-depth LLM jobs must land in followup_reports, not
+    source_reports. Otherwise the second research loop gets mixed with the
+    original evidence pack and the synthesis stage cannot distinguish rounds.
+    """
+    from datetime import datetime, timezone
+    from smart_report.models import V4Session
+    from smart_report.sources.llm_deepresearch import _run_streaming_dr, _USD_RUB_RATE
+
+    class _FakeStore:
+        def __init__(self, sess: V4Session) -> None:
+            self._s = sess
+        def get(self, sid: str):
+            return self._s
+        def update(self, sess) -> None:
+            self._s = sess
+
+    sid = "rc-followup-1"
+    task_id = "task-followup-1"
+    estimate_rub = round(0.50 * _USD_RUB_RATE, 4)
+    sess = V4Session(
+        session_id=sid, raw_question="x", status="analyzed",
+        created_at=datetime.now(timezone.utc),
+        total_cost_rub=estimate_rub,
+        pending_dr_jobs=[{
+            "task_id": task_id, "service": "openai", "mode": "mini",
+            "model": "openai/o4-mini-deep-research",
+            "cost_usd": 0.50, "cost_rub": estimate_rub,
+            "submitted_at": 0.0, "state": "running",
+            "partial_content": "", "partial_chars": 0,
+            "last_progress_at": 0.0,
+            "is_followup": True,
+            "analytic_depth": {"lead_id": "lead1"},
+        }],
+    )
+    store = _FakeStore(sess)
+
+    async def _fake_stream(model_id, messages):  # noqa: ARG001
+        yield {"delta": "followup evidence"}
+
+    monkeypatch.setattr(
+        "smart_report.sources.llm_deepresearch._stream_openrouter_chat",
+        _fake_stream,
+    )
+
+    asyncio.run(_run_streaming_dr(
+        task_id=task_id, question="q",
+        model_id="openai/o4-mini-deep-research",
+        service="openai", detected_tool="openai_dr",
+        session_id=sid, store=store,
+    ))
+
+    final = store.get(sid)
+    assert final.source_reports == []
+    assert len(final.followup_reports) == 1
+    assert final.followup_reports[0].filename.startswith("auto_followup_openai_")
+    assert final.status == "dobor_uploaded"

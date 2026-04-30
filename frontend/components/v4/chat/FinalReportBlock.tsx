@@ -14,9 +14,14 @@
  */
 
 import { useState } from "react";
-import type { FinalReport } from "@/lib/apiV4";
-import { exportUrl, generateGammaPptx } from "@/lib/apiV4";
-import { Download, Plus, ChevronDown } from "lucide-react";
+import type { AnalyticClosureReport, AnalyticDepthPlan, FinalReport } from "@/lib/apiV4";
+import {
+  exportUrl,
+  generateGammaPptx,
+  getAnalyticClosureReport,
+  getAnalyticDepthPlan,
+} from "@/lib/apiV4";
+import { Activity, BrainCircuit, Download, Plus, ChevronDown } from "lucide-react";
 
 export function FinalReportBlock({
   report,
@@ -357,6 +362,8 @@ export function FinalReportBlock({
         }}
       >
         <ExportMenu sessionId={report.session_id} />
+        <AnalyticDepthMenu sessionId={report.session_id} />
+        <AnalyticClosureMenu sessionId={report.session_id} />
         <button
           type="button"
           className="vc-btn vc-btn-ghost"
@@ -371,6 +378,296 @@ export function FinalReportBlock({
 }
 
 /* ----------- Q→A ----------- */
+
+function AnalyticClosureMenu({ sessionId }: { sessionId: string }) {
+  const [open, setOpen] = useState(false);
+  const [closure, setClosure] = useState<AnalyticClosureReport | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function toggle() {
+    const nextOpen = !open;
+    setOpen(nextOpen);
+    if (!nextOpen || closure || loading) return;
+    setLoading(true);
+    setError(null);
+    try {
+      setClosure(await getAnalyticClosureReport(sessionId));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div style={{ position: "relative" }}>
+      <button
+        type="button"
+        className="vc-btn vc-btn-ghost"
+        onClick={toggle}
+        aria-expanded={open}
+        title="Show whether follow-up research closed the analytic leads"
+      >
+        <Activity size={14} strokeWidth={2} />
+        <span>Closure score</span>
+      </button>
+      {open && (
+        <>
+          <div
+            style={{ position: "fixed", inset: 0, zIndex: 100 }}
+            onClick={() => setOpen(false)}
+          />
+          <div
+            className="vc-reveal"
+            style={{
+              position: "absolute",
+              top: "calc(100% + 6px)",
+              left: 0,
+              width: "min(560px, calc(100vw - 32px))",
+              maxHeight: "70vh",
+              overflow: "auto",
+              background: "var(--vc-surface)",
+              border: "1px solid var(--vc-border-s)",
+              borderRadius: 12,
+              padding: 14,
+              boxShadow: "0 8px 32px rgba(0,0,0,0.08)",
+              zIndex: 101,
+            }}
+          >
+            <div className="vc-mono" style={{ fontSize: 10, marginBottom: 8 }}>
+              analytic follow-up closure
+            </div>
+            {loading && (
+              <div style={{ fontSize: 13, color: "var(--vc-muted)" }}>
+                Scoring whether follow-up reports close the priority research leads...
+              </div>
+            )}
+            {error && (
+              <div style={{ fontSize: 13, color: "var(--vc-warning, #b54708)" }}>
+                {error}
+              </div>
+            )}
+            {closure && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                <div>
+                  <div style={{ fontSize: 26, fontWeight: 700 }}>
+                    {closure.overall_score}/100
+                  </div>
+                  <div style={{ fontSize: 12, color: "var(--vc-muted)", lineHeight: 1.5 }}>
+                    {closure.summary}
+                  </div>
+                </div>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+                    gap: 8,
+                  }}
+                >
+                  {[
+                    ["Closed", closure.closed],
+                    ["Partial", closure.partial],
+                    ["Open", closure.not_closed],
+                    ["Not started", closure.not_started],
+                  ].map(([label, value]) => (
+                    <div
+                      key={label}
+                      style={{
+                        border: "1px solid var(--vc-border-s)",
+                        borderRadius: 8,
+                        padding: "8px 10px",
+                      }}
+                    >
+                      <div className="vc-mono" style={{ fontSize: 9 }}>{label}</div>
+                      <div style={{ fontSize: 18, fontWeight: 650 }}>{value}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {closure.lead_closures.slice(0, 5).map((lead) => (
+                    <div
+                      key={lead.lead_id}
+                      style={{
+                        border: "1px solid var(--vc-border-s)",
+                        borderRadius: 8,
+                        padding: "9px 10px",
+                      }}
+                    >
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
+                        <span className="vc-mono" style={{ fontSize: 9 }}>{lead.status}</span>
+                        <span className="vc-mono" style={{ fontSize: 9 }}>{lead.kind}</span>
+                        <span className="vc-mono" style={{ fontSize: 9 }}>{lead.score}/100</span>
+                      </div>
+                      <div style={{ fontSize: 12, lineHeight: 1.45 }}>
+                        {lead.recommendation}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function AnalyticDepthMenu({ sessionId }: { sessionId: string }) {
+  const [open, setOpen] = useState(false);
+  const [plan, setPlan] = useState<AnalyticDepthPlan | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function toggle() {
+    const nextOpen = !open;
+    setOpen(nextOpen);
+    if (!nextOpen || plan || loading) return;
+    setLoading(true);
+    setError(null);
+    try {
+      setPlan(await getAnalyticDepthPlan(sessionId));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div style={{ position: "relative" }}>
+      <button
+        type="button"
+        className="vc-btn vc-btn-ghost"
+        onClick={toggle}
+        aria-expanded={open}
+        title="Show the investigation map behind the report"
+      >
+        <BrainCircuit size={14} strokeWidth={2} />
+        <span>Analytic map</span>
+      </button>
+      {open && (
+        <>
+          <div
+            style={{ position: "fixed", inset: 0, zIndex: 100 }}
+            onClick={() => setOpen(false)}
+          />
+          <div
+            className="vc-reveal"
+            style={{
+              position: "absolute",
+              top: "calc(100% + 6px)",
+              left: 0,
+              width: "min(560px, calc(100vw - 32px))",
+              maxHeight: "70vh",
+              overflow: "auto",
+              background: "var(--vc-surface)",
+              border: "1px solid var(--vc-border-s)",
+              borderRadius: 12,
+              padding: 14,
+              boxShadow: "0 8px 32px rgba(0,0,0,0.08)",
+              zIndex: 101,
+            }}
+          >
+            <div className="vc-mono" style={{ fontSize: 10, marginBottom: 8 }}>
+              deep analytical layer
+            </div>
+            {loading && (
+              <div style={{ fontSize: 13, color: "var(--vc-muted)" }}>
+                Building the issue tree, hypotheses, probes, and follow-up leads...
+              </div>
+            )}
+            {error && (
+              <div style={{ fontSize: 13, color: "var(--vc-warning, #b54708)" }}>
+                {error}
+              </div>
+            )}
+            {plan && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                    {plan.root.question}
+                  </div>
+                  <div style={{ fontSize: 12, color: "var(--vc-muted)", lineHeight: 1.5 }}>
+                    Domain: {plan.domain_hint}. {plan.root.rationale}
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+                    gap: 8,
+                  }}
+                >
+                  {[
+                    ["Branches", plan.root.children.length],
+                    ["Hypotheses", plan.hypotheses.length],
+                    ["Probes", plan.evidence_probes.length],
+                    ["Leads", plan.research_leads.length],
+                  ].map(([label, value]) => (
+                    <div
+                      key={label}
+                      style={{
+                        border: "1px solid var(--vc-border-s)",
+                        borderRadius: 8,
+                        padding: "8px 10px",
+                      }}
+                    >
+                      <div className="vc-mono" style={{ fontSize: 9 }}>{label}</div>
+                      <div style={{ fontSize: 18, fontWeight: 650 }}>{value}</div>
+                    </div>
+                  ))}
+                </div>
+
+                <div>
+                  <div className="vc-mono" style={{ fontSize: 10, marginBottom: 6 }}>
+                    priority research leads
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {plan.research_leads.slice(0, 5).map((lead) => (
+                      <div
+                        key={lead.id}
+                        style={{
+                          border: "1px solid var(--vc-border-s)",
+                          borderRadius: 8,
+                          padding: "9px 10px",
+                        }}
+                      >
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
+                          <span className="vc-mono" style={{ fontSize: 9 }}>{lead.priority}</span>
+                          <span className="vc-mono" style={{ fontSize: 9 }}>{lead.kind}</span>
+                          <span className="vc-mono" style={{ fontSize: 9 }}>{lead.recommended_service}</span>
+                        </div>
+                        <div style={{ fontSize: 12, lineHeight: 1.45 }}>{lead.prompt}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {plan.evidence_probes.some((probe) => probe.disconfirming) && (
+                  <div
+                    style={{
+                      borderLeft: "2px solid var(--vc-border-s)",
+                      paddingLeft: 10,
+                      fontSize: 12,
+                      lineHeight: 1.5,
+                      color: "var(--vc-muted)",
+                    }}
+                  >
+                    This plan includes disconfirming probes: the system is explicitly
+                    looking for evidence that could break the current conclusion.
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 function QaItem({ q, a }: { q: string; a: string }) {
   const [open, setOpen] = useState(false);
@@ -494,11 +791,18 @@ function ExportMenu({ sessionId }: { sessionId: string }) {
   };
 
   const formats = [
-    { f: "docx", label: "Microsoft Word (.docx)" },
-    { f: "pptx", label: "PowerPoint (.pptx) — простой" },
-    { f: "md", label: "Markdown (.md)" },
-    { f: "pdf", label: "PDF (print-ready)" },
-    { f: "html", label: "HTML" },
+    { f: "premium-client-package", label: "Deliver to Client ZIP", strict: true },
+    { f: "premium-package", label: "Premium Draft Package ZIP" },
+    { f: "premium-docx", label: "Premium Report DOCX" },
+    { f: "premium-pptx", label: "Premium Deck PPTX" },
+    { f: "docx", label: "Client Report DOCX" },
+    { f: "pptx", label: "Simple PowerPoint PPTX" },
+    { f: "md", label: "Markdown" },
+    { f: "json", label: "Client Report JSON" },
+    { f: "sources-csv", label: "Sources CSV" },
+    { f: "facts-csv", label: "Facts CSV" },
+    { f: "data-pack", label: "Full Data Pack ZIP" },
+    { f: "audit-json", label: "Audit Appendix JSON" },
   ];
 
   return (
@@ -536,7 +840,7 @@ function ExportMenu({ sessionId }: { sessionId: string }) {
             {formats.map((fmt) => (
               <a
                 key={fmt.f}
-                href={exportUrl(sessionId, fmt.f)}
+                href={exportUrl(sessionId, fmt.f, { allowDraft: !fmt.strict })}
                 target="_blank"
                 rel="noreferrer"
                 onClick={() => setOpen(false)}
@@ -578,12 +882,12 @@ function ExportMenu({ sessionId }: { sessionId: string }) {
               }}
             >
               <span className="vc-mono" style={{ fontSize: 11 }}>
-                ✨gamma
+                gamma
               </span>
               <span>
                 {gammaState === "generating"
-                  ? "Gamma собирает презентацию (1-3 мин)…"
-                  : "Gamma PPTX (с дизайном)"}
+                  ? "Gamma is building the deck (1-3 min)..."
+                  : "Gamma PPTX"}
               </span>
             </button>
             {gammaState === "error" && gammaError && (

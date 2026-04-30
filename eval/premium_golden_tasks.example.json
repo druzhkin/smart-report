@@ -1,0 +1,44 @@
+{
+  "tasks": [
+    {
+      "label": "market-forecast",
+      "package_zip": "../output/golden/market_forecast/premium_delivery_package.zip",
+      "docx": "../output/golden/market_forecast/report.docx",
+      "pptx": "../output/golden/market_forecast/deck.pptx",
+      "audit_json": "../output/golden/market_forecast/audit.json",
+      "artifact_qa_json": "../output/golden/market_forecast/artifact_qa.json"
+    },
+    {
+      "label": "public-company-financials",
+      "package_zip": "../output/golden/public_company/premium_delivery_package.zip",
+      "docx": "../output/golden/public_company/report.docx",
+      "pptx": "../output/golden/public_company/deck.pptx",
+      "audit_json": "../output/golden/public_company/audit.json",
+      "artifact_qa_json": "../output/golden/public_company/artifact_qa.json"
+    },
+    {
+      "label": "legal-regulatory",
+      "package_zip": "../output/golden/legal_regulatory/premium_delivery_package.zip",
+      "docx": "../output/golden/legal_regulatory/report.docx",
+      "pptx": "../output/golden/legal_regulatory/deck.pptx",
+      "audit_json": "../output/golden/legal_regulatory/audit.json",
+      "artifact_qa_json": "../output/golden/legal_regulatory/artifact_qa.json"
+    },
+    {
+      "label": "technical-audit",
+      "package_zip": "../output/golden/technical_audit/premium_delivery_package.zip",
+      "docx": "../output/golden/technical_audit/report.docx",
+      "pptx": "../output/golden/technical_audit/deck.pptx",
+      "audit_json": "../output/golden/technical_audit/audit.json",
+      "artifact_qa_json": "../output/golden/technical_audit/artifact_qa.json"
+    },
+    {
+      "label": "competitive-strategy",
+      "package_zip": "../output/golden/competitive_strategy/premium_delivery_package.zip",
+      "docx": "../output/golden/competitive_strategy/report.docx",
+      "pptx": "../output/golden/competitive_strategy/deck.pptx",
+      "audit_json": "../output/golden/competitive_strategy/audit.json",
+      "artifact_qa_json": "../output/golden/competitive_strategy/artifact_qa.json"
+    }
+  ]
+}

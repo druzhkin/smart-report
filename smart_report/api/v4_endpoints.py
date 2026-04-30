@@ -20,22 +20,35 @@ jobs.py. That's fine for MVP (single uvicorn worker).
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures as _cf
+import csv
+import io
+import json
 import logging
 import mimetypes
 import os
 import re
+import threading as _threading
 import time
 import uuid
+import zipfile
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
-from typing import Literal
 
+from ..adjudication_audit import assess_adjudication_quality
+from ..analytic_closure import assess_analytic_closure
+from ..analytic_depth import AnalyticDepthPlan, build_analytic_depth_plan
+from ..evidence_audit import assess_evidence_support
 from ..events import ALLOWED_PHASES, EventEmitter
 from ..exporters import (
+    assess_client_readiness,
+    assess_premium_readiness,
+    contains_client_leak,
+    sanitize_final_report,
     v4_to_report_dict,
     write_docx,
     write_gamma_pdf_stub,
@@ -52,7 +65,6 @@ from ..follow_up_prompter import (
 )
 from ..gap_detector import detect_gaps, gap_count_by_severity
 from ..models import (
-    AnalysisOutput,
     DetectedTool,
     EvidenceGap,
     FinalReport,
@@ -62,6 +74,7 @@ from ..models import (
     V4Session,
 )
 from ..v4_orchestrator import V4Orchestrator, V4SessionStore
+from ..visual_review import build_visual_review_gate
 
 log = logging.getLogger("smart_report.api.v4")
 
@@ -153,8 +166,6 @@ class ModelPreferenceIn(BaseModel):
 # Registry maps task_id → concurrent.futures.Future so we can probe
 # liveness with .done() from any thread without crossing event-loop
 # boundaries.
-import concurrent.futures as _cf
-import threading as _threading
 
 _LONG_TASK_REGISTRY: dict[str, "_cf.Future"] = {}
 _BG_LOOP: asyncio.AbstractEventLoop | None = None
@@ -895,6 +906,306 @@ class AutoFollowupIn(BaseModel):
     mode: str = "standard"
 
 
+class AutoDepthLeadsIn(BaseModel):
+    max_leads: int = Field(default=3, ge=1, le=8)
+    include_priority: Literal["must", "should", "could", "all"] = "must"
+    service_override: Literal["valyu", "tavily", "exa", "openai", "perplexity"] | None = None
+    mode_override: str | None = Field(default=None, max_length=64)
+
+
+class AutoDepthLeadOut(BaseModel):
+    lead_id: str
+    kind: str
+    priority: str
+    rationale: str = ""
+    candidate_sources: list[str] = Field(default_factory=list)
+    linked_to: list[str] = Field(default_factory=list)
+    service: str
+    mode: str
+    task_id: str
+    cost_usd: float
+    cost_rub: float
+    eta_min_low: int
+    eta_min_high: int
+    prompt_preview: str
+
+
+class PremiumRefineIn(BaseModel):
+    max_leads: int = Field(default=3, ge=1, le=8)
+    include_priority: Literal["must", "should", "could", "all"] = "must"
+    service_override: Literal["valyu", "tavily", "exa", "openai", "perplexity"] | None = None
+    mode_override: str | None = Field(default=None, max_length=64)
+    model_preference: str | None = Field(default=None, max_length=64)
+    auto_synthesize: bool = True
+
+
+class PremiumRefineOut(BaseModel):
+    action: Literal[
+        "wait_for_followups",
+        "submitted_followups",
+        "synthesize_started",
+        "ready_or_blocked",
+    ]
+    message: str
+    pending_task_ids: list[str] = Field(default_factory=list)
+    submitted_leads: list[AutoDepthLeadOut] = Field(default_factory=list)
+    synthesize_task: LongTaskOut | None = None
+    analytic_closure: dict | None = None
+    premium_readiness: dict | None = None
+
+
+class PremiumRefinementStatusOut(BaseModel):
+    recommended_action: Literal[
+        "run_analysis",
+        "wait_for_followups",
+        "wait_for_synthesis",
+        "submit_followups",
+        "synthesize",
+        "inspect_blockers",
+        "ready",
+    ]
+    message: str
+    pending_followup_task_ids: list[str] = Field(default_factory=list)
+    running_synthesize_task_id: str | None = None
+    final_report_needs_followup_resynthesis: bool = False
+    analytic_closure: dict | None = None
+    premium_readiness: dict | None = None
+    next_research_leads: list[dict] = Field(default_factory=list)
+
+
+def _lead_priority_allowed(lead_priority: str, include_priority: str) -> bool:
+    if include_priority == "all":
+        return True
+    rank = {"must": 0, "should": 1, "could": 2}
+    return rank.get(lead_priority, 9) <= rank.get(include_priority, 0)
+
+
+def _async_service_for_lead(lead, domain_hint: str, override: str | None) -> str:
+    if override:
+        return override
+    service = getattr(lead, "recommended_service", "manual")
+    if service in {"valyu", "tavily", "exa", "openai", "perplexity"}:
+        return service
+    if domain_hint in {"financial_us", "scientific", "medical_clinical"}:
+        return "valyu"
+    return "perplexity"
+
+
+def _next_research_leads_preview(plan: AnalyticDepthPlan, closure, *, limit: int = 5) -> list[dict]:
+    closure_by_id = {
+        item.lead_id: item
+        for item in getattr(closure, "lead_closures", []) or []
+    }
+    previews: list[dict] = []
+    for lead in plan.research_leads:
+        if lead.priority not in {"must", "should"}:
+            continue
+        lead_closure = closure_by_id.get(lead.id)
+        status = getattr(lead_closure, "status", "not_started") if lead_closure else "not_started"
+        if status in {"closed", "partial"}:
+            continue
+        previews.append(
+            {
+                "lead_id": lead.id,
+                "kind": lead.kind,
+                "priority": lead.priority,
+                "status": status,
+                "service": _async_service_for_lead(lead, plan.domain_hint, None),
+                "mode": lead.recommended_mode or "standard",
+                "candidate_sources": list(lead.candidate_sources[:4]),
+                "linked_to": list(lead.linked_to[:4]),
+                "rationale": lead.rationale,
+                "prompt_preview": _clip_text(lead.prompt, 320),
+            }
+        )
+        if len(previews) >= limit:
+            break
+    return previews
+
+
+def _clip_text(value: str, limit: int) -> str:
+    text = " ".join(str(value or "").split())
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 1)].rstrip() + "…"
+
+
+def _async_mode_for_lead(service: str, lead, override: str | None) -> str:
+    allowed_by_service = {
+        "perplexity": {"deep"},
+        "openai": {"mini", "deep", "standard"},
+        "valyu": {"standard", "fast", "deep"},
+        "exa": {"standard", "fast"},
+        "tavily": {"pro", "standard"},
+    }
+    allowed = allowed_by_service.get(service)
+    fallback = {
+        "valyu": "standard",
+        "tavily": "pro",
+        "exa": "standard",
+        "openai": "mini",
+        "perplexity": "deep",
+    }.get(service, "standard")
+
+    if override:
+        normalized = override.strip().lower()
+        if allowed is None or normalized in allowed:
+            return normalized
+        return fallback
+
+    recommended = getattr(lead, "recommended_mode", None)
+    if recommended and (allowed is None or recommended in allowed):
+        return recommended
+    return fallback
+
+
+def _upsert_pending_dr_job(session, task_id: str, fields: dict) -> None:
+    """Insert or update a pending DR job while preserving streaming fields.
+
+    LLM DR backends pre-populate pending_dr_jobs before endpoints attach
+    route-specific metadata. Updating in place avoids duplicate jobs and keeps
+    partial_content/progress fields written by the background streamer.
+    """
+    jobs = list(session.pending_dr_jobs or [])
+    for job in jobs:
+        if job.get("task_id") == task_id:
+            job.update(fields)
+            session.pending_dr_jobs = jobs
+            return
+    jobs.append(fields)
+    session.pending_dr_jobs = jobs
+
+
+async def _submit_analytic_depth_leads(
+    *,
+    session_id: str,
+    session: V4Session,
+    plan: AnalyticDepthPlan,
+    payload: AutoDepthLeadsIn | PremiumRefineIn,
+) -> list[AutoDepthLeadOut]:
+    from ..sources.auto_dr import AutoDRError, submit_async_research
+
+    leads = [
+        lead for lead in plan.research_leads
+        if _lead_priority_allowed(lead.priority, payload.include_priority)
+    ][: payload.max_leads]
+    if not leads:
+        return []
+
+    emitter = _SessionEmitter(session_id)
+    out: list[AutoDepthLeadOut] = []
+
+    for lead in leads:
+        service = _async_service_for_lead(lead, plan.domain_hint, payload.service_override)
+        mode = _async_mode_for_lead(service, lead, payload.mode_override)
+        try:
+            sub = await submit_async_research(
+                service,
+                lead.prompt,
+                mode=mode,
+                session_id=session_id,
+                store=_store,
+            )
+        except AutoDRError as e:
+            emitter.emit(
+                "error",
+                f"Analytic lead {lead.id} submit failed: {e}",
+                data={"lead_id": lead.id, "service": service, "mode": mode},
+            )
+            raise HTTPException(status_code=502, detail=str(e)) from e
+
+        cost_rub = round(sub.cost_usd * _USD_RUB_RATE, 4)
+        updated = _store.get(session_id)
+        updated.total_cost_rub = float(updated.total_cost_rub or 0.0) + cost_rub
+        _upsert_pending_dr_job(updated, sub.task_id, {
+            "task_id": sub.task_id,
+            "service": service,
+            "mode": mode,
+            "cost_usd": sub.cost_usd,
+            "cost_rub": cost_rub,
+            "submitted_at": time.time(),
+            "state": "running",
+            "is_followup": True,
+            "analytic_depth": {
+                "lead_id": lead.id,
+                "kind": lead.kind,
+                "priority": lead.priority,
+                "rationale": lead.rationale,
+                "candidate_sources": lead.candidate_sources,
+                "linked_to": lead.linked_to,
+            },
+        })
+        _store.update(updated)
+        out.append(
+            AutoDepthLeadOut(
+                lead_id=lead.id,
+                kind=lead.kind,
+                priority=lead.priority,
+                rationale=lead.rationale,
+                candidate_sources=lead.candidate_sources,
+                linked_to=lead.linked_to,
+                service=service,
+                mode=mode,
+                task_id=sub.task_id,
+                cost_usd=sub.cost_usd,
+                cost_rub=cost_rub,
+                eta_min_low=sub.eta_min_low,
+                eta_min_high=sub.eta_min_high,
+                prompt_preview=lead.prompt[:240],
+            )
+        )
+
+    emitter.emit(
+        "analytic_depth",
+        f"Submitted {len(out)} analytic-depth research leads as async DR jobs.",
+        data={
+            "stage": "auto_depth_leads_submitted",
+            "submitted": len(out),
+            "task_ids": [item.task_id for item in out],
+            "lead_ids": [item.lead_id for item in out],
+            "services": [item.service for item in out],
+            "cost_rub": round(sum(item.cost_rub for item in out), 4),
+        },
+    )
+    return out
+
+
+@router.post(
+    "/sessions/{session_id}/auto-depth-leads",
+    response_model=list[AutoDepthLeadOut],
+)
+async def auto_depth_leads(
+    session_id: str,
+    request: Request,
+    payload: AutoDepthLeadsIn,
+) -> list[AutoDepthLeadOut]:
+    """Submit selected analytic-depth research leads as async DR jobs.
+
+    This is the first executable iterative-retrieval loop: the system turns
+    conflicts, gaps, unverified numbers, and disconfirming probes into concrete
+    research jobs, records lead metadata on each pending job, and lets the
+    existing /auto-dr-status collector ingest the results.
+    """
+    session = _owned_with_cap(session_id, request)
+    if session.analysis is None:
+        raise HTTPException(
+            status_code=400,
+            detail="auto-depth-leads requires a completed /analyze first",
+        )
+
+    plan = build_analytic_depth_plan(
+        session.raw_question,
+        analysis=session.analysis,
+        report=session.final_report,
+    )
+    return await _submit_analytic_depth_leads(
+        session_id=session_id,
+        session=session,
+        plan=plan,
+        payload=payload,
+    )
+
+
 @router.post("/sessions/{session_id}/auto-followup", response_model=AutoDRAsyncOut)
 async def auto_followup(session_id: str, request: Request, payload: AutoFollowupIn) -> AutoDRAsyncOut:
     """Fire ONE Valyu Standard (default) on the entire followup_prompt.
@@ -945,9 +1256,9 @@ async def auto_followup(session_id: str, request: Request, payload: AutoFollowup
 
     cost_rub = round(sub.cost_usd * _USD_RUB_RATE, 4)
     session = _store.get(session_id)
-    # submit_async_research does not touch pending_dr_jobs — endpoint adds
-    # the entry, tagged is_followup so auto_dr_status routes to followup_reports.
-    session.pending_dr_jobs = list(session.pending_dr_jobs or []) + [{
+    # LLM DR backends may pre-populate pending_dr_jobs before this endpoint
+    # attaches follow-up routing metadata. Update in place when present.
+    _upsert_pending_dr_job(session, sub.task_id, {
         "task_id": sub.task_id,
         "service": payload.service,
         "mode": payload.mode,
@@ -956,7 +1267,7 @@ async def auto_followup(session_id: str, request: Request, payload: AutoFollowup
         "submitted_at": time.time(),
         "state": "running",
         "is_followup": True,
-    }]
+    })
     session.total_cost_rub = float(session.total_cost_rub or 0.0) + cost_rub
     _store.update(session)
 
@@ -1105,25 +1416,29 @@ async def auto_dr_status(session_id: str, request: Request, task_id: str) -> Aut
     )
     if job is None:
         # For LLM DR (openai/perplexity), the streaming runner moves the
-        # result into source_reports AND removes the pending entry on
-        # completion. So "not found in pending" + "matching source_report
-        # exists" = silently completed. Surface as state=completed so the
-        # frontend shows success instead of "task lost".
+        # result into source_reports or followup_reports AND removes the
+        # pending entry on completion. So "not found in pending" + "matching
+        # upload exists" = silently completed. Surface as state=completed so
+        # the frontend shows success instead of "task lost".
         prefix = task_id[:8]
         for svc_guess in ("openai", "perplexity"):
-            for u in (session.source_reports or []):
-                if u.filename in (
-                    f"auto_dr_{svc_guess}_{prefix}.md",
-                    f"auto_dr_{svc_guess}_{prefix}_partial.md",
-                ):
-                    return AutoDRStatusOut(
-                        task_id=task_id, state="completed",
-                        filename=u.filename,
-                        word_count=u.word_count,
-                        source_count=0,
-                        cost_usd=None,
-                        cost_rub=None,
-                    )
+            candidates = [
+                (session.source_reports or [], f"auto_dr_{svc_guess}_{prefix}.md"),
+                (session.source_reports or [], f"auto_dr_{svc_guess}_{prefix}_partial.md"),
+                (session.followup_reports or [], f"auto_followup_{svc_guess}_{prefix}.md"),
+                (session.followup_reports or [], f"auto_followup_{svc_guess}_{prefix}_partial.md"),
+            ]
+            for uploads, expected_filename in candidates:
+                for u in uploads:
+                    if u.filename == expected_filename:
+                        return AutoDRStatusOut(
+                            task_id=task_id, state="completed",
+                            filename=u.filename,
+                            word_count=u.word_count,
+                            source_count=0,
+                            cost_usd=None,
+                            cost_rub=None,
+                        )
         raise HTTPException(status_code=404, detail=f"task_id {task_id} not found in this session")
 
     from ..sources.auto_dr import (
@@ -1172,6 +1487,7 @@ async def auto_dr_status(session_id: str, request: Request, task_id: str) -> Aut
         # shows a "followup" prefix consistently.
         if is_followup:
             poll.result.upload.filename = f"auto_followup_{job.get('service','svc')}_{task_id[:8]}.md"
+            poll.result.upload = _with_analytic_depth_header(poll.result.upload, job)
             already = any(u.filename == poll.result.upload.filename for u in (bucket or []))
         if not already:
             if is_followup:
@@ -1205,6 +1521,35 @@ async def auto_dr_status(session_id: str, request: Request, task_id: str) -> Aut
         out.cost_rub = poll.result.cost_rub
 
     return out
+
+
+def _with_analytic_depth_header(upload: UploadedMarkdown, job: dict) -> UploadedMarkdown:
+    meta = job.get("analytic_depth") or {}
+    lead_id = str(meta.get("lead_id") or "").strip()
+    if not lead_id:
+        return upload
+    if f"Smart Report analytic-depth lead: {lead_id}" in (upload.content or ""):
+        return upload
+    header = [
+        "<!-- Smart Report analytic-depth metadata",
+        f"Smart Report analytic-depth lead: {lead_id}",
+        f"Kind: {meta.get('kind') or ''}",
+        f"Priority: {meta.get('priority') or ''}",
+        f"Rationale: {meta.get('rationale') or ''}",
+        "Candidate sources: "
+        + ", ".join(str(item) for item in (meta.get("candidate_sources") or []) if item),
+        "Linked to: "
+        + ", ".join(str(item) for item in (meta.get("linked_to") or []) if item),
+        "-->",
+        "",
+    ]
+    content = "\n".join(header) + (upload.content or "")
+    return UploadedMarkdown(
+        filename=upload.filename,
+        content=content,
+        detected_tool=upload.detected_tool,
+        word_count=len(content.split()),
+    )
 
 
 @router.post(
@@ -1448,6 +1793,333 @@ async def get_quality_grade(session_id: str, request: Request) -> dict:
     return compute_quality_grade(session).to_dict()
 
 
+@router.get("/sessions/{session_id}/analytic-depth", response_model=AnalyticDepthPlan)
+async def get_analytic_depth_plan(session_id: str, request: Request) -> AnalyticDepthPlan:
+    """Return the non-linear research map for a completed analysis.
+
+    This is a read-only planning endpoint for the premium pipeline. It exposes
+    the issue tree, competing hypotheses, disconfirming probes, benchmark
+    questions, and prioritized research leads that can later drive selective
+    follow-up retrieval. It intentionally does not mutate the legacy v4 session.
+    """
+    session = _get_owned(session_id, request)
+    if session.analysis is None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"session {session_id} has no analysis yet; call /analyze first",
+        )
+    return build_analytic_depth_plan(
+        session.raw_question,
+        analysis=session.analysis,
+        report=session.final_report,
+    )
+
+
+@router.get("/sessions/{session_id}/analytic-closure")
+async def get_analytic_closure(session_id: str, request: Request) -> dict:
+    """Return closure scoring for analytic-depth follow-up research.
+
+    This does not mutate the session and does not pretend to prove correctness.
+    It checks whether uploaded/generated follow-up reports appear to address
+    the priority research leads with URLs, numbers, source language, and
+    conflict-adjudication signals.
+    """
+    session = _get_owned(session_id, request)
+    if session.analysis is None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"session {session_id} has no analysis yet; call /analyze first",
+        )
+    client_report = (
+        sanitize_final_report(session.final_report)
+        if session.final_report is not None
+        else None
+    )
+    depth_plan = build_analytic_depth_plan(
+        session.raw_question,
+        analysis=session.analysis,
+        report=client_report,
+    )
+    return assess_analytic_closure(
+        depth_plan,
+        list(session.followup_reports or []),
+    ).model_dump(mode="json")
+
+
+@router.get("/sessions/{session_id}/premium-readiness")
+async def get_premium_readiness(session_id: str, request: Request) -> dict:
+    """Return the stricter paid-report readiness gate.
+
+    This is deliberately separate from the normal client-readiness gate. A
+    report can be safe to export but still not good enough for a 20+ page
+    paid analytical package.
+    """
+    session = _get_owned(session_id, request)
+    if session.final_report is None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"session {session_id} has no final_report yet; call /synthesize first",
+        )
+    client_report = sanitize_final_report(session.final_report)
+    depth_plan = (
+        build_analytic_depth_plan(
+            session.raw_question,
+            analysis=session.analysis,
+            report=client_report,
+        )
+        if session.analysis is not None
+        else None
+    )
+    closure_report = (
+        assess_analytic_closure(depth_plan, list(session.followup_reports or []))
+        if depth_plan is not None
+        else None
+    )
+    return assess_premium_readiness(
+        client_report,
+        analysis=session.analysis,
+        depth_plan=depth_plan,
+        closure_report=closure_report,
+        evidence_audit=assess_evidence_support(client_report, session.analysis),
+        adjudication_audit=assess_adjudication_quality(client_report, session.analysis),
+    ).model_dump()
+
+
+def _pending_followup_task_ids(session: V4Session) -> list[str]:
+    return [
+        str(job.get("task_id"))
+        for job in (session.pending_dr_jobs or [])
+        if job.get("is_followup") and job.get("state", "running") == "running"
+    ]
+
+
+def _final_report_needs_followup_resynthesis(session: V4Session) -> bool:
+    if session.final_report is None:
+        return True
+    metadata = session.final_report.metadata or {}
+    synthesized_followups = int(metadata.get("followup_reports_count") or 0)
+    return synthesized_followups < len(session.followup_reports or [])
+
+
+def _build_premium_refinement_status(session: V4Session) -> PremiumRefinementStatusOut:
+    if session.analysis is None:
+        return PremiumRefinementStatusOut(
+            recommended_action="run_analysis",
+            message="Run /analyze before premium refinement can inspect gaps and evidence.",
+        )
+
+    client_report = (
+        sanitize_final_report(session.final_report)
+        if session.final_report is not None
+        else None
+    )
+    plan = build_analytic_depth_plan(
+        session.raw_question,
+        analysis=session.analysis,
+        report=client_report,
+    )
+    closure = assess_analytic_closure(plan, list(session.followup_reports or []))
+    pending_followups = _pending_followup_task_ids(session)
+    running_synth = _has_running_long_task(session, "synthesize")
+    needs_resynthesis = _final_report_needs_followup_resynthesis(session)
+
+    readiness = None
+    if session.final_report is not None:
+        report_for_readiness = sanitize_final_report(session.final_report)
+        readiness = assess_premium_readiness(
+            report_for_readiness,
+            analysis=session.analysis,
+            depth_plan=plan,
+            closure_report=closure,
+            evidence_audit=assess_evidence_support(report_for_readiness, session.analysis),
+            adjudication_audit=assess_adjudication_quality(report_for_readiness, session.analysis),
+        ).model_dump()
+
+    closure_dict = closure.model_dump(mode="json")
+    next_research_leads = _next_research_leads_preview(plan, closure)
+    if pending_followups:
+        return PremiumRefinementStatusOut(
+            recommended_action="wait_for_followups",
+            message="Follow-up research is running; keep polling /auto-dr-status.",
+            pending_followup_task_ids=pending_followups,
+            running_synthesize_task_id=running_synth,
+            final_report_needs_followup_resynthesis=needs_resynthesis,
+            analytic_closure=closure_dict,
+            premium_readiness=readiness,
+            next_research_leads=next_research_leads,
+        )
+    if running_synth:
+        return PremiumRefinementStatusOut(
+            recommended_action="wait_for_synthesis",
+            message="Synthesis is running; keep polling /long-task-status.",
+            running_synthesize_task_id=running_synth,
+            final_report_needs_followup_resynthesis=needs_resynthesis,
+            analytic_closure=closure_dict,
+            premium_readiness=readiness,
+            next_research_leads=next_research_leads,
+        )
+    open_leads = int(closure.not_started or 0) + int(closure.not_closed or 0)
+    if open_leads:
+        return PremiumRefinementStatusOut(
+            recommended_action="submit_followups",
+            message=f"{open_leads} priority analytic-depth lead(s) still need follow-up evidence.",
+            final_report_needs_followup_resynthesis=needs_resynthesis,
+            analytic_closure=closure_dict,
+            premium_readiness=readiness,
+            next_research_leads=next_research_leads,
+        )
+    if needs_resynthesis:
+        return PremiumRefinementStatusOut(
+            recommended_action="synthesize",
+            message="Follow-up evidence exists but the final report has not incorporated it yet.",
+            final_report_needs_followup_resynthesis=True,
+            analytic_closure=closure_dict,
+            premium_readiness=readiness,
+            next_research_leads=next_research_leads,
+        )
+    if readiness and not readiness.get("ready"):
+        return PremiumRefinementStatusOut(
+            recommended_action="inspect_blockers",
+            message="Automatic research loop is closed; inspect premium readiness blockers.",
+            analytic_closure=closure_dict,
+            premium_readiness=readiness,
+            next_research_leads=next_research_leads,
+        )
+    return PremiumRefinementStatusOut(
+        recommended_action="ready",
+        message="Premium refinement loop is closed and no automatic blocker remains.",
+        analytic_closure=closure_dict,
+        premium_readiness=readiness,
+        next_research_leads=next_research_leads,
+    )
+
+
+@router.get("/sessions/{session_id}/premium-refinement-status", response_model=PremiumRefinementStatusOut)
+async def get_premium_refinement_status(
+    session_id: str,
+    request: Request,
+) -> PremiumRefinementStatusOut:
+    """Return the current non-mutating premium refinement state.
+
+    Long premium runs need a cheap status endpoint separate from the mutating
+    `/premium-refine` button. The UI can call this repeatedly to explain
+    whether it is waiting for research, waiting for synthesis, ready to submit
+    the next analytic-depth branch, or blocked on paid-delivery quality.
+    """
+    session = _owned_with_cap(session_id, request)
+    if _reap_stale_running_tasks(session):
+        _store.update(session)
+    return _build_premium_refinement_status(session)
+
+
+@router.post("/sessions/{session_id}/premium-refine", response_model=PremiumRefineOut)
+async def premium_refine(
+    session_id: str,
+    request: Request,
+    payload: PremiumRefineIn,
+) -> PremiumRefineOut:
+    """Advance the premium report one safe refinement step.
+
+    This endpoint is intentionally additive orchestration. It does not replace
+    `/auto-depth-leads`, `/auto-dr-status`, or `/synthesize`; it chooses the
+    next deterministic step a UI can call repeatedly:
+
+    1. wait if follow-up jobs are already running;
+    2. submit priority analytic-depth leads if closure is still open;
+    3. resynthesize once new follow-up reports exist;
+    4. otherwise return the current premium readiness state.
+    """
+
+    session = _owned_with_cap(session_id, request)
+    if session.analysis is None:
+        raise HTTPException(
+            status_code=400,
+            detail="premium-refine requires a completed /analyze first",
+        )
+    if _reap_stale_running_tasks(session):
+        _store.update(session)
+
+    pending_followups = _pending_followup_task_ids(session)
+    if pending_followups:
+        return PremiumRefineOut(
+            action="wait_for_followups",
+            message="Follow-up research is still running; poll /auto-dr-status before refining again.",
+            pending_task_ids=pending_followups,
+        )
+
+    client_report = (
+        sanitize_final_report(session.final_report)
+        if session.final_report is not None
+        else None
+    )
+    plan = build_analytic_depth_plan(
+        session.raw_question,
+        analysis=session.analysis,
+        report=client_report,
+    )
+    closure = assess_analytic_closure(plan, list(session.followup_reports or []))
+    open_leads = int(closure.not_started or 0) + int(closure.not_closed or 0)
+    if open_leads:
+        submitted = await _submit_analytic_depth_leads(
+            session_id=session_id,
+            session=session,
+            plan=plan,
+            payload=payload,
+        )
+        if submitted:
+            return PremiumRefineOut(
+                action="submitted_followups",
+                message=f"Submitted {len(submitted)} analytic-depth follow-up job(s).",
+                submitted_leads=submitted,
+                analytic_closure=closure.model_dump(mode="json"),
+            )
+
+    running_synth = _has_running_long_task(session, "synthesize")
+    if running_synth:
+        return PremiumRefineOut(
+            action="wait_for_followups",
+            message="Synthesis is already running; poll /long-task-status before refining again.",
+            pending_task_ids=[running_synth],
+            analytic_closure=closure.model_dump(mode="json"),
+        )
+
+    if payload.auto_synthesize and _final_report_needs_followup_resynthesis(session):
+        orch = V4Orchestrator(_store, emitter=_SessionEmitter(session_id))
+        task = _start_long_task(
+            session,
+            phase="synthesize",
+            model_preference=payload.model_preference,
+            coro_factory=lambda: orch.synthesize(
+                session_id,
+                model_preference=payload.model_preference,
+            ),
+        )
+        return PremiumRefineOut(
+            action="synthesize_started",
+            message="Started synthesis to incorporate current follow-up evidence.",
+            synthesize_task=task,
+            analytic_closure=closure.model_dump(mode="json"),
+        )
+
+    readiness = None
+    if session.final_report is not None:
+        report_for_readiness = sanitize_final_report(session.final_report)
+        readiness = assess_premium_readiness(
+            report_for_readiness,
+            analysis=session.analysis,
+            depth_plan=plan,
+            closure_report=closure,
+            evidence_audit=assess_evidence_support(report_for_readiness, session.analysis),
+            adjudication_audit=assess_adjudication_quality(report_for_readiness, session.analysis),
+        ).model_dump()
+    return PremiumRefineOut(
+        action="ready_or_blocked",
+        message="No automatic refinement step is currently available; inspect readiness blockers.",
+        analytic_closure=closure.model_dump(mode="json"),
+        premium_readiness=readiness,
+    )
+
+
 @router.get("/sessions/{session_id}/final-report")
 async def get_final_report(session_id: str, request: Request) -> dict:
     """Return only the final report and current cost, not full session JSON.
@@ -1500,14 +2172,22 @@ async def get_events(session_id: str, request: Request, since: int = 0, timeout:
 
 
 _EXPORT_FORMATS = {
-    "md", "json", "docx", "pptx", "onepager",
+    "md", "json", "docx", "premium-docx", "premium-pptx", "pptx", "onepager",
+    "premium-package", "premium-client-package",
+    "data-pack", "sources-csv", "facts-csv", "audit-json",
     "gamma-pptx", "gamma-pdf",
     "gamma-pptx-real",  # served from disk after export-gamma-pptx finishes
 }
 
 
 @router.get("/sessions/{session_id}/export")
-async def export_session(session_id: str, request: Request, format: str = "md") -> FileResponse:
+async def export_session(
+    session_id: str,
+    request: Request,
+    format: str = "md",
+    allow_draft: bool = False,
+    visual_review_approved: bool = False,
+) -> FileResponse:
     if format not in _EXPORT_FORMATS:
         raise HTTPException(
             status_code=400,
@@ -1521,6 +2201,28 @@ async def export_session(session_id: str, request: Request, format: str = "md") 
         )
 
     out_dir = _session_artefact_dir(session_id)
+    client_report = sanitize_final_report(session.final_report)
+    readiness = assess_client_readiness(
+        session.final_report,
+        client_report=client_report,
+        analysis=session.analysis,
+    )
+
+    if format == "data-pack":
+        out_path = _write_data_pack(out_dir / "data_pack.zip", session, client_report)
+        return FileResponse(str(out_path), media_type="application/zip", filename="data_pack.zip")
+
+    if format == "sources-csv":
+        out_path = _write_sources_csv(out_dir / "sources.csv", client_report)
+        return FileResponse(str(out_path), media_type="text/csv; charset=utf-8", filename="sources.csv")
+
+    if format == "facts-csv":
+        out_path = _write_facts_csv(out_dir / "facts.csv", session)
+        return FileResponse(str(out_path), media_type="text/csv; charset=utf-8", filename="facts.csv")
+
+    if format == "audit-json":
+        out_path = _write_audit_json(out_dir / "audit.json", session)
+        return FileResponse(str(out_path), media_type="application/json", filename="audit.json")
 
     # Real Gamma-generated PPTX is produced by the async export-gamma-pptx
     # endpoint (1-3 min generation). The /export route only serves the
@@ -1543,14 +2245,117 @@ async def export_session(session_id: str, request: Request, format: str = "md") 
             filename="gamma_report.pptx",
         )
 
+    if format == "premium-client-package":
+        out_path = _write_premium_package(
+            out_dir / "premium_client_delivery_package.zip",
+            session,
+            client_report,
+            visual_review_approved=visual_review_approved,
+        )
+        gate = _read_premium_package_gate(out_path)
+        if not gate["ready"]:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": "Premium package is not ready for client delivery.",
+                    "gate": gate,
+                },
+            )
+        return FileResponse(
+            str(out_path),
+            media_type="application/zip",
+            filename="premium_client_delivery_package.zip",
+        )
+
+    if not readiness.ready and not allow_draft:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "Report is not client-ready. Use allow_draft=true to export a draft, or inspect audit-json/data-pack.",
+                "readiness": readiness.model_dump(),
+            },
+        )
+
+    if format == "premium-package":
+        out_path = _write_premium_package(out_dir / "premium_delivery_package.zip", session, client_report)
+        return FileResponse(
+            str(out_path),
+            media_type="application/zip",
+            filename="premium_delivery_package.zip",
+        )
+
     filename, writer, media_type = _export_handler(format)
     if format == "docx":
         # Use auto-selecting renderer (Node.js docx-js preferred, python-docx fallback)
         # — operates on the FinalReport directly, not the flattened report_dict.
         from smart_report.exporters import render_docx as _render_docx
-        out_path = _render_docx(session.final_report, out_dir / filename)
+        out_path = _render_docx(client_report, out_dir / filename)
+    elif format == "premium-docx":
+        from smart_report.exporters import (
+            assemble_premium_report_document as _assemble_premium_report_document,
+            render_premium_docx as _render_premium_docx,
+        )
+        depth_plan = (
+            build_analytic_depth_plan(
+                session.raw_question,
+                analysis=session.analysis,
+                report=client_report,
+            )
+            if session.analysis is not None
+            else None
+        )
+        premium_readiness = assess_premium_readiness(
+            client_report,
+            analysis=session.analysis,
+            depth_plan=depth_plan,
+            closure_report=(
+                assess_analytic_closure(depth_plan, list(session.followup_reports or []))
+                if depth_plan is not None
+                else None
+            ),
+            evidence_audit=assess_evidence_support(client_report, session.analysis),
+            adjudication_audit=assess_adjudication_quality(client_report, session.analysis),
+        ).model_dump()
+        premium_document = _assemble_premium_report_document(
+            client_report,
+            analysis=session.analysis,
+            premium_readiness=premium_readiness,
+        )
+        out_path = _render_premium_docx(premium_document, out_dir / filename)
+    elif format == "premium-pptx":
+        from smart_report.exporters import (
+            assemble_premium_report_document as _assemble_premium_report_document,
+            render_premium_pptx as _render_premium_pptx,
+        )
+        depth_plan = (
+            build_analytic_depth_plan(
+                session.raw_question,
+                analysis=session.analysis,
+                report=client_report,
+            )
+            if session.analysis is not None
+            else None
+        )
+        premium_readiness = assess_premium_readiness(
+            client_report,
+            analysis=session.analysis,
+            depth_plan=depth_plan,
+            closure_report=(
+                assess_analytic_closure(depth_plan, list(session.followup_reports or []))
+                if depth_plan is not None
+                else None
+            ),
+            evidence_audit=assess_evidence_support(client_report, session.analysis),
+            adjudication_audit=assess_adjudication_quality(client_report, session.analysis),
+        ).model_dump()
+        premium_document = _assemble_premium_report_document(
+            client_report,
+            analysis=session.analysis,
+            premium_readiness=premium_readiness,
+        )
+        out_path = _render_premium_pptx(premium_document, out_dir / filename)
     else:
-        report_dict = v4_to_report_dict(session.final_report)
+        report_dict = v4_to_report_dict(client_report)
         out_path = writer(out_dir / filename, report_dict)
     return FileResponse(
         str(out_path),
@@ -1586,7 +2391,7 @@ async def export_gamma_pptx(
 
     out_dir = _session_artefact_dir(session_id)
     dest = out_dir / "gamma_report.pptx"
-    final_report = session.final_report
+    final_report = sanitize_final_report(session.final_report)
 
     from ..exporters.gamma_pptx import generate_pptx as _generate_pptx
 
@@ -1596,6 +2401,617 @@ async def export_gamma_pptx(
         model_preference=None,
         coro_factory=lambda: _generate_pptx(final_report, dest),
     )
+
+
+def _write_data_pack(path: Path, session: V4Session, client_report: FinalReport) -> Path:
+    """Write a full data room ZIP for the session."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    raw_report = session.final_report
+    depth_plan = (
+        build_analytic_depth_plan(
+            session.raw_question,
+            analysis=session.analysis,
+            report=client_report,
+        )
+        if session.analysis
+        else None
+    )
+    analytic_closure = (
+        assess_analytic_closure(depth_plan, list(session.followup_reports or []))
+        if depth_plan
+        else None
+    )
+    evidence_audit = assess_evidence_support(client_report, session.analysis)
+    adjudication_audit = assess_adjudication_quality(client_report, session.analysis)
+    premium_readiness = assess_premium_readiness(
+        client_report,
+        analysis=session.analysis,
+        depth_plan=depth_plan,
+        closure_report=analytic_closure,
+        evidence_audit=evidence_audit,
+        adjudication_audit=adjudication_audit,
+    ).model_dump()
+    payload = {
+        "session": session.model_dump(mode="json", exclude={"source_reports", "followup_reports"}),
+        "client_report": client_report.model_dump(mode="json"),
+        "raw_final_report": raw_report.model_dump(mode="json") if raw_report else None,
+        "analytic_depth": depth_plan.model_dump(mode="json") if depth_plan else None,
+        "analytic_closure": analytic_closure.model_dump(mode="json") if analytic_closure else None,
+        "evidence_audit": evidence_audit.model_dump(mode="json"),
+        "adjudication_audit": adjudication_audit.model_dump(mode="json"),
+        "client_leaks": contains_client_leak(client_report),
+        "client_readiness": assess_client_readiness(
+            raw_report or client_report,
+            client_report=client_report,
+            analysis=session.analysis,
+        ).model_dump(),
+        "premium_readiness": premium_readiness,
+    }
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(
+            "manifest.json",
+            json.dumps(
+                {
+                    "session_id": session.session_id,
+                    "status": session.status,
+                    "created_at": session.created_at.isoformat(),
+                    "total_cost_rub": session.total_cost_rub,
+                    "files": [
+                        "session.json",
+                        "client_report.json",
+                        "raw_final_report.json",
+                        "analytic_depth.json",
+                        "analytic_closure.json",
+                        "evidence_audit.json",
+                        "adjudication_audit.json",
+                        "analysis.json",
+                        "research_prompt.json",
+                        "events.json",
+                        "client_leaks.json",
+                        "client_readiness.json",
+                        "premium_readiness.json",
+                        "sources.csv",
+                        "facts.csv",
+                        "source_reports/",
+                        "followup_reports/",
+                    ],
+                },
+                ensure_ascii=False,
+                indent=2,
+                default=str,
+            ),
+        )
+        zf.writestr("session.json", json.dumps(payload["session"], ensure_ascii=False, indent=2, default=str))
+        zf.writestr("client_report.json", json.dumps(payload["client_report"], ensure_ascii=False, indent=2, default=str))
+        zf.writestr("raw_final_report.json", json.dumps(payload["raw_final_report"], ensure_ascii=False, indent=2, default=str))
+        zf.writestr(
+            "analytic_depth.json",
+            json.dumps(payload["analytic_depth"], ensure_ascii=False, indent=2, default=str),
+        )
+        zf.writestr(
+            "analytic_closure.json",
+            json.dumps(payload["analytic_closure"], ensure_ascii=False, indent=2, default=str),
+        )
+        zf.writestr(
+            "evidence_audit.json",
+            json.dumps(payload["evidence_audit"], ensure_ascii=False, indent=2, default=str),
+        )
+        zf.writestr(
+            "adjudication_audit.json",
+            json.dumps(payload["adjudication_audit"], ensure_ascii=False, indent=2, default=str),
+        )
+        zf.writestr(
+            "analysis.json",
+            json.dumps(session.analysis.model_dump(mode="json") if session.analysis else None, ensure_ascii=False, indent=2, default=str),
+        )
+        zf.writestr(
+            "research_prompt.json",
+            json.dumps(session.research_prompt.model_dump(mode="json") if session.research_prompt else None, ensure_ascii=False, indent=2, default=str),
+        )
+        zf.writestr(
+            "events.json",
+            json.dumps(_V4_EVENTS.get(session.session_id, []), ensure_ascii=False, indent=2, default=str),
+        )
+        zf.writestr(
+            "client_leaks.json",
+            json.dumps(payload["client_leaks"], ensure_ascii=False, indent=2, default=str),
+        )
+        zf.writestr(
+            "client_readiness.json",
+            json.dumps(payload["client_readiness"], ensure_ascii=False, indent=2, default=str),
+        )
+        zf.writestr(
+            "premium_readiness.json",
+            json.dumps(payload["premium_readiness"], ensure_ascii=False, indent=2, default=str),
+        )
+        zf.writestr("sources.csv", _sources_csv_text(client_report))
+        zf.writestr("facts.csv", _facts_csv_text(session))
+        for idx, upload in enumerate(session.source_reports, start=1):
+            zf.writestr(f"source_reports/{idx:02d}_{_safe_zip_name(upload.filename)}", upload.content)
+        for idx, upload in enumerate(session.followup_reports, start=1):
+            zf.writestr(f"followup_reports/{idx:02d}_{_safe_zip_name(upload.filename)}", upload.content)
+    return path
+
+
+def _write_premium_package(
+    path: Path,
+    session: V4Session,
+    client_report: FinalReport,
+    *,
+    visual_review_approved: bool = False,
+) -> Path:
+    """Write a client-facing premium delivery bundle.
+
+    Unlike ``data-pack`` this package is organized around delivery artifacts:
+    the long-form report, the executive deck, readiness/audit files, and a
+    nested technical data pack for traceability.
+    """
+
+    from smart_report.exporters import (
+        assemble_premium_report_document as _assemble_premium_report_document,
+        render_premium_docx as _render_premium_docx,
+        render_premium_pptx as _render_premium_pptx,
+    )
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    depth_plan = (
+        build_analytic_depth_plan(
+            session.raw_question,
+            analysis=session.analysis,
+            report=client_report,
+        )
+        if session.analysis
+        else None
+    )
+    analytic_closure = (
+        assess_analytic_closure(depth_plan, list(session.followup_reports or []))
+        if depth_plan
+        else None
+    )
+    evidence_audit = assess_evidence_support(client_report, session.analysis)
+    adjudication_audit = assess_adjudication_quality(client_report, session.analysis)
+    premium_readiness = assess_premium_readiness(
+        client_report,
+        analysis=session.analysis,
+        depth_plan=depth_plan,
+        closure_report=analytic_closure,
+        evidence_audit=evidence_audit,
+        adjudication_audit=adjudication_audit,
+    ).model_dump()
+    client_readiness = assess_client_readiness(
+        session.final_report,
+        client_report=client_report,
+        analysis=session.analysis,
+    ).model_dump()
+    premium_document = _assemble_premium_report_document(
+        client_report,
+        analysis=session.analysis,
+        premium_readiness=premium_readiness,
+    )
+    report_path = _render_premium_docx(premium_document, path.parent / "premium_report.docx")
+    deck_path = _render_premium_pptx(premium_document, path.parent / "premium_deck.pptx")
+    data_pack_path = _write_data_pack(path.parent / "data_pack.zip", session, client_report)
+    artifact_qa = _premium_artifact_qa(report_path, deck_path, path.parent / "artifact_qa")
+    visual_review = build_visual_review_gate(artifact_qa, approved=visual_review_approved)
+    audit_path = _write_audit_json(path.parent / "audit.json", session, visual_review=visual_review)
+    artifact_summary = _artifact_qa_manifest_summary(artifact_qa)
+
+    manifest = {
+        "package_type": "smart_report_premium_delivery",
+        "session_id": session.session_id,
+        "status": session.status,
+        "ready_for_client_delivery": bool(client_readiness.get("ready")),
+        "ready_for_paid_premium_delivery": bool(premium_readiness.get("ready")),
+        "premium_score": premium_readiness.get("score"),
+        "artifact_qa_status": artifact_qa.get("status"),
+        "docx_pages": artifact_summary.get("docx_pages"),
+        "docx_pages_source": artifact_summary.get("docx_pages_source"),
+        "deck_slides": artifact_summary.get("deck_slides"),
+        "visual_review_status": visual_review.status,
+        "analytic_closure_score": (
+            analytic_closure.overall_score if analytic_closure is not None else None
+        ),
+        "open_analytic_leads": (
+            int(analytic_closure.not_started or 0) + int(analytic_closure.not_closed or 0)
+            if analytic_closure is not None
+            else None
+        ),
+        "unsupported_conclusions": int(evidence_audit.unsupported or 0),
+        "unresolved_conflicts": int(adjudication_audit.unresolved or 0),
+        "critical_unresolved_conflicts": int(adjudication_audit.critical_unresolved or 0),
+        "files": [
+            "01_premium_report.docx",
+            "02_premium_deck.pptx",
+            "03_premium_readiness.json",
+            "04_client_readiness.json",
+            "05_audit.json",
+            "06_analytic_closure.json",
+            "07_artifact_qa.json",
+            "07_artifact_qa/",
+            "08_sources.csv",
+            "09_facts.csv",
+            "10_data_pack.zip",
+            "11_evidence_audit.json",
+            "12_adjudication_audit.json",
+            "13_visual_review.json",
+            "14_next_research_brief.md",
+        ],
+    }
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("00_manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2, default=str))
+        zf.write(report_path, "01_premium_report.docx")
+        zf.write(deck_path, "02_premium_deck.pptx")
+        zf.writestr(
+            "03_premium_readiness.json",
+            json.dumps(premium_readiness, ensure_ascii=False, indent=2, default=str),
+        )
+        zf.writestr(
+            "04_client_readiness.json",
+            json.dumps(client_readiness, ensure_ascii=False, indent=2, default=str),
+        )
+        zf.write(audit_path, "05_audit.json")
+        zf.writestr(
+            "06_analytic_closure.json",
+            json.dumps(
+                analytic_closure.model_dump(mode="json") if analytic_closure else None,
+                ensure_ascii=False,
+                indent=2,
+                default=str,
+            ),
+        )
+        zf.writestr(
+            "07_artifact_qa.json",
+            json.dumps(artifact_qa, ensure_ascii=False, indent=2, default=str),
+        )
+        _write_artifact_qa_bundle(zf, artifact_qa, path.parent / "artifact_qa")
+        zf.writestr("08_sources.csv", _sources_csv_text(client_report))
+        zf.writestr("09_facts.csv", _facts_csv_text(session))
+        zf.write(data_pack_path, "10_data_pack.zip")
+        zf.writestr(
+            "11_evidence_audit.json",
+            json.dumps(evidence_audit.model_dump(mode="json"), ensure_ascii=False, indent=2, default=str),
+        )
+        zf.writestr(
+            "12_adjudication_audit.json",
+            json.dumps(adjudication_audit.model_dump(mode="json"), ensure_ascii=False, indent=2, default=str),
+        )
+        zf.writestr(
+            "13_visual_review.json",
+            json.dumps(visual_review.model_dump(mode="json"), ensure_ascii=False, indent=2, default=str),
+        )
+        zf.writestr(
+            "14_next_research_brief.md",
+            _next_research_brief_markdown(depth_plan, analytic_closure),
+        )
+    return path
+
+
+def _read_premium_package_gate(path: Path) -> dict:
+    with zipfile.ZipFile(path) as zf:
+        manifest = json.loads(zf.read("00_manifest.json").decode("utf-8"))
+        premium_readiness = json.loads(zf.read("03_premium_readiness.json").decode("utf-8"))
+        client_readiness = json.loads(zf.read("04_client_readiness.json").decode("utf-8"))
+        artifact_qa = json.loads(zf.read("07_artifact_qa.json").decode("utf-8"))
+        analytic_closure = json.loads(zf.read("06_analytic_closure.json").decode("utf-8"))
+        evidence_audit = json.loads(zf.read("11_evidence_audit.json").decode("utf-8"))
+        adjudication_audit = json.loads(zf.read("12_adjudication_audit.json").decode("utf-8"))
+        visual_review = json.loads(zf.read("13_visual_review.json").decode("utf-8"))
+    blockers = []
+    if not client_readiness.get("ready"):
+        blockers.append("client_readiness_not_ready")
+    if not premium_readiness.get("ready"):
+        blockers.append("premium_readiness_not_ready")
+    if artifact_qa.get("status") != "passed":
+        blockers.append("artifact_qa_not_passed")
+    docx_pages = _artifact_qa_docx_page_count(artifact_qa)
+    if docx_pages is not None and docx_pages < 20:
+        blockers.append("premium_report_below_20_pages")
+    if analytic_closure and int(analytic_closure.get("not_started") or 0) + int(analytic_closure.get("not_closed") or 0) > 0:
+        blockers.append("analytic_closure_open_leads")
+    if evidence_audit and int(evidence_audit.get("unsupported") or 0) > 0:
+        blockers.append("evidence_audit_unsupported_conclusions")
+    if adjudication_audit and int(adjudication_audit.get("critical_unresolved") or 0) > 0:
+        blockers.append("adjudication_audit_critical_unresolved")
+    elif adjudication_audit and int(adjudication_audit.get("unresolved") or 0) > 0:
+        blockers.append("adjudication_audit_unresolved_conflicts")
+    if not visual_review.get("ready"):
+        blockers.append("visual_review_not_approved")
+    return {
+        "ready": not blockers,
+        "blockers": blockers,
+        "manifest": manifest,
+        "client_readiness": client_readiness,
+        "premium_readiness": premium_readiness,
+        "artifact_qa": artifact_qa,
+        "analytic_closure": analytic_closure,
+        "evidence_audit": evidence_audit,
+        "adjudication_audit": adjudication_audit,
+        "visual_review": visual_review,
+    }
+
+
+def _artifact_qa_docx_page_count(artifact_qa: dict) -> int | None:
+    for result in artifact_qa.get("results") or []:
+        if result.get("kind") != "docx":
+            continue
+        metrics = result.get("metrics") or {}
+        pages = metrics.get("rendered_pages")
+        if pages is None:
+            pages = metrics.get("estimated_pages")
+        if pages is None:
+            return None
+        try:
+            return int(pages)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _artifact_qa_manifest_summary(artifact_qa: dict) -> dict[str, Any]:
+    summary: dict[str, Any] = {
+        "docx_pages": None,
+        "docx_pages_source": None,
+        "deck_slides": None,
+    }
+    for result in artifact_qa.get("results") or []:
+        metrics = result.get("metrics") or {}
+        if result.get("kind") == "docx":
+            rendered_pages = metrics.get("rendered_pages")
+            estimated_pages = metrics.get("estimated_pages")
+            if rendered_pages is not None:
+                summary["docx_pages"] = rendered_pages
+                summary["docx_pages_source"] = "rendered_pages"
+            elif estimated_pages is not None:
+                summary["docx_pages"] = estimated_pages
+                summary["docx_pages_source"] = "estimated_pages"
+        elif result.get("kind") == "pptx":
+            summary["deck_slides"] = metrics.get("rendered_slides") or metrics.get("slides")
+    return summary
+
+
+def _premium_artifact_qa(report_path: Path, deck_path: Path, out_dir: Path) -> dict:
+    try:
+        from scripts.premium_artifact_qa import run_qa
+
+        return run_qa(
+            docx_path=report_path,
+            pptx_path=deck_path,
+            out_dir=out_dir,
+            render=True,
+        )
+    except Exception as exc:  # pragma: no cover - defensive export path
+        return {
+            "status": "failed",
+            "summary": {"artifacts": 2, "issues": 1},
+            "results": [],
+            "error": f"Premium artifact QA failed to run: {exc}",
+        }
+
+
+def _write_artifact_qa_bundle(zf: zipfile.ZipFile, artifact_qa: dict, out_dir: Path) -> None:
+    render_index = artifact_qa.get("render_index")
+    if render_index:
+        index_path = Path(str(render_index))
+        if index_path.exists():
+            zf.write(index_path, "07_artifact_qa/index.html")
+    for result in artifact_qa.get("results") or []:
+        for rendered_file in result.get("rendered_files") or []:
+            rendered_path = Path(str(rendered_file))
+            if rendered_path.suffix.lower() != ".png" or not rendered_path.exists():
+                continue
+            try:
+                rel = rendered_path.relative_to(out_dir)
+            except ValueError:
+                rel = Path(rendered_path.name)
+            zf.write(rendered_path, str(Path("07_artifact_qa") / rel))
+
+
+def _next_research_brief_markdown(
+    depth_plan: Any,
+    analytic_closure: Any,
+) -> str:
+    if depth_plan is None:
+        return "# Next Research Brief\n\nNo analytic-depth plan was generated for this package.\n"
+
+    closure_by_id = {}
+    if analytic_closure is not None:
+        closure_by_id = {
+            item.lead_id: item
+            for item in getattr(analytic_closure, "lead_closures", []) or []
+        }
+
+    lines = [
+        "# Next Research Brief",
+        "",
+        "This brief is generated from the analytic-depth layer. It lists the research branches that must be closed before the package should be treated as paid-client-ready.",
+        "",
+        f"Question: {depth_plan.question}",
+        f"Domain hint: {depth_plan.domain_hint}",
+        "",
+        "## Priority Leads",
+        "",
+    ]
+    leads = [
+        lead
+        for lead in depth_plan.research_leads
+        if lead.priority in {"must", "should"}
+    ]
+    if not leads:
+        lines.append("No must/should research leads were generated.")
+    for lead in leads:
+        closure = closure_by_id.get(lead.id)
+        status = getattr(closure, "status", "not_assessed")
+        lines.extend(
+            [
+                f"### {lead.id}: {lead.kind} / {lead.priority}",
+                "",
+                f"Status: {status}",
+                f"Recommended service: {lead.recommended_service}"
+                + (f" ({lead.recommended_mode})" if lead.recommended_mode else ""),
+                "",
+                "**Prompt**",
+                "",
+                lead.prompt,
+                "",
+                "**Why this matters**",
+                "",
+                lead.rationale or "No rationale provided.",
+                "",
+                "**Targets**",
+                "",
+                "- Entities: " + (", ".join(lead.target_entities) if lead.target_entities else "not specified"),
+                "- Metrics: " + (", ".join(lead.target_metrics) if lead.target_metrics else "not specified"),
+                "- Candidate sources: "
+                + (", ".join(lead.candidate_sources) if lead.candidate_sources else "not specified"),
+                "",
+            ]
+        )
+        if closure is not None and getattr(closure, "missing_signals", None):
+            lines.extend(
+                [
+                    "**Missing closure signals**",
+                    "",
+                    *[f"- {item}" for item in closure.missing_signals],
+                    "",
+                ]
+            )
+
+    lines.extend(
+        [
+            "## Benchmarks To Add",
+            "",
+            *[f"- {item}" for item in depth_plan.benchmark_questions],
+            "",
+            "## Monitoring Indicators",
+            "",
+            *[f"- {item}" for item in depth_plan.monitoring_indicators],
+            "",
+        ]
+    )
+    return "\n".join(lines).strip() + "\n"
+
+
+def _write_sources_csv(path: Path, report: FinalReport) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(_sources_csv_text(report), encoding="utf-8-sig")
+    return path
+
+
+def _write_facts_csv(path: Path, session: V4Session) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(_facts_csv_text(session), encoding="utf-8-sig")
+    return path
+
+
+def _write_audit_json(path: Path, session: V4Session, *, visual_review=None) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    client_report = sanitize_final_report(session.final_report) if session.final_report else None
+    depth_plan = (
+        build_analytic_depth_plan(
+            session.raw_question,
+            analysis=session.analysis,
+            report=client_report,
+        )
+        if session.analysis
+        else None
+    )
+    analytic_closure = (
+        assess_analytic_closure(depth_plan, list(session.followup_reports or []))
+        if depth_plan is not None
+        else None
+    )
+    evidence_audit = assess_evidence_support(client_report, session.analysis) if client_report else None
+    adjudication_audit = assess_adjudication_quality(client_report, session.analysis) if client_report else None
+    audit = {
+        "session_id": session.session_id,
+        "status": session.status,
+        "total_cost_rub": session.total_cost_rub,
+        "client_readiness": (
+            assess_client_readiness(
+                session.final_report,
+                client_report=client_report,
+                analysis=session.analysis,
+            ).model_dump()
+            if session.final_report
+            else None
+        ),
+        "premium_readiness": (
+            assess_premium_readiness(
+                client_report,
+                analysis=session.analysis,
+                depth_plan=depth_plan,
+                closure_report=analytic_closure,
+                evidence_audit=evidence_audit,
+                adjudication_audit=adjudication_audit,
+            ).model_dump()
+            if client_report
+            else None
+        ),
+        "analytic_depth": depth_plan.model_dump(mode="json") if depth_plan else None,
+        "analytic_closure": analytic_closure.model_dump(mode="json") if analytic_closure else None,
+        "evidence_audit": evidence_audit.model_dump(mode="json") if evidence_audit else None,
+        "adjudication_audit": adjudication_audit.model_dump(mode="json") if adjudication_audit else None,
+        "visual_review": visual_review.model_dump(mode="json") if visual_review else None,
+        "analysis": session.analysis.model_dump(mode="json") if session.analysis else None,
+        "normalized_reports": [n.model_dump(mode="json") for n in session.normalized_reports],
+        "pending_long_tasks": session.pending_long_tasks,
+        "raw_final_report": session.final_report.model_dump(mode="json") if session.final_report else None,
+    }
+    path.write_text(json.dumps(audit, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+    return path
+
+
+def _sources_csv_text(report: FinalReport) -> str:
+    out = io.StringIO()
+    writer = csv.writer(out)
+    writer.writerow(["number", "title", "url", "tool", "reliability", "publisher", "date"])
+    seen: set[str] = set()
+    for source in report.bibliography:
+        ref = source.source_ref
+        seen.add(ref.url)
+        writer.writerow([
+            source.number,
+            ref.title or "",
+            ref.url,
+            ref.accessed_via,
+            ref.confidence,
+            ref.publisher or "",
+            ref.date or "",
+        ])
+    next_number = len(seen) + 1
+    for source in report.all_sources:
+        if source.url in seen:
+            continue
+        writer.writerow([next_number, source.title, source.url, source.tool, source.reliability, "", ""])
+        next_number += 1
+    return out.getvalue()
+
+
+def _facts_csv_text(session: V4Session) -> str:
+    out = io.StringIO()
+    writer = csv.writer(out)
+    writer.writerow(["fact_id", "value", "metric", "subject", "timeframe", "relevance", "category", "sources"])
+    facts = []
+    if session.analysis:
+        facts = session.analysis.high_relevance_facts or session.analysis.all_numeric_facts
+    for fact in facts:
+        writer.writerow([
+            fact.fact_id,
+            fact.value,
+            fact.metric,
+            fact.subject,
+            fact.timeframe or "",
+            fact.relevance_to_question,
+            fact.fact_category,
+            " | ".join(src.url for src in fact.sources if src.url),
+        ])
+    return out.getvalue()
+
+
+def _safe_zip_name(name: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9А-Яа-я._ -]+", "_", name or "upload.md").strip()
+    return cleaned or "upload.md"
 
 
 # ---- helpers --------------------------------------------------------------
@@ -1687,6 +3103,18 @@ def _export_handler(format: str):
             "report.docx",
             write_docx,
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+    if format == "premium-docx":
+        return (
+            "premium_report.docx",
+            write_docx,
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+    if format == "premium-pptx":
+        return (
+            "premium_deck.pptx",
+            write_pptx,
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
         )
     if format == "pptx":
         return (

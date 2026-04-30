@@ -93,10 +93,6 @@ def render_markdown(rd: REPORT_DICT) -> str:
             lines.append(f"- **{s.get('title','(без названия)')}**{link}{tool_tail}{rel_tail}")
         lines.append("")
 
-    meta = rd.get("metadata") or {}
-    if meta:
-        lines.append("\n---\n_Метаданные:_ " + ", ".join(f"{k}={v}" for k, v in meta.items()))
-
     return "\n".join(lines) + "\n"
 
 
@@ -179,12 +175,6 @@ def write_onepager_html(path: Path, rd: REPORT_DICT) -> Path:
             else:
                 parts.append(f"<li>{t}</li>")
         parts.append("</ul>")
-    meta = rd.get("metadata") or {}
-    if meta:
-        meta_str = ", ".join(
-            f"{html.escape(str(k))}={html.escape(str(v))}" for k, v in meta.items()
-        )
-        parts.append(f"<div class='meta'>{meta_str}</div>")
     parts.append("</body></html>")
     path.write_text("\n".join(parts), encoding="utf-8")
     return path

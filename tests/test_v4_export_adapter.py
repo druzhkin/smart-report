@@ -83,6 +83,8 @@ def test_write_md(tmp_path):
     assert "Executive Summary" in content
     assert "47%" in content
     assert "Продукт" in content
+    assert "Метаданные" not in content
+    assert "source_reports_count" not in content
 
 
 def test_write_json(tmp_path):
@@ -102,6 +104,7 @@ def test_write_onepager_html(tmp_path):
     assert "47%" in html
     # html-escaped Russian should round-trip
     assert "Продукт" in html
+    assert "source_reports_count" not in html
 
 
 def test_write_docx(tmp_path):

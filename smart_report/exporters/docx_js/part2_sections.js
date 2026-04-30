@@ -248,7 +248,7 @@ export function buildExecutiveSummary(data) {
       elements.push(kpiRow(batch.map((k) => ({
         value: k.value,
         label: k.label,
-        sublabel: k.source_ref ?? "",
+        sublabel: sourceDisplay(k.source_ref ?? ""),
       }))));
       elements.push(spacer(160));
     }
@@ -263,7 +263,7 @@ export function buildExecutiveSummary(data) {
         elements.push(kpiRow(batch.map((k) => ({
           value: k.value,
           label: `${k.metric}${k.subject ? ` — ${k.subject}` : ""}`,
-          sublabel: k.source_url ?? "",
+          sublabel: sourceDisplay(k.source_url ?? ""),
         }))));
         elements.push(spacer(160));
       }
@@ -665,6 +665,20 @@ function formatDateRu(date) {
     "июля", "августа", "сентября", "октября", "ноября", "декабря",
   ];
   return `${date.getDate()} ${months[date.getMonth()]} ${date.getFullYear()}`;
+}
+
+function sourceDisplay(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return "";
+  if (/^https?:\/\//i.test(text)) {
+    try {
+      const url = new URL(text);
+      return url.hostname.replace(/^www\./, "");
+    } catch {
+      return "";
+    }
+  }
+  return text.length > 64 ? text.slice(0, 61).trimEnd() + "..." : text;
 }
 
 /**

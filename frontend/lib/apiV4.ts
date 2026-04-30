@@ -210,6 +210,7 @@ export type V4Event = {
     | "prompt_master"
     | "external_research"
     | "analyzer"
+    | "analytic_depth"
     | "synthesizer"
     | "done"
     | "error";
@@ -223,6 +224,116 @@ export type V4EventsResponse = {
   cursor: number;
   status: "pending" | "running" | "done" | "error";
   error: string | null;
+};
+
+export type AnalyticMethod =
+  | "issue_tree"
+  | "competing_hypotheses"
+  | "key_assumptions_check"
+  | "disconfirming_evidence"
+  | "benchmarking"
+  | "indicator_signpost"
+  | "number_verification"
+  | "source_triangulation";
+
+export type ResearchLeadKind =
+  | "close_gap"
+  | "resolve_conflict"
+  | "verify_number"
+  | "explore_anomaly"
+  | "find_benchmark"
+  | "strengthen_source_base"
+  | "support_claim"
+  | "test_hypothesis"
+  | "monitor_indicator";
+
+export type ResearchService =
+  | "valyu"
+  | "perplexity"
+  | "openai"
+  | "claude"
+  | "exa"
+  | "tavily"
+  | "manual";
+
+export type InquiryNode = {
+  id: string;
+  question: string;
+  rationale: string;
+  methods: AnalyticMethod[];
+  parent_id: string | null;
+  expected_output: string;
+  children: InquiryNode[];
+};
+
+export type CompetingHypothesis = {
+  id: string;
+  statement: string;
+  why_plausible: string;
+  would_be_supported_by: string[];
+  would_be_weakened_by: string[];
+  current_confidence: "high" | "medium" | "low" | "unknown";
+};
+
+export type EvidenceProbe = {
+  id: string;
+  method: AnalyticMethod;
+  target: string;
+  question: string;
+  expected_evidence: string;
+  disconfirming: boolean;
+};
+
+export type ResearchLead = {
+  id: string;
+  kind: ResearchLeadKind;
+  priority: "must" | "should" | "could";
+  prompt: string;
+  rationale: string;
+  target_entities: string[];
+  target_metrics: string[];
+  candidate_sources: string[];
+  recommended_service: ResearchService;
+  recommended_mode: string | null;
+  linked_to: string[];
+};
+
+export type AnalyticDepthPlan = {
+  question: string;
+  domain_hint: string;
+  root: InquiryNode;
+  hypotheses: CompetingHypothesis[];
+  evidence_probes: EvidenceProbe[];
+  research_leads: ResearchLead[];
+  benchmark_questions: string[];
+  monitoring_indicators: string[];
+  method_notes: string[];
+};
+
+export type ClosureStatus = "closed" | "partial" | "not_closed" | "not_started";
+
+export type LeadClosure = {
+  lead_id: string;
+  kind: string;
+  priority: string;
+  status: ClosureStatus;
+  score: number;
+  matched_reports: string[];
+  evidence_signals: string[];
+  missing_signals: string[];
+  recommendation: string;
+};
+
+export type AnalyticClosureReport = {
+  overall_score: number;
+  closed: number;
+  partial: number;
+  not_closed: number;
+  not_started: number;
+  lead_count: number;
+  followup_report_count: number;
+  lead_closures: LeadClosure[];
+  summary: string;
 };
 
 // -- Fetch helpers --------------------------------------------------------
@@ -555,6 +666,115 @@ export async function getFinalReport(id: string): Promise<FinalReportOut> {
   return jv4<FinalReportOut>(`/api/v4/sessions/${encodeURIComponent(id)}/final-report`);
 }
 
+export async function getAnalyticDepthPlan(id: string): Promise<AnalyticDepthPlan> {
+  if (STUB) {
+    const session = await getSession(id);
+    const question = session.raw_question || session.final_report?.question || "Build a premium analytical answer";
+    return {
+      question,
+      domain_hint: "market_general",
+      root: {
+        id: "root",
+        question,
+        rationale: "Stub research map for the premium analytical layer.",
+        methods: ["issue_tree"],
+        parent_id: null,
+        expected_output: "A visible map of the work before final synthesis.",
+        children: [
+          {
+            id: "evidence_base",
+            question: "Which facts are strong, weak, or missing?",
+            rationale: "Paid reports need a fact map before narrative.",
+            methods: ["source_triangulation", "number_verification"],
+            parent_id: "root",
+            expected_output: "Evidence table and source quality register.",
+            children: [],
+          },
+          {
+            id: "hypotheses",
+            question: "Which competing explanations could be true?",
+            rationale: "Competing hypotheses prevent shallow agreement.",
+            methods: ["competing_hypotheses", "disconfirming_evidence"],
+            parent_id: "root",
+            expected_output: "Hypothesis matrix with disconfirming tests.",
+            children: [],
+          },
+        ],
+      },
+      hypotheses: [
+        {
+          id: "h1",
+          statement: "The current answer is directionally right but under-verified.",
+          why_plausible: "The uploaded sources agree on the main direction.",
+          would_be_supported_by: ["Independent primary-source confirmation."],
+          would_be_weakened_by: ["Conflicting transaction data or benchmark failure."],
+          current_confidence: "medium",
+        },
+      ],
+      evidence_probes: [
+        {
+          id: "p1",
+          method: "disconfirming_evidence",
+          target: "main conclusion",
+          question: "What would make the current likely answer wrong?",
+          expected_evidence: "A credible primary source contradicting the central claim.",
+          disconfirming: true,
+        },
+      ],
+      research_leads: [
+        {
+          id: "lead1",
+          kind: "resolve_conflict",
+          priority: "must",
+          prompt: "Resolve the strongest source conflict and explain which scope is correct.",
+          rationale: "Conflicts create the highest value for the analyst to resolve.",
+          target_entities: [],
+          target_metrics: [],
+          candidate_sources: ["primary sources", "industry reports"],
+          recommended_service: "perplexity",
+          recommended_mode: "deep",
+          linked_to: ["conflict"],
+        },
+      ],
+      benchmark_questions: ["What benchmark makes the answer decision-useful?"],
+      monitoring_indicators: ["Source conflict count", "Unverified key number count"],
+      method_notes: ["Issue tree, competing hypotheses, and disconfirming evidence are shown to make long work visible."],
+    };
+  }
+  return jv4<AnalyticDepthPlan>(`/api/v4/sessions/${encodeURIComponent(id)}/analytic-depth`);
+}
+
+export async function getAnalyticClosureReport(id: string): Promise<AnalyticClosureReport> {
+  if (STUB) {
+    return {
+      overall_score: 42,
+      closed: 0,
+      partial: 1,
+      not_closed: 1,
+      not_started: 2,
+      lead_count: 4,
+      followup_report_count: 1,
+      summary: "Demo closure score 42/100 across 4 priority leads.",
+      lead_closures: [
+        {
+          lead_id: "lead1",
+          kind: "resolve_conflict",
+          priority: "must",
+          status: "partial",
+          score: 55,
+          matched_reports: ["demo_followup.md"],
+          evidence_signals: ["url_citation", "numeric_evidence"],
+          missing_signals: ["Conflict lead lacks explicit adjudication language."],
+          recommendation: "Run one narrower follow-up focused on adjudication.",
+        },
+      ],
+    };
+  }
+  return jv4<AnalyticClosureReport>(
+    `/api/v4/sessions/${encodeURIComponent(id)}/analytic-closure`
+  );
+}
+
 export async function getEvents(
   id: string,
   since: number,
@@ -597,6 +817,39 @@ export async function getQualityGrade(id: string): Promise<QualityGrade> {
     };
   }
   return jv4<QualityGrade>(`/api/v4/sessions/${encodeURIComponent(id)}/quality`);
+}
+
+export type PremiumReadinessIssue = {
+  code: string;
+  severity: string;
+  message: string;
+  recommendation: string;
+};
+
+export type PremiumReadiness = {
+  ready: boolean;
+  score: number;
+  issues: PremiumReadinessIssue[];
+  strengths: string[];
+};
+
+export async function getPremiumReadiness(id: string): Promise<PremiumReadiness> {
+  if (STUB) {
+    return {
+      ready: false,
+      score: 72,
+      issues: [
+        {
+          code: "premium_insufficient_numeric_facts",
+          severity: "major",
+          message: "Demo report needs a deeper numeric evidence base.",
+          recommendation: "Run targeted follow-up research before premium export.",
+        },
+      ],
+      strengths: ["Report/deck delivery plan is present."],
+    };
+  }
+  return jv4<PremiumReadiness>(`/api/v4/sessions/${encodeURIComponent(id)}/premium-readiness`);
 }
 
 // -- Session list ---------------------------------------------------------
@@ -663,6 +916,66 @@ export type AutoDRAsyncOut = {
   eta_min_low: number;
   eta_min_high: number;
   message: string;
+};
+
+export type AutoDepthLeadOut = {
+  lead_id: string;
+  kind: string;
+  priority: string;
+  rationale?: string;
+  candidate_sources?: string[];
+  linked_to?: string[];
+  service: string;
+  mode: string;
+  task_id: string;
+  cost_usd: number;
+  cost_rub: number;
+  eta_min_low: number;
+  eta_min_high: number;
+  prompt_preview: string;
+};
+
+export type PremiumRefineOut = {
+  action:
+    | "wait_for_followups"
+    | "submitted_followups"
+    | "synthesize_started"
+    | "ready_or_blocked";
+  message: string;
+  pending_task_ids: string[];
+  submitted_leads: AutoDepthLeadOut[];
+  synthesize_task: LongTaskOut | null;
+  analytic_closure: AnalyticClosureReport | null;
+  premium_readiness: PremiumReadiness | null;
+};
+
+export type PremiumRefinementStatusOut = {
+  recommended_action:
+    | "run_analysis"
+    | "wait_for_followups"
+    | "wait_for_synthesis"
+    | "submit_followups"
+    | "synthesize"
+    | "inspect_blockers"
+    | "ready";
+  message: string;
+  pending_followup_task_ids: string[];
+  running_synthesize_task_id: string | null;
+  final_report_needs_followup_resynthesis: boolean;
+  analytic_closure: AnalyticClosureReport | null;
+  premium_readiness: PremiumReadiness | null;
+  next_research_leads: Array<{
+    lead_id: string;
+    kind: string;
+    priority: string;
+    status: string;
+    service: string;
+    mode: string;
+    candidate_sources: string[];
+    linked_to: string[];
+    rationale: string;
+    prompt_preview: string;
+  }>;
 };
 
 export type AutoDRAnyOut = AutoDROut | AutoDRAsyncOut;
@@ -782,6 +1095,86 @@ export async function runAutoFollowup(
   );
 }
 
+export async function runAutoDepthLeads(
+  id: string,
+  opts?: {
+    max_leads?: number;
+    include_priority?: "must" | "should" | "could" | "all";
+    service_override?: "valyu" | "tavily" | "exa" | "openai" | "perplexity";
+    mode_override?: string;
+  },
+): Promise<AutoDepthLeadOut[]> {
+  if (STUB) return [];
+  return jv4<AutoDepthLeadOut[]>(
+    `/api/v4/sessions/${encodeURIComponent(id)}/auto-depth-leads`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        max_leads: opts?.max_leads ?? 3,
+        include_priority: opts?.include_priority ?? "must",
+        service_override: opts?.service_override ?? null,
+        mode_override: opts?.mode_override ?? null,
+      }),
+    },
+  );
+}
+
+export async function runPremiumRefine(
+  id: string,
+  opts?: {
+    max_leads?: number;
+    include_priority?: "must" | "should" | "could" | "all";
+    service_override?: "valyu" | "tavily" | "exa" | "openai" | "perplexity";
+    mode_override?: string;
+    model_preference?: "sonnet" | "opus";
+    auto_synthesize?: boolean;
+  },
+): Promise<PremiumRefineOut> {
+  if (STUB) {
+    return {
+      action: "ready_or_blocked",
+      message: "Stub: premium refinement is not available.",
+      pending_task_ids: [],
+      submitted_leads: [],
+      synthesize_task: null,
+      analytic_closure: null,
+      premium_readiness: null,
+    };
+  }
+  return jv4<PremiumRefineOut>(
+    `/api/v4/sessions/${encodeURIComponent(id)}/premium-refine`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        max_leads: opts?.max_leads ?? 3,
+        include_priority: opts?.include_priority ?? "must",
+        service_override: opts?.service_override ?? null,
+        mode_override: opts?.mode_override ?? null,
+        model_preference: opts?.model_preference ?? null,
+        auto_synthesize: opts?.auto_synthesize ?? true,
+      }),
+    },
+  );
+}
+
+export async function getPremiumRefinementStatus(id: string): Promise<PremiumRefinementStatusOut> {
+  if (STUB) {
+    return {
+      recommended_action: "inspect_blockers",
+      message: "Stub: inspect premium readiness blockers.",
+      pending_followup_task_ids: [],
+      running_synthesize_task_id: null,
+      final_report_needs_followup_resynthesis: false,
+      analytic_closure: null,
+      premium_readiness: null,
+      next_research_leads: [],
+    };
+  }
+  return jv4<PremiumRefinementStatusOut>(
+    `/api/v4/sessions/${encodeURIComponent(id)}/premium-refinement-status`,
+  );
+}
+
 export async function pollAutoDRStatus(id: string, taskId: string): Promise<AutoDRStatusOut> {
   if (STUB) {
     return {
@@ -796,8 +1189,15 @@ export async function pollAutoDRStatus(id: string, taskId: string): Promise<Auto
   );
 }
 
-export function exportUrl(id: string, format: string): string {
-  return `${V4_BASE}/api/v4/sessions/${encodeURIComponent(id)}/export?format=${encodeURIComponent(format)}`;
+export function exportUrl(
+  id: string,
+  format: string,
+  opts: { allowDraft?: boolean; visualReviewApproved?: boolean } = {},
+): string {
+  const params = new URLSearchParams({ format });
+  if (opts.allowDraft) params.set("allow_draft", "true");
+  if (opts.visualReviewApproved) params.set("visual_review_approved", "true");
+  return `${V4_BASE}/api/v4/sessions/${encodeURIComponent(id)}/export?${params.toString()}`;
 }
 
 // -- Gamma PPTX (Gamma API integration, replaces stub) --------------------

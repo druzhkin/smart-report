@@ -222,8 +222,8 @@ export function DocView({ sessionId }: { sessionId: string }) {
     setSidepanel((s) => ({ ...s, open: false }));
   }
 
-  function handleExport(format: string) {
-    const url = exportUrl(sessionId, format);
+  function handleExport(format: string, allowDraft = true) {
+    const url = exportUrl(sessionId, format, { allowDraft });
     window.open(url, "_blank");
     setShowExportMenu(false);
   }
@@ -284,14 +284,18 @@ export function DocView({ sessionId }: { sessionId: string }) {
           <div className="vd-export-menu">
             {[
               { format: "pdf", label: "PDF" },
+              { format: "premium-client-package", label: "Deliver to client (.zip)", strict: true },
+              { format: "premium-package", label: "Premium draft package (.zip)" },
+              { format: "premium-docx", label: "Premium report (.docx)" },
+              { format: "premium-pptx", label: "Premium deck (.pptx)" },
               { format: "docx", label: "Word (.docx)" },
               { format: "md", label: "Markdown" },
               { format: "json", label: "JSON (данные)" },
-            ].map(({ format, label }) => (
+            ].map(({ format, label, strict }) => (
               <button
                 key={format}
                 className="vd-export-item"
-                onClick={() => handleExport(format)}
+                onClick={() => handleExport(format, !strict)}
               >
                 {label}
               </button>

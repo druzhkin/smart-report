@@ -24,7 +24,11 @@ import {
   getFinalReport,
   runAutoDR,
   runAutoFollowup,
+  runAutoDepthLeads,
+  runPremiumRefine,
+  getPremiumRefinementStatus,
   pollAutoDRStatus,
+  pollLongTaskStatus,
   isAsyncOut,
   cancelSession,
   cancelAutoDR,
@@ -34,8 +38,12 @@ import {
   getEvents,
   listSessions,
   getQualityGrade,
+  getPremiumReadiness,
   type SessionListItem,
   type QualityGrade,
+  type PremiumReadiness,
+  type PremiumRefinementStatusOut,
+  type AutoDepthLeadOut,
 } from "@/lib/apiV4";
 import { DrPicker, type DrServiceKey } from "./DrPicker";
 import { ModelPicker, getPipelineModel } from "@/components/ModelPicker";
@@ -165,6 +173,9 @@ export default function Workspace() {
     setDrBusy((prev) => { const n = new Set(prev); n.delete(k); return n; }), []);
   const [savedSessions, setSavedSessions] = useState<SessionListItem[]>([]);
   const [qualityGrade, setQualityGrade] = useState<QualityGrade | null>(null);
+  const [premiumReadiness, setPremiumReadiness] = useState<PremiumReadiness | null>(null);
+  const [premiumRefinementStatus, setPremiumRefinementStatus] =
+    useState<PremiumRefinementStatusOut | null>(null);
   const [sourceContent, setSourceContent] = useState<{ filename: string; content: string } | null>(null);
   // Multiple concurrent DR tasks supported — user can fire Valyu, Exa,
   // and OpenAI in parallel and each gets its own poll loop. (Was a Map
@@ -172,7 +183,10 @@ export default function Workspace() {
   // polling task #1, leaving the result orphaned in source_reports.)
   const [activeResearchTasks, setActiveResearchTasks] = useState<Array<{
     taskId: string; service: string; mode: string; isFollowup?: boolean;
+    leadId?: string; kind?: string; priority?: string; rationale?: string;
+    candidateSources?: string[]; linkedTo?: string[]; promptPreview?: string;
   }>>([]);
+  const activeResearchTasksRef = useRef(activeResearchTasks);
   // Live progress per task — populated by the polling effect on each tick.
   // Keyed by task_id. Used by the dr-progress artifact view to render
   // streaming progress (state, %, latest agent message, elapsed time).
@@ -195,6 +209,30 @@ export default function Workspace() {
     return () => clearInterval(t);
   }, [artifact?.kind]);
 
+  useEffect(() => {
+    if (!sessionId || artifact?.kind !== "premium-status") return;
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const status = await getPremiumRefinementStatus(sessionId);
+        if (cancelled) return;
+        setPremiumRefinementStatus(status);
+        setArtifact((current) =>
+          current?.kind === "premium-status"
+            ? { kind: "premium-status", data: status }
+            : current,
+        );
+      } catch {
+        // Status refresh is a UX aid. Avoid noisy toasts during long runs.
+      }
+    };
+    const t = setInterval(refresh, 15_000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, [sessionId, artifact?.kind]);
+
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     if (typeof window === "undefined") return "light";
     const saved = localStorage.getItem("sr-theme");
@@ -212,6 +250,10 @@ export default function Workspace() {
   const followupRef = useRef<HTMLInputElement>(null);
 
   // ===== Effects =====
+  useEffect(() => {
+    activeResearchTasksRef.current = activeResearchTasks;
+  }, [activeResearchTasks]);
+
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
     localStorage.setItem("sr-theme", theme);
@@ -566,12 +608,16 @@ export default function Workspace() {
   useEffect(() => {
     if (!sessionId || !finalData) {
       setQualityGrade(null);
+      setPremiumReadiness(null);
       return;
     }
     let cancelled = false;
     getQualityGrade(sessionId)
       .then((g) => { if (!cancelled) setQualityGrade(g); })
       .catch(() => { if (!cancelled) setQualityGrade(null); });
+    getPremiumReadiness(sessionId)
+      .then((r) => { if (!cancelled) setPremiumReadiness(r); })
+      .catch(() => { if (!cancelled) setPremiumReadiness(null); });
     return () => { cancelled = true; };
   }, [sessionId, finalData]);
 
@@ -685,11 +731,29 @@ export default function Workspace() {
                   sourceFilename: st.filename || undefined,
                 },
               ]);
-              setActiveResearchTasks((arr) => arr.filter((t) => t.taskId !== taskId));
+              const nextResearchTasks = activeResearchTasksRef.current.filter(
+                (t) => t.taskId !== taskId,
+              );
+              activeResearchTasksRef.current = nextResearchTasks;
+              const remainingFollowupTasks = nextResearchTasks.filter((t) => t.isFollowup).length;
+              setActiveResearchTasks(nextResearchTasks);
               try {
                 const s = await getSession(sessionId);
                 setCost(s.total_cost_rub || 0);
               } catch {}
+              if (remainingFollowupTasks > 0) {
+                setMessages((ms) => [
+                  ...ms,
+                  {
+                    id: `fu-wait-${taskId}`,
+                    role: "system",
+                    kind: "text",
+                    content:
+                      "This follow-up is saved. Waiting for the remaining follow-up / analytic-depth jobs before final synthesis.",
+                  },
+                ]);
+                return;
+              }
               // Auto-synthesize. setPending blocks UI inputs and the events
               // long-poll picks up synthesizer progress messages.
               setPending(true);
@@ -880,6 +944,25 @@ export default function Workspace() {
             if (ev.seq <= lastSeenSeq) continue;
             lastSeenSeq = ev.seq;
             if (ev.message && ev.message.trim()) {
+              const data = ev.data || {};
+              const detail =
+                ev.phase === "analytic_depth"
+                  ? [
+                      typeof data.domain_hint === "string" ? `Domain: ${data.domain_hint}` : null,
+                      typeof data.branches === "number" ? `Branches: ${data.branches}` : null,
+                      typeof data.hypotheses === "number" ? `Hypotheses: ${data.hypotheses}` : null,
+                      typeof data.evidence_probes === "number" ? `Evidence probes: ${data.evidence_probes}` : null,
+                      typeof data.research_leads === "number" ? `Research leads: ${data.research_leads}` : null,
+                      typeof data.disconfirming_probes === "number" ? `Disconfirming probes: ${data.disconfirming_probes}` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")
+                  : "";
+              const content =
+                ev.phase === "analytic_depth" && detail
+                  ? `Analytic layer\n\n${ev.message}\n\n${detail}`
+                  : `В· ${ev.message}`;
+              if (ev.phase === "analytic_depth") ev.message = content;
               setMessages((ms) => [
                 ...ms,
                 {
@@ -1436,6 +1519,14 @@ export default function Workspace() {
           secondary: "Пропустить — собирать финал",
           secondaryAction: "go-final-direct",
         });
+        push({
+          role: "system",
+          kind: "cta",
+          primary: "Analytic-depth добор по зацепкам",
+          action: "premium-refine",
+          secondary: "Загрузить followup вручную",
+          secondaryAction: "trigger-followup",
+        });
         setPhase(PHASE.CRITIQUE);
         setArtifact({ kind: "critique", data: analysis });
       } catch (e) {
@@ -1493,6 +1584,11 @@ export default function Workspace() {
         role: "system", kind: "cta",
         primary: "Запустить followup-добор", action: "go-topup",
         secondary: "Пропустить — собирать финал", secondaryAction: "go-final-direct",
+      });
+      push({
+        role: "system", kind: "cta",
+        primary: "Analytic-depth добор по зацепкам", action: "premium-refine",
+        secondary: "Загрузить followup вручную", secondaryAction: "trigger-followup",
       });
       setPhase(PHASE.CRITIQUE);
       setArtifact({ kind: "critique", data: analysis });
@@ -1607,6 +1703,240 @@ export default function Workspace() {
       });
     }
   }, [sessionId, push, analysisData]);
+
+  const actAnalyticDepthLeads = useCallback(async () => {
+    if (!sessionId) {
+      showToast("Сессия не найдена");
+      return;
+    }
+    push({
+      role: "user",
+      kind: "text",
+      content: "Запусти аналитический добор по карте глубины",
+    });
+    setPhase(PHASE.TOPUP);
+    try {
+      const leads: AutoDepthLeadOut[] = await runAutoDepthLeads(sessionId, {
+        max_leads: 3,
+        include_priority: "must",
+      });
+      if (leads.length === 0) {
+        push({
+          role: "system",
+          kind: "text",
+          content:
+            "Аналитическая карта не нашла must-priority направлений для автоматического добора. Можно загрузить followup вручную или собрать финал.",
+        });
+        push({
+          role: "system",
+          kind: "cta",
+          primary: "Загрузить followup-файл вручную →",
+          action: "trigger-followup",
+          secondary: "Собрать финальный отчёт",
+          secondaryAction: "go-final-direct",
+        });
+        return;
+      }
+      const totalRub = leads.reduce((sum, lead) => sum + lead.cost_rub, 0);
+      push({
+        role: "system",
+        kind: "text",
+        content:
+          `Запустил ${leads.length} аналитический добор по карте глубины.\n\n` +
+          `Это не общий followup-промт, а точечные расследования по конфликтам, пробелам и непроверенным цифрам. ` +
+          `Оценочная стоимость: ₽ ${totalRub.toFixed(2)}.`,
+      });
+      const now = Math.floor(Date.now() / 1000);
+      const seeded: Record<string, any> = {};
+      for (const lead of leads) {
+        seeded[lead.task_id] = {
+          service: lead.service,
+          mode: lead.mode,
+          state: "running",
+          progress_pct: null,
+          message: `Analytic lead ${lead.lead_id}: ${lead.kind}`,
+          poll_count: 0,
+          started_at: now,
+          last_polled_at: 0,
+        };
+        push({
+          role: "system",
+          kind: "ref",
+          refKind: "upload",
+          title: `Analytic lead: ${lead.kind}`,
+          subtitle: `${lead.service} ${lead.mode} · задача ${lead.task_id.slice(0, 8)}… · ETA ${lead.eta_min_low}-${lead.eta_min_high} мин · ₽ ${lead.cost_rub.toFixed(2)}`,
+          accent: true,
+          taskId: lead.task_id,
+        });
+      }
+      setDrProgress((dp) => ({ ...dp, ...seeded }));
+      setArtifact({ kind: "dr-progress", data: { taskId: leads[0].task_id } });
+      setActiveResearchTasks((arr) => [
+        ...arr.filter((task) => !leads.some((lead) => lead.task_id === task.taskId)),
+        ...leads.map((lead) => ({
+          taskId: lead.task_id,
+          service: lead.service,
+          mode: lead.mode,
+          isFollowup: true,
+          leadId: lead.lead_id,
+          kind: lead.kind,
+          priority: lead.priority,
+          rationale: lead.rationale,
+          candidateSources: lead.candidate_sources,
+          linkedTo: lead.linked_to,
+          promptPreview: lead.prompt_preview,
+        })),
+      ]);
+      try {
+        const s = await getSession(sessionId);
+        setCost(s.total_cost_rub || 0);
+      } catch {}
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      showToast(`Не удалось запустить аналитический добор: ${msg}`);
+      push({
+        role: "system",
+        kind: "text",
+        content: `Не удалось запустить аналитический добор: ${msg}`,
+      });
+    }
+  }, [sessionId, push]);
+
+  const actPremiumRefine = useCallback(async () => {
+    if (!sessionId) {
+      showToast("Сессия не найдена");
+      return;
+    }
+    push({ role: "user", kind: "text", content: "Продолжи premium-доработку автоматически" });
+    setPending(true);
+    push({
+      role: "system",
+      kind: "thinking",
+      traces: [
+        "проверяю открытые analytic-depth задачи",
+        "сверяю follow-up отчёты с картой глубины",
+        "выбираю следующий безопасный шаг",
+        "готовлю запуск добора или пересинтез",
+      ],
+      onDone: () => {},
+    });
+    try {
+      const out = await runPremiumRefine(sessionId, {
+        max_leads: 3,
+        include_priority: "must",
+        model_preference: getPipelineModel(),
+      });
+      setMessages((ms) => ms.filter((m) => m.kind !== "thinking"));
+      try {
+        const status = await getPremiumRefinementStatus(sessionId);
+        setPremiumRefinementStatus(status);
+        setArtifact({ kind: "premium-status", data: status });
+      } catch {}
+      if (out.action === "wait_for_followups") {
+        push({
+          role: "system",
+          kind: "text",
+          content: `${out.message}\n\nАктивные задачи: ${out.pending_task_ids.join(", ") || "нет"}.`,
+        });
+        if (out.pending_task_ids[0]) {
+          setArtifact({ kind: "dr-progress", data: { taskId: out.pending_task_ids[0] } });
+        }
+        return;
+      }
+      if (out.action === "submitted_followups") {
+        const leads = out.submitted_leads || [];
+        const totalRub = leads.reduce((sum, lead) => sum + lead.cost_rub, 0);
+        push({
+          role: "system",
+          kind: "text",
+          content:
+            `Запустил ${leads.length} premium follow-up задач(и).\n\n` +
+            `Это точечные ветки по незакрытым evidence blockers. ` +
+            `Оценочная стоимость: ₽ ${totalRub.toFixed(2)}.`,
+        });
+        const now = Math.floor(Date.now() / 1000);
+        const seeded: Record<string, any> = {};
+        for (const lead of leads) {
+          seeded[lead.task_id] = {
+            service: lead.service,
+            mode: lead.mode,
+            state: "running",
+            progress_pct: null,
+            message: `Analytic lead ${lead.lead_id}: ${lead.kind}`,
+            poll_count: 0,
+            started_at: now,
+            last_polled_at: 0,
+          };
+          push({
+            role: "system",
+            kind: "ref",
+            refKind: "upload",
+            title: `Premium lead: ${lead.kind}`,
+            subtitle: `${lead.service} ${lead.mode} · задача ${lead.task_id.slice(0, 8)}… · ETA ${lead.eta_min_low}-${lead.eta_min_high} мин · ₽ ${lead.cost_rub.toFixed(2)}`,
+            accent: true,
+            taskId: lead.task_id,
+          });
+        }
+        setDrProgress((dp) => ({ ...dp, ...seeded }));
+        if (leads[0]) setArtifact({ kind: "dr-progress", data: { taskId: leads[0].task_id } });
+        setActiveResearchTasks((arr) => [
+          ...arr.filter((task) => !leads.some((lead) => lead.task_id === task.taskId)),
+          ...leads.map((lead) => ({
+            taskId: lead.task_id,
+            service: lead.service,
+            mode: lead.mode,
+            isFollowup: true,
+            leadId: lead.lead_id,
+            kind: lead.kind,
+            priority: lead.priority,
+            rationale: lead.rationale,
+            candidateSources: lead.candidate_sources,
+            linkedTo: lead.linked_to,
+            promptPreview: lead.prompt_preview,
+          })),
+        ]);
+        const s = await getSession(sessionId);
+        setCost(s.total_cost_rub || 0);
+        return;
+      }
+      if (out.action === "synthesize_started" && out.synthesize_task) {
+        push({
+          role: "system",
+          kind: "text",
+          content: "Follow-up evidence уже есть. Запустил пересборку финального отчёта.",
+        });
+        const status = await pollLongTaskStatus(sessionId, out.synthesize_task.task_id);
+        if (status.state !== "completed") throw new Error(status.error || `synthesize ${status.task_id} failed`);
+        const finalState = await getFinalReport(sessionId);
+        setFinalData(finalState.final_report);
+        setCost(finalState.total_cost_rub || 0);
+        push({
+          role: "system",
+          kind: "ref",
+          refKind: "report",
+          title: finalState.final_report.executive_summary?.main_answer?.slice(0, 60) || "Финальный отчёт",
+          subtitle: `${finalState.final_report.all_sources?.length ?? 0} источников · ₽ ${Math.round(finalState.total_cost_rub || 0)}`,
+          accent: true,
+        });
+        setPhase(PHASE.DONE);
+        setArtifact({ kind: "report", data: finalState.final_report });
+        return;
+      }
+      push({
+        role: "system",
+        kind: "text",
+        content:
+          `${out.message}\n\n` +
+          `Closure score: ${out.analytic_closure?.overall_score ?? "н/д"}/100. ` +
+          `Premium readiness: ${out.premium_readiness?.score ?? "н/д"}/100.`,
+      });
+    } catch (e) {
+      setMessages((ms) => ms.filter((m) => m.kind !== "thinking"));
+      showToast(`Ошибка premium-доработки: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setPending(false);
+    }
+  }, [sessionId, push]);
 
   const actFollowup = useCallback(
     async (files: File[]) => {
@@ -1792,6 +2122,10 @@ export default function Workspace() {
         uploadRef.current?.click();
       } else if (action === "go-topup") {
         actTopup();
+      } else if (action === "run-depth-leads") {
+        actAnalyticDepthLeads();
+      } else if (action === "premium-refine") {
+        actPremiumRefine();
       } else if (action === "trigger-followup") {
         followupRef.current?.click();
       } else if (action === "go-final") {
@@ -1854,6 +2188,8 @@ export default function Workspace() {
       copyPrompt,
       goToUploadStage,
       actTopup,
+      actAnalyticDepthLeads,
+      actPremiumRefine,
       actFinal,
       actFinalDirect,
       actAnalyzeOnly,
@@ -2066,6 +2402,20 @@ export default function Workspace() {
         ) : null,
       };
     }
+    if (artifact.kind === "premium-status") {
+      return {
+        kind: "Premium loop",
+        title: "Paid-report refinement status",
+        actions: (
+          <button
+            className="icon-btn primary"
+            onClick={actPremiumRefine}
+          >
+            continue
+          </button>
+        ),
+      };
+    }
     if (artifact.kind === "source-md") {
       const fname = (artifact.data as { filename?: string } | undefined)?.filename || "источник";
       return {
@@ -2127,6 +2477,21 @@ export default function Workspace() {
         title: (finalData as FinalReport | null)?.executive_summary?.main_answer?.slice(0, 60) || "Финальный отчёт",
         actions: (
           <>
+            <button
+              className="icon-btn"
+              onClick={async () => {
+                if (!sessionId) return;
+                try {
+                  const status = await getPremiumRefinementStatus(sessionId);
+                  setPremiumRefinementStatus(status);
+                  setArtifact({ kind: "premium-status", data: status });
+                } catch (e) {
+                  showToast(`Не удалось открыть premium status: ${e instanceof Error ? e.message : String(e)}`);
+                }
+              }}
+            >
+              premium status
+            </button>
             <button
               className="icon-btn"
               onClick={async () => {
@@ -2730,6 +3095,29 @@ export default function Workspace() {
                       </div>
                     </div>
                   )}
+                  {premiumReadiness && (
+                    <div className={`quality-grade quality-grade--${premiumReadiness.ready ? "a" : "c"}`}>
+                      <div className="quality-grade__head">
+                        <span className="quality-grade__label">Premium readiness</span>
+                        <span className="quality-grade__letter">{premiumReadiness.ready ? "READY" : "NOT READY"}</span>
+                        <span className="quality-grade__score">{premiumReadiness.score}/100</span>
+                      </div>
+                      <div className="quality-grade__summary">
+                        {premiumReadiness.ready
+                          ? "Paid-report quality gate passed."
+                          : (premiumReadiness.issues[0]?.message || "Premium quality gate has open issues.")}
+                      </div>
+                      <div className="quality-grade__metrics">
+                        <span>issues <b>{premiumReadiness.issues.length}</b></span>
+                        <span>strengths <b>{premiumReadiness.strengths.length}</b></span>
+                        {premiumReadiness.issues[0]?.recommendation && (
+                          <span title={premiumReadiness.issues[0].recommendation}>
+                            next: <b>{premiumReadiness.issues[0].severity}</b>
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
                   <ReportArtifact
                     finalReport={finalData}
                     openSource={openSource}
@@ -2748,6 +3136,89 @@ export default function Workspace() {
                   )}
                 </div>
               )}
+              {artifact.kind === "premium-status" && (() => {
+                const status =
+                  (artifact.data as PremiumRefinementStatusOut | undefined) ||
+                  premiumRefinementStatus;
+                if (!status) {
+                  return (
+                    <div style={{ padding: 24, color: "var(--ink-3)" }}>
+                      Premium refinement status is not loaded.
+                    </div>
+                  );
+                }
+                const closure = status.analytic_closure;
+                const readiness = status.premium_readiness;
+                const nextLeads = status.next_research_leads || [];
+                return (
+                  <div className="prompt-doc">
+                    <h1>Premium Refinement Loop</h1>
+                    <div className="quality-grade quality-grade--b">
+                      <div className="quality-grade__head">
+                        <span className="quality-grade__label">Next step</span>
+                        <span className="quality-grade__letter">{status.recommended_action}</span>
+                      </div>
+                      <div className="quality-grade__summary">{status.message}</div>
+                      <div className="quality-grade__metrics">
+                        <span>followups <b>{status.pending_followup_task_ids.length}</b></span>
+                        <span>resynthesis <b>{status.final_report_needs_followup_resynthesis ? "yes" : "no"}</b></span>
+                        <span>auto-refresh <b>15s</b></span>
+                        {status.running_synthesize_task_id && (
+                          <span>synth <b>{status.running_synthesize_task_id.slice(0, 8)}</b></span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="prompt-section">
+                      <h2>Closure</h2>
+                      <table className="mini-table">
+                        <tbody>
+                          <tr><td>Score</td><td>{closure?.overall_score ?? "n/a"}/100</td></tr>
+                          <tr><td>Leads</td><td>{closure?.lead_count ?? "n/a"}</td></tr>
+                          <tr><td>Not started</td><td>{closure?.not_started ?? "n/a"}</td></tr>
+                          <tr><td>Not closed</td><td>{closure?.not_closed ?? "n/a"}</td></tr>
+                        </tbody>
+                      </table>
+                    </div>
+                    {nextLeads.length > 0 && (
+                      <div className="prompt-section">
+                        <h2>Next research leads</h2>
+                        <div className="premium-lead-list">
+                          {nextLeads.map((lead) => (
+                            <div className="premium-lead-card" key={lead.lead_id}>
+                              <div className="premium-lead-card__head">
+                                <span>{lead.lead_id}</span>
+                                <b>{lead.priority} / {lead.status}</b>
+                              </div>
+                              <div className="premium-lead-card__meta">
+                                {lead.kind} · {lead.service} · {lead.mode}
+                              </div>
+                              <p>{lead.prompt_preview}</p>
+                              {lead.candidate_sources?.length > 0 && (
+                                <div className="premium-lead-card__sources">
+                                  {lead.candidate_sources.slice(0, 4).map((source) => (
+                                    <span key={source}>{source}</span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    <div className="prompt-section">
+                      <h2>Paid-delivery gate</h2>
+                      <table className="mini-table">
+                        <tbody>
+                          <tr><td>Status</td><td>{readiness?.ready ? "READY" : "NOT READY"}</td></tr>
+                          <tr><td>Score</td><td>{readiness?.score ?? "n/a"}/100</td></tr>
+                          <tr><td>Issues</td><td>{readiness?.issues?.length ?? "n/a"}</td></tr>
+                          <tr><td>First blocker</td><td>{readiness?.issues?.[0]?.message || "n/a"}</td></tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })()}
               {artifact.kind === "dr-progress" && (() => {
                 const tid = (artifact.data as { taskId?: string } | undefined)?.taskId || "";
                 const p = drProgress[tid];
@@ -2771,8 +3242,83 @@ export default function Workspace() {
                   p.state === "completed" ? "✓ готово" :
                   p.state === "cancelled" ? "✕ отменено" :
                   p.state === "failed" ? "✗ ошибка" : p.state;
+                const taskRows = activeResearchTasks.map((task) => {
+                  const progress = drProgress[task.taskId];
+                  const taskState = progress?.state || "running";
+                  const taskPct = progress?.progress_pct;
+                  const taskElapsed = progress?.started_at
+                    ? Math.max(0, Math.floor(Date.now() / 1000) - progress.started_at)
+                    : 0;
+                  return {
+                    ...task,
+                    state: taskState,
+                    pct: taskPct,
+                    elapsed: taskElapsed < 60
+                      ? `${taskElapsed}s`
+                      : `${Math.floor(taskElapsed / 60)}m ${taskElapsed % 60}s`,
+                    message: progress?.message || "",
+                  };
+                });
                 return (
                   <div className="dr-progress-view">
+                    <div className="dr-mission">
+                      <div className="dr-mission-head">
+                        <div>
+                          <div className="dr-mission-kicker">Analytic depth control</div>
+                          <div className="dr-mission-title">Исследовательские задачи в работе</div>
+                        </div>
+                        <div className="dr-mission-count">{taskRows.length}</div>
+                      </div>
+                      {taskRows.length > 0 ? (
+                        <div className="dr-mission-grid">
+                          {taskRows.map((task) => (
+                            <button
+                              key={task.taskId}
+                              type="button"
+                              className={"dr-mission-card" + (task.taskId === tid ? " active" : "")}
+                              onClick={() => setArtifact({ kind: "dr-progress", data: { taskId: task.taskId } })}
+                              title={task.message || task.taskId}
+                            >
+                              <span className="dr-mission-service">{task.service}</span>
+                              <span className="dr-mission-mode">
+                                {task.kind || task.mode}{task.priority ? ` / ${task.priority}` : ""}
+                              </span>
+                              <span className="dr-mission-status">{task.state}</span>
+                              <span className="dr-mission-meta">
+                                {task.pct != null ? `${task.pct}%` : "polling"} · {task.elapsed}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="dr-mission-empty">No active research jobs remain.</div>
+                      )}
+                    </div>
+                    {(() => {
+                      const selectedTask = activeResearchTasks.find((task) => task.taskId === tid);
+                      if (!selectedTask?.leadId) return null;
+                      return (
+                        <div className="dr-lead-card">
+                          <div className="dr-lead-card__top">
+                            <span>lead {selectedTask.leadId}</span>
+                            <b>{selectedTask.priority || "priority"}</b>
+                          </div>
+                          <div className="dr-lead-card__title">
+                            {selectedTask.kind || "analytic-depth follow-up"}
+                          </div>
+                          {selectedTask.rationale && (
+                            <div className="dr-lead-card__text">{selectedTask.rationale}</div>
+                          )}
+                          {selectedTask.candidateSources && selectedTask.candidateSources.length > 0 && (
+                            <div className="dr-lead-card__sources">
+                              {selectedTask.candidateSources.slice(0, 4).map((source) => (
+                                <span key={source}>{source}</span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                     <div className="dr-progress-state">{stateBadge}</div>
                     {p.progress_pct != null && (
                       <div className="dr-progress-bar-wrap">
@@ -2898,7 +3444,7 @@ export default function Workspace() {
                 <>
                   <a
                     className="export-item"
-                    href={`/api/v4/sessions/${sessionId}/export?format=md`}
+                    href={`/api/v4/sessions/${sessionId}/export?format=md&allow_draft=true`}
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={() => setExportOpen(false)}
@@ -2910,7 +3456,43 @@ export default function Workspace() {
                   </a>
                   <a
                     className="export-item"
-                    href={`/api/v4/sessions/${sessionId}/export?format=docx`}
+                    href={`/api/v4/sessions/${sessionId}/export?format=premium-docx&allow_draft=true`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => setExportOpen(false)}
+                  >
+                    <span className="export-text">
+                      <span className="export-name">Premium Report</span>
+                      <span className="export-meta">.docx</span>
+                    </span>
+                  </a>
+                  <a
+                    className="export-item"
+                    href={`/api/v4/sessions/${sessionId}/export?format=premium-package&allow_draft=true`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => setExportOpen(false)}
+                  >
+                    <span className="export-text">
+                      <span className="export-name">Premium Package</span>
+                      <span className="export-meta">.zip</span>
+                    </span>
+                  </a>
+                  <a
+                    className="export-item"
+                    href={`/api/v4/sessions/${sessionId}/export?format=premium-pptx&allow_draft=true`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => setExportOpen(false)}
+                  >
+                    <span className="export-text">
+                      <span className="export-name">Premium Deck</span>
+                      <span className="export-meta">.pptx</span>
+                    </span>
+                  </a>
+                  <a
+                    className="export-item"
+                    href={`/api/v4/sessions/${sessionId}/export?format=docx&allow_draft=true`}
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={() => setExportOpen(false)}

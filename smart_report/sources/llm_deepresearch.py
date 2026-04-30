@@ -311,19 +311,33 @@ async def _run_streaming_dr(
             )
 
         if state == "completed" and text:
-            # Build upload + add to source_reports + remove from pending
-            filename = f"auto_dr_{service}_{task_id[:8]}.md"
-            already = any(u.filename == filename for u in (session.source_reports or []))
+            # Build upload + add to the same bucket that /auto-dr-status uses.
+            # Follow-up and analytic-depth jobs are second-pass evidence and
+            # must not be mixed into the original source report bucket.
+            is_followup = bool(job.get("is_followup"))
+            filename = (
+                f"auto_followup_{service}_{task_id[:8]}.md"
+                if is_followup
+                else f"auto_dr_{service}_{task_id[:8]}.md"
+            )
+            bucket = session.followup_reports if is_followup else session.source_reports
+            already = any(u.filename == filename for u in (bucket or []))
             if not already:
+                content = _with_analytic_depth_header(text, job) if is_followup else text
                 upload = UploadedMarkdown(
                     filename=filename,
-                    content=text,
+                    content=content,
                     detected_tool=detected_tool,  # type: ignore[arg-type]
-                    word_count=len(text.split()),
+                    word_count=len(content.split()),
                 )
-                session.source_reports = list(session.source_reports or []) + [upload]
-                if session.status in {"created", "prompt_generated"}:
-                    session.status = "reports_uploaded"
+                if is_followup:
+                    session.followup_reports = list(session.followup_reports or []) + [upload]
+                    if session.status in {"created", "prompt_generated", "reports_uploaded", "analyzed"}:
+                        session.status = "dobor_uploaded"
+                else:
+                    session.source_reports = list(session.source_reports or []) + [upload]
+                    if session.status in {"created", "prompt_generated"}:
+                        session.status = "reports_uploaded"
             # Remove from pending
             session.pending_dr_jobs = [
                 j for j in (session.pending_dr_jobs or []) if j.get("task_id") != task_id
@@ -399,6 +413,30 @@ async def _run_streaming_dr(
         print(f"[dr-run] {service} task_id={task_id} COMPLETED chars={_len()} duration={int(time.time()-started)}s", flush=True)
     finally:
         _LIVE_TASKS.pop(task_id, None)
+
+
+def _with_analytic_depth_header(text: str, job: dict) -> str:
+    meta = job.get("analytic_depth") or {}
+    lead_id = str(meta.get("lead_id") or "").strip()
+    if not lead_id:
+        return text
+    marker = f"Smart Report analytic-depth lead: {lead_id}"
+    if marker in text:
+        return text
+    header = [
+        "<!-- Smart Report analytic-depth metadata",
+        marker,
+        f"Kind: {meta.get('kind') or ''}",
+        f"Priority: {meta.get('priority') or ''}",
+        f"Rationale: {meta.get('rationale') or ''}",
+        "Candidate sources: "
+        + ", ".join(str(item) for item in (meta.get("candidate_sources") or []) if item),
+        "Linked to: "
+        + ", ".join(str(item) for item in (meta.get("linked_to") or []) if item),
+        "-->",
+        "",
+    ]
+    return "\n".join(header) + text
 
 
 # ---------------------------------------------------------------------------
@@ -715,7 +753,7 @@ def reconcile_orphaned_dr_jobs(store: Any) -> int:
 # ---------------------------------------------------------------------------
 
 
-def accept_partial_into_source_reports(session: Any, task_id: str) -> bool:
+def _legacy_accept_partial_into_source_reports(session: Any, task_id: str) -> bool:
     """Move pending_dr_jobs[task_id].partial_content into source_reports as
     a normal markdown upload. Removes the job entry. Returns True if done.
     """
@@ -749,5 +787,66 @@ def accept_partial_into_source_reports(session: Any, task_id: str) -> bool:
             session.status = "reports_uploaded"
     session.pending_dr_jobs = [
         j for j in (session.pending_dr_jobs or []) if j.get("task_id") != task_id
+    ]
+    return True
+
+
+def accept_partial_into_source_reports(session: Any, task_id: str) -> bool:
+    """Move pending partial content into source_reports or followup_reports.
+
+    The repeated definition intentionally supersedes the legacy implementation
+    above without changing its public import path. Follow-up and analytic-depth
+    partials must remain in followup_reports and retain their lead marker after
+    the pending job is removed.
+    """
+    from smart_report.models import UploadedMarkdown
+
+    job = next(
+        (item for item in (session.pending_dr_jobs or []) if item.get("task_id") == task_id),
+        None,
+    )
+    if job is None:
+        return False
+    text = (job.get("partial_content") or "").strip()
+    if not text:
+        return False
+
+    service = job.get("service", "llm")
+    detected_tool = (
+        "openai_dr"
+        if service == "openai"
+        else "perplexity"
+        if service == "perplexity"
+        else "other"
+    )
+    is_followup = bool(job.get("is_followup"))
+    filename = (
+        f"auto_followup_{service}_{task_id[:8]}_partial.md"
+        if is_followup
+        else f"auto_dr_{service}_{task_id[:8]}_partial.md"
+    )
+    bucket = session.followup_reports if is_followup else session.source_reports
+    already = any(upload.filename == filename for upload in (bucket or []))
+    if not already:
+        content = text + "\n\n_(partial result; the research job was interrupted)_"
+        if is_followup:
+            content = _with_analytic_depth_header(content, job)
+        upload = UploadedMarkdown(
+            filename=filename,
+            content=content,
+            detected_tool=detected_tool,  # type: ignore[arg-type]
+            word_count=len(content.split()),
+        )
+        if is_followup:
+            session.followup_reports = list(session.followup_reports or []) + [upload]
+            if session.status in {"created", "prompt_generated", "reports_uploaded", "analyzed"}:
+                session.status = "dobor_uploaded"
+        else:
+            session.source_reports = list(session.source_reports or []) + [upload]
+            if session.status in {"created", "prompt_generated"}:
+                session.status = "reports_uploaded"
+
+    session.pending_dr_jobs = [
+        item for item in (session.pending_dr_jobs or []) if item.get("task_id") != task_id
     ]
     return True

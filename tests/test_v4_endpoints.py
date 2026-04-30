@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import zipfile
+from io import BytesIO
 
 import pytest
 
@@ -87,6 +89,32 @@ def _await_long_task(client, sid: str, task_id: str, timeout: float = 5.0) -> di
         f"long-task {task_id} did not reach terminal state in {timeout}s; "
         f"last poll: {last}"
     )
+
+
+def test_artifact_qa_docx_page_count_prefers_rendered_pages():
+    report = {
+        "results": [
+            {
+                "kind": "docx",
+                "metrics": {"estimated_pages": 7, "rendered_pages": 22},
+            }
+        ]
+    }
+
+    assert v4._artifact_qa_docx_page_count(report) == 22
+
+
+def test_artifact_qa_docx_page_count_falls_back_to_estimate():
+    report = {
+        "results": [
+            {
+                "kind": "docx",
+                "metrics": {"estimated_pages": 19},
+            }
+        ]
+    }
+
+    assert v4._artifact_qa_docx_page_count(report) == 19
 
 
 @pytest.fixture
@@ -297,6 +325,11 @@ def test_v4_full_cycle(monkeypatch, tmp_path):
     assert len(analysis["conflicts"]) == 1
     assert len(analysis["gaps"]) == 1
     assert len(analysis["followup_prompts"]) == 1
+    events = client.get(f"/api/v4/sessions/{sid}/events", params={"since": 0, "timeout": 0}).json()["events"]
+    depth_events = [ev for ev in events if ev["phase"] == "analytic_depth"]
+    assert len(depth_events) >= 2
+    assert depth_events[-1]["data"]["research_leads"] >= 1
+    assert depth_events[-1]["data"]["disconfirming_probes"] >= 1
 
     r = client.post(f"/api/v4/sessions/{sid}/synthesize")
     assert r.status_code == 202, r.text
@@ -310,16 +343,149 @@ def test_v4_full_cycle(monkeypatch, tmp_path):
     assert final["executive_summary"]["main_answer"]
     assert final["executive_summary"]["ranking"].startswith("Продукт")
 
-    # Export md
+    # Client exports are blocked until readiness gates pass.
     r = client.get(f"/api/v4/sessions/{sid}/export", params={"format": "md"})
+    assert r.status_code == 409, r.text
+    assert r.json()["detail"]["readiness"]["ready"] is False
+
+    # Draft export is explicit.
+    r = client.get(f"/api/v4/sessions/{sid}/export", params={"format": "md", "allow_draft": "true"})
     assert r.status_code == 200, r.text
     assert "Продукт" in r.text or "Product" in r.text
+    assert "Метаданные" not in r.text
+    assert "language_lint" not in r.text
 
     # Export json — also confirms content-type routing.
-    r = client.get(f"/api/v4/sessions/{sid}/export", params={"format": "json"})
+    r = client.get(f"/api/v4/sessions/{sid}/export", params={"format": "json", "allow_draft": "true"})
     assert r.status_code == 200
+    # Data-room exports.
+    r = client.get(f"/api/v4/sessions/{sid}/export", params={"format": "sources-csv"})
+    assert r.status_code == 200
+    assert "url" in r.text
+    r = client.get(f"/api/v4/sessions/{sid}/export", params={"format": "facts-csv"})
+    assert r.status_code == 200
+    assert "fact_id" in r.text
+    r = client.get(f"/api/v4/sessions/{sid}/export", params={"format": "data-pack"})
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("application/zip")
+    with zipfile.ZipFile(BytesIO(r.content)) as zf:
+        names = set(zf.namelist())
+        assert {
+            "manifest.json",
+            "client_report.json",
+            "analytic_depth.json",
+            "analytic_closure.json",
+            "client_leaks.json",
+            "client_readiness.json",
+            "premium_readiness.json",
+            "sources.csv",
+            "facts.csv",
+        } <= names
+        analytic_depth = json.loads(zf.read("analytic_depth.json").decode("utf-8"))
+        assert analytic_depth["root"]["id"] == "root"
+        assert analytic_depth["research_leads"]
+        analytic_closure = json.loads(zf.read("analytic_closure.json").decode("utf-8"))
+        assert analytic_closure["lead_count"] > 0
+        assert json.loads(zf.read("client_leaks.json").decode("utf-8")) == []
+        readiness = json.loads(zf.read("client_readiness.json").decode("utf-8"))
+        assert readiness["ready"] is False
+        premium_readiness = json.loads(zf.read("premium_readiness.json").decode("utf-8"))
+        assert premium_readiness["score"] < 85
+    r = client.get(f"/api/v4/sessions/{sid}/export", params={"format": "audit-json"})
+    assert r.status_code == 200
+    assert r.json()["analytic_depth"]["research_leads"]
+    assert r.json()["analytic_closure"]["lead_count"] > 0
+    assert r.json()["premium_readiness"]["ready"] is False
+    r = client.get(f"/api/v4/sessions/{sid}/analytic-closure")
+    assert r.status_code == 200
+    assert r.json()["lead_count"] > 0
+    r = client.get(f"/api/v4/sessions/{sid}/premium-readiness")
+    assert r.status_code == 200
+    assert r.json()["score"] < 85
+    r = client.get(
+        f"/api/v4/sessions/{sid}/export",
+        params={"format": "premium-docx", "allow_draft": "true"},
+    )
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith(
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+    r = client.get(
+        f"/api/v4/sessions/{sid}/export",
+        params={"format": "premium-pptx", "allow_draft": "true"},
+    )
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith(
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    )
+    r = client.get(
+        f"/api/v4/sessions/{sid}/export",
+        params={"format": "premium-package", "allow_draft": "true"},
+    )
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("application/zip")
+    with zipfile.ZipFile(BytesIO(r.content)) as zf:
+        names = set(zf.namelist())
+        assert {
+            "00_manifest.json",
+            "01_premium_report.docx",
+            "02_premium_deck.pptx",
+            "03_premium_readiness.json",
+            "04_client_readiness.json",
+            "05_audit.json",
+            "06_analytic_closure.json",
+            "07_artifact_qa.json",
+            "08_sources.csv",
+            "09_facts.csv",
+            "10_data_pack.zip",
+            "11_evidence_audit.json",
+            "12_adjudication_audit.json",
+            "13_visual_review.json",
+            "14_next_research_brief.md",
+        } <= names
+        artifact_qa = json.loads(zf.read("07_artifact_qa.json").decode("utf-8"))
+        assert artifact_qa["summary"]["artifacts"] == 2
+        docx_qa = next(item for item in artifact_qa["results"] if item["kind"] == "docx")
+        assert docx_qa["metrics"]["estimated_pages"] >= 1
+        if artifact_qa.get("render_index"):
+            assert "07_artifact_qa/index.html" in names
+            assert any(name.startswith("07_artifact_qa/") and name.endswith(".png") for name in names)
+        manifest = json.loads(zf.read("00_manifest.json").decode("utf-8"))
+        assert manifest["package_type"] == "smart_report_premium_delivery"
+        assert manifest["artifact_qa_status"] in {"passed", "blocked", "failed"}
+        assert manifest["docx_pages"] is None or manifest["docx_pages"] >= 1
+        assert manifest["docx_pages_source"] in {None, "rendered_pages", "estimated_pages"}
+        assert manifest["deck_slides"] is None or manifest["deck_slides"] >= 10
+        assert isinstance(manifest["open_analytic_leads"], int)
+        assert isinstance(manifest["unsupported_conclusions"], int)
+        audit = json.loads(zf.read("05_audit.json").decode("utf-8"))
+        visual_review = json.loads(zf.read("13_visual_review.json").decode("utf-8"))
+        assert audit["visual_review"]["status"] == visual_review["status"]
+        assert visual_review["status"] in {"pending", "blocked"}
+        brief = zf.read("14_next_research_brief.md").decode("utf-8")
+        assert "# Next Research Brief" in brief
+        assert "## Priority Leads" in brief
+        assert "Recommended service:" in brief
+        assert "**Prompt**" in brief
+        assert "**Why this matters**" in brief
+        assert "- Candidate sources:" in brief
+    r = client.get(
+        f"/api/v4/sessions/{sid}/export",
+        params={"format": "premium-client-package"},
+    )
+    assert r.status_code == 409
+    blockers = set(r.json()["detail"]["gate"]["blockers"])
+    assert {
+        "client_readiness_not_ready",
+        "premium_readiness_not_ready",
+        "analytic_closure_open_leads",
+        "evidence_audit_unsupported_conclusions",
+        "adjudication_audit_critical_unresolved",
+        "visual_review_not_approved",
+    } <= blockers
+    assert "artifact_qa_not_passed" not in blockers
     # Export gamma-pdf stub.
-    r = client.get(f"/api/v4/sessions/{sid}/export", params={"format": "gamma-pdf"})
+    r = client.get(f"/api/v4/sessions/{sid}/export", params={"format": "gamma-pdf", "allow_draft": "true"})
     assert r.status_code == 200
     # Unknown format.
     r = client.get(f"/api/v4/sessions/{sid}/export", params={"format": "foo"})
@@ -726,6 +892,464 @@ def test_auto_dr_cancel_valyu_attempts_hard_cancel(monkeypatch):
     assert r.json()["kind"] == "soft"
 
 
+def test_get_analytic_depth_requires_analysis():
+    client = _authed_client()
+    sid = client.post(
+        "/api/v4/sessions",
+        json={"question": "forecast Moscow premium real estate prices"},
+    ).json()["session_id"]
+
+    r = client.get(f"/api/v4/sessions/{sid}/analytic-depth")
+
+    assert r.status_code == 409
+    assert "call /analyze first" in r.text
+
+
+def test_get_analytic_depth_plan_returns_research_map():
+    from smart_report.models import AnalysisOutput, Conflict, Gap, UnverifiedNumber
+
+    client = _authed_client()
+    sid = client.post(
+        "/api/v4/sessions",
+        json={"question": "forecast Moscow primary real estate prices in 2026"},
+    ).json()["session_id"]
+    session = v4._store.get(sid)
+    session.analysis = AnalysisOutput(
+        conflicts=[
+            Conflict(
+                topic="Q1 2026 price baseline",
+                source_a="Metrium PDF",
+                claim_a="business class is 561450 RUB per sqm",
+                source_b="aggregated report",
+                claim_b="business class is 887780 RUB per sqm",
+                resolution_hint="Separate business and premium segments.",
+                importance="critical",
+            )
+        ],
+        gaps=[
+            Gap(
+                topic="2026-2027 project pipeline",
+                why_critical="Supply launches can change price pressure.",
+                what_to_find="Named business and premium starts with timing and GBA.",
+                candidate_sources=["developer sites", "stroi.mos.ru", "erzrf.ru"],
+            )
+        ],
+        unverified_numbers=[
+            UnverifiedNumber(
+                value="887780",
+                metric="price per sqm",
+                subject="business class",
+                source_tool="uploaded report",
+                why_unverified="Likely premium value mislabeled as business.",
+            )
+        ],
+    )
+    v4._store.update(session)
+
+    r = client.get(f"/api/v4/sessions/{sid}/analytic-depth")
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["domain_hint"] == "russian_market"
+    assert body["root"]["id"] == "root"
+    assert {child["id"] for child in body["root"]["children"]} == {
+        "evidence_base",
+        "hypotheses",
+        "benchmarks",
+        "decision",
+    }
+    assert any(lead["kind"] == "resolve_conflict" for lead in body["research_leads"])
+    assert any(lead["kind"] == "verify_number" for lead in body["research_leads"])
+    assert any(probe["disconfirming"] for probe in body["evidence_probes"])
+
+
+def test_auto_depth_leads_submits_research_jobs(monkeypatch):
+    from smart_report.models import AnalysisOutput, Conflict, Gap, UnverifiedNumber
+    from smart_report.sources import auto_dr as auto_dr_mod
+
+    async def _fake_submit(service, question, *, mode="standard", session_id=None, store=None):
+        suffix = abs(hash(question)) % 10000
+        return auto_dr_mod.AsyncResearchSubmission(
+            task_id=f"{service}-{suffix}",
+            service=service,
+            mode=mode,
+            cost_usd=0.25,
+            eta_min_low=3,
+            eta_min_high=7,
+        )
+
+    monkeypatch.setattr(auto_dr_mod, "submit_async_research", _fake_submit)
+
+    client = _authed_client()
+    sid = client.post(
+        "/api/v4/sessions",
+        json={"question": "forecast Moscow primary real estate prices in 2026"},
+    ).json()["session_id"]
+    session = v4._store.get(sid)
+    session.analysis = AnalysisOutput(
+        conflicts=[
+            Conflict(
+                topic="Q1 2026 price baseline",
+                source_a="Metrium PDF",
+                claim_a="business class is 561450 RUB per sqm",
+                source_b="aggregated report",
+                claim_b="business class is 887780 RUB per sqm",
+                resolution_hint="Separate business and premium segments.",
+                importance="critical",
+            )
+        ],
+        gaps=[
+            Gap(
+                topic="Pipeline starts",
+                why_critical="Supply changes price pressure.",
+                what_to_find="Named launches with timing.",
+                candidate_sources=["developer sites"],
+            )
+        ],
+        unverified_numbers=[
+            UnverifiedNumber(
+                value="887780",
+                metric="price per sqm",
+                subject="business class",
+                source_tool="uploaded report",
+            )
+        ],
+    )
+    v4._store.update(session)
+
+    r = client.post(
+        f"/api/v4/sessions/{sid}/auto-depth-leads",
+        json={"max_leads": 2, "include_priority": "must", "service_override": "openai", "mode_override": "mini"},
+    )
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert len(body) == 2
+    assert all(item["service"] == "openai" for item in body)
+    assert all(item["rationale"] for item in body)
+    assert all(isinstance(item["candidate_sources"], list) for item in body)
+    assert all(isinstance(item["linked_to"], list) for item in body)
+    assert all(item["prompt_preview"] for item in body)
+    stored = v4._store.get(sid)
+    jobs = stored.pending_dr_jobs
+    assert len(jobs) == 2
+    assert all(job["analytic_depth"]["lead_id"] for job in jobs)
+    assert all(job["analytic_depth"]["rationale"] for job in jobs)
+    assert all(isinstance(job["analytic_depth"]["candidate_sources"], list) for job in jobs)
+    assert all(isinstance(job["analytic_depth"]["linked_to"], list) for job in jobs)
+    assert all(job["is_followup"] is True for job in jobs)
+    assert stored.total_cost_rub > 0
+    events = client.get(f"/api/v4/sessions/{sid}/events", params={"since": 0, "timeout": 0}).json()["events"]
+    assert any(
+        ev["phase"] == "analytic_depth"
+        and ev["data"].get("stage") == "auto_depth_leads_submitted"
+        for ev in events
+    )
+
+
+def test_async_mode_for_lead_rejects_invalid_provider_override():
+    class Lead:
+        recommended_mode = "standard"
+
+    assert v4._async_mode_for_lead("perplexity", Lead(), "standard") == "deep"
+    assert v4._async_mode_for_lead("perplexity", Lead(), None) == "deep"
+    assert v4._async_mode_for_lead("openai", Lead(), "DEEP") == "deep"
+
+
+def test_premium_refine_waits_for_running_followup_jobs():
+    from smart_report.models import AnalysisOutput, Gap
+
+    client = _authed_client()
+    sid = client.post(
+        "/api/v4/sessions",
+        json={"question": "forecast Moscow primary real estate prices in 2026"},
+    ).json()["session_id"]
+    session = v4._store.get(sid)
+    session.analysis = AnalysisOutput(
+        gaps=[
+            Gap(
+                topic="Pipeline starts",
+                why_critical="Supply changes price pressure.",
+                what_to_find="Named launches with timing.",
+                candidate_sources=["developer sites"],
+            )
+        ]
+    )
+    session.pending_dr_jobs = [
+        {
+            "task_id": "depth-running",
+            "service": "openai",
+            "mode": "mini",
+            "state": "running",
+            "is_followup": True,
+            "analytic_depth": {"lead_id": "gap_1"},
+        }
+    ]
+    v4._store.update(session)
+
+    r = client.post(f"/api/v4/sessions/{sid}/premium-refine", json={})
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["action"] == "wait_for_followups"
+    assert body["pending_task_ids"] == ["depth-running"]
+
+
+def test_premium_refinement_status_recommends_next_step():
+    from smart_report.models import AnalysisOutput, Gap
+
+    client = _authed_client()
+    sid = client.post(
+        "/api/v4/sessions",
+        json={"question": "forecast Moscow primary real estate prices in 2026"},
+    ).json()["session_id"]
+
+    r = client.get(f"/api/v4/sessions/{sid}/premium-refinement-status")
+    assert r.status_code == 200, r.text
+    assert r.json()["recommended_action"] == "run_analysis"
+
+    session = v4._store.get(sid)
+    session.analysis = AnalysisOutput(
+        gaps=[
+            Gap(
+                topic="Pipeline starts",
+                why_critical="Supply changes price pressure.",
+                what_to_find="Named launches with timing.",
+                candidate_sources=["developer sites"],
+            )
+        ]
+    )
+    v4._store.update(session)
+
+    r = client.get(f"/api/v4/sessions/{sid}/premium-refinement-status")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["recommended_action"] == "submit_followups"
+    assert body["analytic_closure"]["lead_count"] > 0
+    assert body["final_report_needs_followup_resynthesis"] is True
+    assert body["next_research_leads"]
+    first_lead = body["next_research_leads"][0]
+    assert first_lead["status"] == "not_started"
+    assert first_lead["prompt_preview"]
+    assert first_lead["service"] in {"valyu", "perplexity", "openai", "exa", "tavily"}
+
+
+def test_premium_refine_submits_open_analytic_depth_leads(monkeypatch):
+    from smart_report.models import AnalysisOutput, Gap
+    from smart_report.sources import auto_dr as auto_dr_mod
+
+    async def _fake_submit(service, question, *, mode="standard", session_id=None, store=None):
+        return auto_dr_mod.AsyncResearchSubmission(
+            task_id="depth-submit",
+            service=service,
+            mode=mode,
+            cost_usd=0.25,
+            eta_min_low=3,
+            eta_min_high=7,
+        )
+
+    monkeypatch.setattr(auto_dr_mod, "submit_async_research", _fake_submit)
+
+    client = _authed_client()
+    sid = client.post(
+        "/api/v4/sessions",
+        json={"question": "forecast Moscow primary real estate prices in 2026"},
+    ).json()["session_id"]
+    session = v4._store.get(sid)
+    session.analysis = AnalysisOutput(
+        gaps=[
+            Gap(
+                topic="Pipeline starts",
+                why_critical="Supply changes price pressure.",
+                what_to_find="Named launches with timing.",
+                candidate_sources=["developer sites"],
+            )
+        ]
+    )
+    v4._store.update(session)
+
+    r = client.post(
+        f"/api/v4/sessions/{sid}/premium-refine",
+        json={"max_leads": 1, "service_override": "openai", "mode_override": "mini"},
+    )
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["action"] == "submitted_followups"
+    assert len(body["submitted_leads"]) == 1
+    stored = v4._store.get(sid)
+    assert stored.pending_dr_jobs[0]["is_followup"] is True
+    assert stored.pending_dr_jobs[0]["analytic_depth"]["lead_id"]
+
+
+def test_premium_refine_starts_synthesis_after_followup_without_open_leads(monkeypatch):
+    from smart_report.analytic_depth import AnalyticDepthPlan, InquiryNode
+    from smart_report.models import AnalysisOutput, UploadedMarkdown
+
+    def _fake_start_long_task(session, *, phase, model_preference, coro_factory):  # noqa: ARG001
+        return v4.LongTaskOut(
+            task_id="synth-refine",
+            phase="synthesize",
+            state="running",
+            started_at="2026-04-30T00:00:00+00:00",
+        )
+
+    monkeypatch.setattr(v4, "_start_long_task", _fake_start_long_task)
+    monkeypatch.setattr(
+        v4,
+        "build_analytic_depth_plan",
+        lambda *args, **kwargs: AnalyticDepthPlan(
+            question="q",
+            domain_hint="market_general",
+            root=InquiryNode(id="root", question="q", rationale="r"),
+            hypotheses=[],
+            evidence_probes=[],
+            research_leads=[],
+            benchmark_questions=[],
+            monitoring_indicators=[],
+        ),
+    )
+
+    client = _authed_client()
+    sid = client.post(
+        "/api/v4/sessions",
+        json={"question": "forecast Moscow primary real estate prices in 2026"},
+    ).json()["session_id"]
+    session = v4._store.get(sid)
+    session.source_reports = [
+        UploadedMarkdown(
+            filename="source.md",
+            content="Source material with https://example.com/source and 7.2% growth.",
+            detected_tool="other",
+            word_count=8,
+        )
+    ]
+    session.followup_reports = [
+        UploadedMarkdown(
+            filename="followup.md",
+            content="Follow-up material with https://example.com/followup and 7.2% growth.",
+            detected_tool="other",
+            word_count=8,
+        )
+    ]
+    session.analysis = AnalysisOutput()
+    v4._store.update(session)
+
+    r = client.post(f"/api/v4/sessions/{sid}/premium-refine", json={})
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["action"] == "synthesize_started"
+    assert body["synthesize_task"]["task_id"] == "synth-refine"
+
+
+def test_auto_dr_status_preserves_analytic_depth_metadata_on_followup(monkeypatch):
+    from smart_report.models import AnalysisOutput, Gap, UploadedMarkdown
+    from smart_report.sources import auto_dr as auto_dr_mod
+
+    async def _fake_poll(task_id, *, service="valyu", mode="standard"):
+        return auto_dr_mod.AsyncResearchPoll(
+            state="completed",
+            result=auto_dr_mod.AutoDRResult(
+                upload=UploadedMarkdown(
+                    filename="valyu_research_standard_depth.md",
+                    content=(
+                        "# Follow-up\n\n"
+                        "According to https://example.com/source, the metric is 7.2%."
+                    ),
+                    detected_tool="other",
+                    word_count=8,
+                ),
+                service="valyu",
+                cost_usd=0.1,
+                cost_rub=7.54,
+                source_count=1,
+            ),
+        )
+
+    monkeypatch.setattr(auto_dr_mod, "try_collect_async_research", _fake_poll)
+
+    client = _authed_client()
+    sid = client.post(
+        "/api/v4/sessions",
+        json={"question": "forecast Moscow primary real estate prices in 2026"},
+    ).json()["session_id"]
+    session = v4._store.get(sid)
+    session.analysis = AnalysisOutput(
+        gaps=[
+            Gap(
+                topic="Real transaction prices",
+                why_critical="Asking prices can overstate the entry price.",
+                what_to_find="Transaction-level evidence by segment.",
+                candidate_sources=["official registry"],
+            )
+        ]
+    )
+    session.pending_dr_jobs = [
+        {
+            "task_id": "depth-task",
+            "service": "valyu",
+            "mode": "standard",
+            "state": "running",
+            "is_followup": True,
+            "analytic_depth": {
+                "lead_id": "gap_1",
+                "kind": "close_gap",
+                "priority": "must",
+                "rationale": "Close transaction-price evidence gap.",
+                "candidate_sources": ["official registry"],
+                "linked_to": ["gap:Real transaction prices"],
+            },
+        }
+    ]
+    v4._store.update(session)
+
+    r = client.get(f"/api/v4/sessions/{sid}/auto-dr-status?task_id=depth-task")
+
+    assert r.status_code == 200, r.text
+    stored = client.get(f"/api/v4/sessions/{sid}").json()
+    assert len(stored["followup_reports"]) == 1
+    content = stored["followup_reports"][0]["content"]
+    assert "Smart Report analytic-depth lead: gap_1" in content
+    closure = client.get(f"/api/v4/sessions/{sid}/analytic-closure")
+    assert closure.status_code == 200
+    assert closure.json()["partial"] + closure.json()["closed"] >= 1
+
+
+def test_auto_dr_status_finds_completed_llm_followup_after_pending_removed():
+    from smart_report.models import UploadedMarkdown
+
+    client = _authed_client()
+    sid = client.post(
+        "/api/v4/sessions",
+        json={"question": "forecast Moscow primary real estate prices in 2026"},
+    ).json()["session_id"]
+    session = v4._store.get(sid)
+    session.pending_dr_jobs = []
+    session.followup_reports = [
+        UploadedMarkdown(
+            filename="auto_followup_openai_abc12345.md",
+            content=(
+                "<!-- Smart Report analytic-depth metadata\n"
+                "Smart Report analytic-depth lead: gap_1\n"
+                "-->\n\n"
+                "Follow-up evidence from https://example.com/source shows 7.2%."
+            ),
+            detected_tool="other",
+            word_count=16,
+        )
+    ]
+    v4._store.update(session)
+
+    r = client.get(f"/api/v4/sessions/{sid}/auto-dr-status?task_id=abc12345-deadbeef")
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["state"] == "completed"
+    assert body["filename"] == "auto_followup_openai_abc12345.md"
+    assert body["word_count"] == 16
+
+
 def test_auto_dr_accept_partial_promotes_to_source_reports(monkeypatch):
     """When LLM DR was interrupted with partial content, accepting it
     moves partial_content to source_reports and removes the job entry."""
@@ -769,6 +1393,57 @@ def test_auto_dr_accept_partial_promotes_to_source_reports(monkeypatch):
     )
     # Job removed from pending_dr_jobs
     assert all(j["task_id"] != "oai-partial" for j in (sess.get("pending_dr_jobs") or []))
+
+
+def test_auto_dr_accept_partial_routes_analytic_depth_to_followups(monkeypatch):
+    from smart_report.sources import auto_dr as auto_dr_mod
+
+    async def _fake_submit(service, question, *, mode="standard", session_id=None, store=None):
+        return auto_dr_mod.AsyncResearchSubmission(
+            task_id="oai-depth-partial",
+            service="openai",
+            mode="mini",
+            cost_usd=0.50,
+            eta_min_low=5,
+            eta_min_high=10,
+        )
+
+    monkeypatch.setattr(auto_dr_mod, "submit_async_research", _fake_submit)
+
+    client = _authed_client()
+    sid = client.post(
+        "/api/v4/sessions", json={"question": "partial analytic-depth accept test"}
+    ).json()["session_id"]
+    client.post(
+        f"/api/v4/sessions/{sid}/auto-dr",
+        json={"service": "openai", "mode": "mini", "prompt": "x"},
+    )
+    s = v4._store.get(sid)
+    for job in s.pending_dr_jobs:
+        if job["task_id"] == "oai-depth-partial":
+            job["partial_content"] = "# Partial follow-up\n\nhttps://example.com says 7.2%."
+            job["partial_chars"] = len(job["partial_content"])
+            job["state"] = "interrupted_with_partial"
+            job["is_followup"] = True
+            job["analytic_depth"] = {
+                "lead_id": "gap_1",
+                "kind": "close_gap",
+                "priority": "must",
+                "rationale": "Close the gap.",
+                "candidate_sources": ["official registry"],
+                "linked_to": ["gap:prices"],
+            }
+    v4._store.update(s)
+
+    r = client.post(f"/api/v4/sessions/{sid}/auto-dr-accept-partial?task_id=oai-depth-partial")
+
+    assert r.status_code == 200, r.text
+    sess = client.get(f"/api/v4/sessions/{sid}").json()
+    assert sess["source_reports"] == []
+    assert len(sess["followup_reports"]) == 1
+    assert sess["followup_reports"][0]["filename"] == "auto_followup_openai_oai-dept_partial.md"
+    assert "Smart Report analytic-depth lead: gap_1" in sess["followup_reports"][0]["content"]
+    assert all(j["task_id"] != "oai-depth-partial" for j in (sess.get("pending_dr_jobs") or []))
 
 
 def test_auto_dr_accept_partial_404_when_no_partial():

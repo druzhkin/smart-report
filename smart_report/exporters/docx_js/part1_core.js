@@ -336,6 +336,10 @@ export function callout(title, lines, variant = "primary") {
  * @param {number} [cellWidth] — DXA width of this cell
  */
 export function kpiCard(value, label, sublabel = "", cellWidth = 3120) {
+  const cleanValue = compactText(value, 28);
+  const cleanLabel = compactText(label, 92);
+  const cleanSublabel = compactText(sublabel, 64);
+
   return new TableCell({
     width: { size: cellWidth, type: WidthType.DXA },
     shading: {
@@ -355,11 +359,11 @@ export function kpiCard(value, label, sublabel = "", cellWidth = 3120) {
       new Paragraph({
         children: [
           new TextRun({
-            text: value,
+            text: cleanValue,
             font: FONT,
             bold: true,
             color: C.primary,
-            size: 96,  // 48pt — KPI headline
+            size: cleanValue.length > 14 ? 44 : 60,
           }),
         ],
         alignment: AlignmentType.CENTER,
@@ -368,20 +372,20 @@ export function kpiCard(value, label, sublabel = "", cellWidth = 3120) {
       new Paragraph({
         children: [
           new TextRun({
-            text: label,
+            text: cleanLabel,
             font: FONT,
             color: C.textDark,
             size: 18,  // 9pt
           }),
         ],
         alignment: AlignmentType.CENTER,
-        spacing: { before: 0, after: sublabel ? 40 : 0 },
+        spacing: { before: 0, after: cleanSublabel ? 40 : 0 },
       }),
-      ...(sublabel ? [
+      ...(cleanSublabel ? [
         new Paragraph({
           children: [
             new TextRun({
-              text: sublabel,
+              text: cleanSublabel,
               font: FONT,
               italics: true,
               color: C.textMuted,
@@ -420,7 +424,7 @@ export function kpiRow(cards) {
     rows: [
       new TableRow({
         children: cells,
-        height: { value: 1600, rule: HeightRule.AT_LEAST },
+        height: { value: 1320, rule: HeightRule.AT_LEAST },
       }),
     ],
   });
@@ -464,11 +468,11 @@ export function dataTable(headers, rows, columnWidthsDXA) {
           new Paragraph({
             children: [
               new TextRun({
-                text: h,
+                text: compactText(h, 42),
                 font: FONT,
                 bold: true,
                 color: "FFFFFF",
-                size: 20,
+                size: 18,
               }),
             ],
             spacing: { before: 0, after: 0 },
@@ -484,7 +488,7 @@ export function dataTable(headers, rows, columnWidthsDXA) {
 
     return new TableRow({
       children: row.map((cell, colIdx) => {
-        const cellText = typeof cell === "string" ? cell : cell.text;
+        const cellText = compactText(typeof cell === "string" ? cell : cell.text, 180);
         const cellBold = typeof cell === "object" ? (cell.bold ?? false) : false;
         const cellColor = typeof cell === "object" ? (cell.color ?? C.textDark) : C.textDark;
 
@@ -510,7 +514,7 @@ export function dataTable(headers, rows, columnWidthsDXA) {
                   font: FONT,
                   bold: cellBold,
                   color: cellColor,
-                  size: 20,
+                  size: 17,
                 }),
               ],
               spacing: { before: 0, after: 0 },
@@ -526,6 +530,12 @@ export function dataTable(headers, rows, columnWidthsDXA) {
     columnWidths: widths,
     rows: [headerRow, ...dataRows],
   });
+}
+
+function compactText(value, maxLen) {
+  const text = String(value ?? "").replace(/\s+/g, " ").trim();
+  if (text.length <= maxLen) return text;
+  return text.slice(0, Math.max(0, maxLen - 1)).trimEnd() + "…";
 }
 
 // ---------------------------------------------------------------------------

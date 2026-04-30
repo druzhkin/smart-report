@@ -19,6 +19,7 @@ ALLOWED_PHASES = {
     "prompt_master",
     "external_research",
     "analyzer",
+    "analytic_depth",
     "synthesizer",
 }
 
