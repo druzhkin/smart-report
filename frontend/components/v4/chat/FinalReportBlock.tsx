@@ -791,18 +791,18 @@ function ExportMenu({ sessionId }: { sessionId: string }) {
   };
 
   const formats = [
-    { f: "premium-client-package", label: "Deliver to Client ZIP", strict: true },
-    { f: "premium-package", label: "Premium Draft Package ZIP" },
-    { f: "premium-docx", label: "Premium Report DOCX" },
-    { f: "premium-pptx", label: "Premium Deck PPTX" },
-    { f: "docx", label: "Client Report DOCX" },
-    { f: "pptx", label: "Simple PowerPoint PPTX" },
+    { f: "premium-client-package", label: "Клиентский пакет ZIP", strict: true },
+    { f: "premium-package", label: "Премиальный черновик ZIP" },
+    { f: "premium-docx", label: "Премиальный отчёт DOCX" },
+    { f: "premium-pptx", label: "Премиальная презентация PPTX" },
+    { f: "docx", label: "Клиентский отчёт DOCX" },
+    { f: "pptx", label: "Простая презентация PPTX" },
     { f: "md", label: "Markdown" },
-    { f: "json", label: "Client Report JSON" },
-    { f: "sources-csv", label: "Sources CSV" },
-    { f: "facts-csv", label: "Facts CSV" },
-    { f: "data-pack", label: "Full Data Pack ZIP" },
-    { f: "audit-json", label: "Audit Appendix JSON" },
+    { f: "json", label: "Данные отчёта JSON" },
+    { f: "sources-csv", label: "Источники CSV" },
+    { f: "facts-csv", label: "Факты CSV" },
+    { f: "data-pack", label: "Полный data pack ZIP" },
+    { f: "audit-json", label: "QA-аудит JSON" },
   ];
 
   return (
@@ -886,7 +886,7 @@ function ExportMenu({ sessionId }: { sessionId: string }) {
               </span>
               <span>
                 {gammaState === "generating"
-                  ? "Gamma is building the deck (1-3 min)..."
+                  ? "Gamma собирает презентацию (1-3 мин)..."
                   : "Gamma PPTX"}
               </span>
             </button>

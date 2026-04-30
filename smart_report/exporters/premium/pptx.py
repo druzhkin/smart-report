@@ -125,10 +125,16 @@ def _section_slide(prs, layout, number: int, section: PremiumPreparedSection) ->
     slide = prs.slides.add_slide(layout)
     _title(slide, section.title)
     _textbox(slide, 0.72, 1.05, 10.9, 0.5, section.purpose, 12, MUTED)
-    rows = []
-    for block in section.blocks[:4]:
-        rows.append([block.title, block.kind.replace("_", " "), _block_signal(block)])
-    _table(slide, 0.7, 1.95, 11.6, 3.8, ["Аналитический блок", "Формат", "Сигнал"], rows)
+    rows = _section_insight_rows(section)
+    _table(
+        slide,
+        0.7,
+        1.82,
+        11.6,
+        4.35,
+        ["Что важно", "Доказательство / сигнал", "Вывод для решения"],
+        rows,
+    )
     _footer(slide, number + 4)
 
 
@@ -274,6 +280,75 @@ def _block_signal(block: PremiumPreparedBlock) -> str:
     if block.notes:
         return block.notes[0][:120]
     return "Подготовлено для аналитического синтеза"
+
+
+def _section_insight_rows(section: PremiumPreparedSection) -> list[list[str]]:
+    rows: list[list[str]] = []
+    for block in section.blocks:
+        if block.rows:
+            rows.append(
+                [
+                    _clean_for_slide(block.title, 58),
+                    _clean_for_slide(_first_useful_row(block), 125),
+                    _clean_for_slide(_decision_implication(block), 120),
+                ]
+            )
+        elif block.body:
+            rows.append(
+                [
+                    _clean_for_slide(block.title, 58),
+                    _clean_for_slide(block.body, 125),
+                    _clean_for_slide(_decision_implication(block), 120),
+                ]
+            )
+        elif block.notes:
+            rows.append(
+                [
+                    _clean_for_slide(block.title, 58),
+                    _clean_for_slide(block.notes[0], 125),
+                    "Учесть как ограничение при чтении вывода.",
+                ]
+            )
+        if len(rows) >= 4:
+            break
+    return rows or [[section.title, section.purpose, "См. полный отчёт DOCX."]]
+
+
+def _first_useful_row(block: PremiumPreparedBlock) -> str:
+    for row in block.rows:
+        values = [str(value).strip() for value in row if str(value).strip()]
+        if not values:
+            continue
+        return " / ".join(values[:3])
+    return _block_signal(block)
+
+
+def _decision_implication(block: PremiumPreparedBlock) -> str:
+    kind = block.kind
+    if kind == "kpi_grid":
+        return "Использовать как числовую опору для прогноза."
+    if kind == "evidence_table":
+        return "Проверить согласованность источников и спорных цифр."
+    if kind == "source_quality_table":
+        return "Отделить первичные источники от пересказов."
+    if kind == "scenario_matrix":
+        return "Сопоставить решение с базовым и стресс-сценарием."
+    if kind == "decision_matrix":
+        return "Перевести вывод в действие, ожидание или отказ."
+    if kind == "risk_register":
+        return "Вынести открытые риски в мониторинг."
+    if kind == "sensitivity_table":
+        return "Не выдавать точность выше качества исходных данных."
+    if block.notes:
+        return block.notes[0]
+    return "См. полный контекст в DOCX."
+
+
+def _clean_for_slide(value: str, limit: int) -> str:
+    text = " ".join(str(value or "").replace("\n", " ").split())
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 1)].rstrip(" ,.;:") + "…"
 
 
 def _deliverables(document: PremiumReportDocument) -> str:

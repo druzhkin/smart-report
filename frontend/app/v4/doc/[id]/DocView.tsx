@@ -284,10 +284,10 @@ export function DocView({ sessionId }: { sessionId: string }) {
           <div className="vd-export-menu">
             {[
               { format: "pdf", label: "PDF" },
-              { format: "premium-client-package", label: "Deliver to client (.zip)", strict: true },
-              { format: "premium-package", label: "Premium draft package (.zip)" },
-              { format: "premium-docx", label: "Premium report (.docx)" },
-              { format: "premium-pptx", label: "Premium deck (.pptx)" },
+              { format: "premium-client-package", label: "Клиентский пакет (.zip)", strict: true },
+              { format: "premium-package", label: "Премиальный черновик (.zip)" },
+              { format: "premium-docx", label: "Премиальный отчёт (.docx)" },
+              { format: "premium-pptx", label: "Премиальная презентация (.pptx)" },
               { format: "docx", label: "Word (.docx)" },
               { format: "md", label: "Markdown" },
               { format: "json", label: "JSON (данные)" },

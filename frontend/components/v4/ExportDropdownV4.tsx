@@ -69,7 +69,7 @@ export function ExportDropdownV4({ id }: { id: string }) {
         aria-haspopup="menu"
         aria-expanded={open}
       >
-        <FileDown size={14} /> Export
+        <FileDown size={14} /> Экспорт
         <ChevronDown
           size={12}
           className={"transition-transform duration-200 " + (open ? "rotate-180" : "")}
@@ -89,7 +89,7 @@ export function ExportDropdownV4({ id }: { id: string }) {
         >
           <Sparkles size={16} className="text-fuchsia-600" />
           <span className="flex-1 text-left">
-            {gammaState === "generating" ? "Gamma is building..." : "Gamma PPTX"}
+            {gammaState === "generating" ? "Gamma собирает презентацию..." : "Gamma-дизайн PPTX"}
           </span>
         </button>
         {gammaState === "error" && gammaError && (

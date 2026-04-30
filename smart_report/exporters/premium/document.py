@@ -242,25 +242,48 @@ def _scenario_matrix(report: FinalReport) -> PremiumPreparedBlock:
 
 
 def _sensitivity_table(analysis: AnalysisOutput | None) -> PremiumPreparedBlock:
-    variables = []
+    rows: list[list[str]] = []
     if analysis is not None:
-        variables.extend(fact.metric for fact in analysis.high_relevance_facts[:8])
-    rows = [[variable, "Нижняя граница", "Базовая предпосылка", "Верхняя граница"] for variable in variables]
+        for fact in analysis.high_relevance_facts[:8]:
+            source = _first_fact_source(fact)
+            rows.append(
+                [
+                    fact.metric,
+                    fact.value,
+                    fact.subject,
+                    source or "Источник не указан",
+                ]
+            )
     return PremiumPreparedBlock(
         kind="sensitivity_table",
         title="Рамка чувствительности",
-        columns=["Драйвер", "Сдвиг вниз", "Базовая предпосылка", "Сдвиг вверх"],
+        columns=["Драйвер", "Базовое значение", "К чему относится", "Источник / проверка"],
         rows=rows,
-        notes=["Рендерер или модельный слой могут добавить числовые дельты, если источники это поддерживают."],
+        notes=[
+            "Это не имитация точной модели чувствительности: показаны факторы, по которым есть числовая база. "
+            "Пороговые сценарные дельты должны добавляться только при наличии источников или явной модели."
+        ],
     )
 
 
 def _decision_matrix(report: FinalReport) -> PremiumPreparedBlock:
     findings = report.executive_summary.top_findings or []
     rows = [
-        ["Действовать", "Доказательства поддерживают действие", findings[0] if findings else report.executive_summary.main_answer],
-        ["Ждать", "Ключевой триггер не выполнен", report.gaps_filled_section or "Остаются открытые вопросы."],
-        ["Отказаться / пересобрать", "Критический риск становится главным", report.conflicts_section or "Критическое противоречие не указано."],
+        [
+            "Действовать",
+            "Доказательства поддерживают действие",
+            _compact_text(findings[0] if findings else report.executive_summary.main_answer, 280),
+        ],
+        [
+            "Ждать",
+            "Ключевой триггер не выполнен",
+            _compact_text(report.gaps_filled_section or "Остаются открытые вопросы.", 280),
+        ],
+        [
+            "Отказаться / пересобрать",
+            "Критический риск становится главным",
+            _compact_text(report.conflicts_section or "Критическое противоречие не указано.", 280),
+        ],
     ]
     return PremiumPreparedBlock(
         kind="decision_matrix",
@@ -268,6 +291,13 @@ def _decision_matrix(report: FinalReport) -> PremiumPreparedBlock:
         columns=["Действие", "Условие", "Обоснование"],
         rows=rows,
     )
+
+
+def _compact_text(value: str, limit: int = 320) -> str:
+    text = " ".join(str(value or "").split())
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 1)].rstrip(" ,.;:") + "…"
 
 
 def _risk_register(report: FinalReport, analysis: AnalysisOutput | None) -> PremiumPreparedBlock:
