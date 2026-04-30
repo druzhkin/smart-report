@@ -80,7 +80,7 @@ def test_write_md(tmp_path):
     p = write_md(tmp_path / "out.md", rd)
     assert p.exists()
     content = p.read_text(encoding="utf-8")
-    assert "Executive Summary" in content
+    assert "Резюме" in content
     assert "47%" in content
     assert "Продукт" in content
     assert "Метаданные" not in content

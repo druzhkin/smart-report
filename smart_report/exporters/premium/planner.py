@@ -64,9 +64,9 @@ def build_premium_report_plan(
         appendices=appendices,
         deck_outline=deck_outline,
         non_breaking_notes=[
-            "Premium layer is opt-in and must not change legacy export behavior.",
-            "Report and deck are separate deliverables, not substitutes.",
-            "Topic-specific facts belong in evidence tables, not renderer code.",
+            "Премиальный слой включается отдельно и не меняет поведение старых экспортов.",
+            "Отчёт и презентация являются разными материалами, а не заменяют друг друга.",
+            "Факты по теме должны жить в таблицах доказательств, а не в коде рендерера.",
         ],
     )
 
@@ -113,22 +113,22 @@ def _base_sections(report_type: PremiumReportType) -> list[PremiumSectionSpec]:
     common = [
         PremiumSectionSpec(
             id="executive_summary",
-            title="Executive summary",
-            purpose="State the answer, decision implications, and confidence.",
+            title="Резюме для решения",
+            purpose="Коротко зафиксировать ответ, последствия для решения и уровень уверенности.",
             min_pages=1,
             required_blocks=["kpi_grid", "decision_matrix"],
         ),
         PremiumSectionSpec(
             id="question_framing",
-            title="Question framing and scope",
-            purpose="Clarify what is being answered, for whom, and what is out of scope.",
+            title="Вопрос, рамки и методология",
+            purpose="Уточнить, на какой вопрос отвечает отчёт, для кого он подготовлен и что осталось вне рамок.",
             min_pages=1,
             required_blocks=["methodology_box"],
         ),
         PremiumSectionSpec(
             id="evidence_base",
-            title="Evidence base",
-            purpose="Show the facts, source tiers, and reliability constraints.",
+            title="Доказательная база",
+            purpose="Показать факты, уровни надёжности источников и ограничения данных.",
             min_pages=2,
             required_blocks=["evidence_table", "source_quality_table"],
         ),
@@ -138,22 +138,22 @@ def _base_sections(report_type: PremiumReportType) -> list[PremiumSectionSpec]:
         "market": [
             PremiumSectionSpec(
                 id="market_baseline",
-                title="Market baseline",
-                purpose="Define the market, segments, historical data, and current state.",
+                title="Базовая картина рынка",
+                purpose="Определить рынок, сегменты, историческую динамику и текущее состояние.",
                 min_pages=3,
                 required_blocks=["timeline", "chart"],
             ),
             PremiumSectionSpec(
                 id="demand_supply",
-                title="Demand and supply drivers",
-                purpose="Explain what moves the market and which forces dominate.",
+                title="Драйверы спроса и предложения",
+                purpose="Объяснить, какие силы двигают рынок и какие из них доминируют.",
                 min_pages=3,
                 required_blocks=["market_map", "chart"],
             ),
             PremiumSectionSpec(
                 id="scenarios",
-                title="Scenario forecast",
-                purpose="Model base, upside, and downside outcomes with triggers.",
+                title="Сценарный прогноз",
+                purpose="Смоделировать базовый, оптимистичный и пессимистичный исходы с триггерами.",
                 min_pages=3,
                 required_blocks=["scenario_matrix", "sensitivity_table"],
             ),
@@ -161,22 +161,22 @@ def _base_sections(report_type: PremiumReportType) -> list[PremiumSectionSpec]:
         "investment": [
             PremiumSectionSpec(
                 id="investment_thesis",
-                title="Investment thesis",
-                purpose="Define upside, downside, entry conditions, and expected return logic.",
+                title="Инвестиционный тезис",
+                purpose="Определить потенциал роста, негативный сценарий, условия входа и логику доходности.",
                 min_pages=3,
                 required_blocks=["kpi_grid", "sensitivity_table"],
             ),
             PremiumSectionSpec(
                 id="valuation_and_exit",
-                title="Valuation and exit",
-                purpose="Explain price, return, liquidity, and exit assumptions.",
+                title="Оценка стоимости и выход",
+                purpose="Объяснить цену, доходность, ликвидность и предпосылки выхода.",
                 min_pages=3,
                 required_blocks=["scenario_matrix", "chart"],
             ),
             PremiumSectionSpec(
                 id="risk_adjusted_decision",
-                title="Risk-adjusted decision",
-                purpose="Translate analysis into invest / wait / reject thresholds.",
+                title="Решение с учётом риска",
+                purpose="Перевести анализ в пороги: инвестировать, ждать или отказаться.",
                 min_pages=2,
                 required_blocks=["risk_register", "decision_matrix"],
             ),
@@ -184,22 +184,22 @@ def _base_sections(report_type: PremiumReportType) -> list[PremiumSectionSpec]:
         "competitive": [
             PremiumSectionSpec(
                 id="competitive_landscape",
-                title="Competitive landscape",
-                purpose="Map competitors, segments, positioning, and strategic pressure.",
+                title="Конкурентная карта",
+                purpose="Сопоставить конкурентов, сегменты, позиционирование и стратегическое давление.",
                 min_pages=3,
                 required_blocks=["competitive_matrix", "market_map"],
             ),
             PremiumSectionSpec(
                 id="capability_benchmark",
-                title="Capability benchmark",
-                purpose="Compare strengths, gaps, pricing, distribution, and product depth.",
+                title="Бенчмарк возможностей",
+                purpose="Сравнить сильные стороны, пробелы, цены, дистрибуцию и глубину продукта.",
                 min_pages=3,
                 required_blocks=["competitive_matrix", "chart"],
             ),
             PremiumSectionSpec(
                 id="strategic_moves",
-                title="Strategic moves",
-                purpose="Recommend moves, trade-offs, and sequencing.",
+                title="Стратегические ходы",
+                purpose="Рекомендовать действия, компромиссы и последовательность шагов.",
                 min_pages=2,
                 required_blocks=["decision_matrix", "risk_register"],
             ),
@@ -207,22 +207,22 @@ def _base_sections(report_type: PremiumReportType) -> list[PremiumSectionSpec]:
         "strategy": [
             PremiumSectionSpec(
                 id="current_state",
-                title="Current state",
-                purpose="Define the operating context and constraints.",
+                title="Текущее состояние",
+                purpose="Определить операционный контекст и ограничения.",
                 min_pages=2,
                 required_blocks=["kpi_grid", "market_map"],
             ),
             PremiumSectionSpec(
                 id="strategic_options",
-                title="Strategic options",
-                purpose="Compare viable strategic paths and trade-offs.",
+                title="Стратегические варианты",
+                purpose="Сравнить реалистичные стратегические пути и компромиссы.",
                 min_pages=3,
                 required_blocks=["decision_matrix", "scenario_matrix"],
             ),
             PremiumSectionSpec(
                 id="roadmap",
-                title="Roadmap and operating metrics",
-                purpose="Translate strategy into milestones and metrics.",
+                title="Дорожная карта и операционные метрики",
+                purpose="Перевести стратегию в этапы и измеримые показатели.",
                 min_pages=2,
                 required_blocks=["timeline", "risk_register"],
             ),
@@ -230,22 +230,22 @@ def _base_sections(report_type: PremiumReportType) -> list[PremiumSectionSpec]:
         "technical_audit": [
             PremiumSectionSpec(
                 id="system_map",
-                title="System map",
-                purpose="Explain architecture, trust boundaries, and operational flow.",
+                title="Карта системы",
+                purpose="Объяснить архитектуру, границы доверия и операционный поток.",
                 min_pages=3,
                 required_blocks=["market_map", "evidence_table"],
             ),
             PremiumSectionSpec(
                 id="findings",
-                title="Findings and severity",
-                purpose="Prioritize bugs, risks, regressions, and missing verification.",
+                title="Находки и критичность",
+                purpose="Приоритизировать ошибки, риски, регрессии и недостающую проверку.",
                 min_pages=4,
                 required_blocks=["risk_register", "evidence_table"],
             ),
             PremiumSectionSpec(
                 id="remediation",
-                title="Remediation and verification plan",
-                purpose="Define fixes, owners, tests, and release gates.",
+                title="План исправлений и проверки",
+                purpose="Определить исправления, владельцев, тесты и релизные гейты.",
                 min_pages=2,
                 required_blocks=["timeline", "decision_matrix"],
             ),
@@ -253,22 +253,22 @@ def _base_sections(report_type: PremiumReportType) -> list[PremiumSectionSpec]:
         "legal_regulatory": [
             PremiumSectionSpec(
                 id="regulatory_baseline",
-                title="Regulatory baseline",
-                purpose="Summarize governing rules and authoritative sources.",
+                title="Регуляторная база",
+                purpose="Суммировать действующие правила и авторитетные источники.",
                 min_pages=3,
                 required_blocks=["evidence_table", "source_quality_table"],
             ),
             PremiumSectionSpec(
                 id="risk_interpretation",
-                title="Risk interpretation",
-                purpose="Translate rules into operational and financial risk.",
+                title="Интерпретация рисков",
+                purpose="Перевести правила в операционные и финансовые риски.",
                 min_pages=3,
                 required_blocks=["risk_register", "scenario_matrix"],
             ),
             PremiumSectionSpec(
                 id="compliance_actions",
-                title="Compliance actions",
-                purpose="Define action thresholds, monitoring, and escalation.",
+                title="Действия по соответствию",
+                purpose="Определить пороги действий, мониторинг и эскалацию.",
                 min_pages=2,
                 required_blocks=["decision_matrix", "timeline"],
             ),
@@ -276,22 +276,22 @@ def _base_sections(report_type: PremiumReportType) -> list[PremiumSectionSpec]:
         "due_diligence": [
             PremiumSectionSpec(
                 id="asset_or_target_profile",
-                title="Target profile",
-                purpose="Define the object of diligence and its evidence trail.",
+                title="Профиль объекта проверки",
+                purpose="Определить объект проверки и его доказательный след.",
                 min_pages=2,
                 required_blocks=["kpi_grid", "evidence_table"],
             ),
             PremiumSectionSpec(
                 id="diligence_findings",
-                title="Diligence findings",
-                purpose="Assess strengths, weaknesses, unknowns, and red flags.",
+                title="Выводы проверки",
+                purpose="Оценить сильные стороны, слабости, неизвестные зоны и красные флаги.",
                 min_pages=4,
                 required_blocks=["risk_register", "source_quality_table"],
             ),
             PremiumSectionSpec(
                 id="go_no_go",
-                title="Go / no-go decision",
-                purpose="Define conditions to proceed, renegotiate, or reject.",
+                title="Решение go / no-go",
+                purpose="Определить условия продолжения, пересмотра сделки или отказа.",
                 min_pages=2,
                 required_blocks=["decision_matrix", "sensitivity_table"],
             ),
@@ -299,22 +299,22 @@ def _base_sections(report_type: PremiumReportType) -> list[PremiumSectionSpec]:
         "general_research": [
             PremiumSectionSpec(
                 id="context",
-                title="Context and baseline",
-                purpose="Establish the known facts and decision context.",
+                title="Контекст и базовая линия",
+                purpose="Зафиксировать известные факты и контекст решения.",
                 min_pages=3,
                 required_blocks=["timeline", "evidence_table"],
             ),
             PremiumSectionSpec(
                 id="analysis",
-                title="Analysis",
-                purpose="Develop the core argument and compare interpretations.",
+                title="Анализ",
+                purpose="Развить основную аргументацию и сравнить интерпретации.",
                 min_pages=4,
                 required_blocks=["chart", "decision_matrix"],
             ),
             PremiumSectionSpec(
                 id="implications",
-                title="Implications",
-                purpose="Translate findings into action and monitoring.",
+                title="Последствия для решения",
+                purpose="Перевести выводы в действия и мониторинг.",
                 min_pages=2,
                 required_blocks=["risk_register", "timeline"],
             ),
@@ -324,22 +324,22 @@ def _base_sections(report_type: PremiumReportType) -> list[PremiumSectionSpec]:
     closing = [
         PremiumSectionSpec(
             id="recommendations",
-            title="Recommendations and thresholds",
-            purpose="Give concrete action rules, not generic advice.",
+            title="Рекомендации и пороги решения",
+            purpose="Дать конкретные правила действия, а не общие советы.",
             min_pages=2,
             required_blocks=["decision_matrix"],
         ),
         PremiumSectionSpec(
             id="risks_and_monitoring",
-            title="Risks and monitoring dashboard",
-            purpose="Define what can invalidate the answer and how to track it.",
+            title="Риски и мониторинг",
+            purpose="Показать, что может изменить выводы и как это отслеживать.",
             min_pages=2,
             required_blocks=["risk_register", "timeline"],
         ),
         PremiumSectionSpec(
             id="appendix",
-            title="Appendix",
-            purpose="Provide source, fact, and calculation backup.",
+            title="Приложения",
+            purpose="Дать источники, факты и расчётную базу для проверки.",
             min_pages=3,
             required_blocks=["appendix_table"],
         ),
@@ -352,54 +352,54 @@ def _visuals_for(report_type: PremiumReportType) -> list[PremiumVisualSpec]:
     visuals = [
         PremiumVisualSpec(
             kind="kpi_grid",
-            title="Key metrics",
-            purpose="Make the answer scannable and numerically grounded.",
+            title="Ключевые метрики",
+            purpose="Сделать выводы быстрыми для чтения и численно обоснованными.",
         ),
         PremiumVisualSpec(
             kind="evidence_table",
-            title="Evidence table",
-            purpose="Tie important claims to sources and reliability tiers.",
+            title="Таблица доказательств",
+            purpose="Связать ключевые утверждения с источниками и уровнями надёжности.",
         ),
         PremiumVisualSpec(
             kind="decision_matrix",
-            title="Decision matrix",
-            purpose="Convert analysis into client actions.",
+            title="Матрица решений",
+            purpose="Перевести анализ в действия клиента.",
         ),
         PremiumVisualSpec(
             kind="risk_register",
-            title="Risk register",
-            purpose="Show downside, severity, mitigation, and monitoring.",
+            title="Реестр рисков",
+            purpose="Показать негативные сценарии, важность, меры снижения и мониторинг.",
         ),
     ]
     if report_type in {"market", "investment", "strategy", "due_diligence"}:
         visuals.append(
             PremiumVisualSpec(
                 kind="scenario_matrix",
-                title="Scenario matrix",
-                purpose="Separate base, upside, and downside outcomes.",
+                title="Матрица сценариев",
+                purpose="Разделить базовый, позитивный и негативный исходы.",
             )
         )
         visuals.append(
             PremiumVisualSpec(
                 kind="sensitivity_table",
-                title="Sensitivity table",
-                purpose="Show how outputs change when key assumptions move.",
+                title="Таблица чувствительности",
+                purpose="Показать, как выводы меняются при сдвиге ключевых предпосылок.",
             )
         )
     if report_type == "competitive":
         visuals.append(
             PremiumVisualSpec(
                 kind="competitive_matrix",
-                title="Competitive matrix",
-                purpose="Compare players on the dimensions that matter.",
+                title="Конкурентная матрица",
+                purpose="Сравнить игроков по действительно важным параметрам.",
             )
         )
     if report_type == "technical_audit":
         visuals.append(
             PremiumVisualSpec(
                 kind="timeline",
-                title="Remediation roadmap",
-                purpose="Show fix sequence and verification gates.",
+                title="Дорожная карта исправлений",
+                purpose="Показать последовательность исправлений и контрольные точки проверки.",
             )
         )
     return visuals
@@ -408,30 +408,30 @@ def _visuals_for(report_type: PremiumReportType) -> list[PremiumVisualSpec]:
 def _appendices_for(report_type: PremiumReportType) -> list[PremiumAppendixSpec]:
     appendices = [
         PremiumAppendixSpec(
-            title="Fact base",
-            purpose="Full list of extracted claims, numbers, and source links.",
+            title="Фактологическая база",
+            purpose="Полный список извлечённых утверждений, чисел и ссылок на источники.",
         ),
         PremiumAppendixSpec(
-            title="Source quality register",
-            purpose="Reliability tier, relevance, and limitation per source.",
+            title="Реестр качества источников",
+            purpose="Уровень надёжности, релевантность и ограничения каждого источника.",
         ),
         PremiumAppendixSpec(
-            title="Open questions and unavailable data",
-            purpose="Prevent false precision and show what remains unverified.",
+            title="Открытые вопросы и недоступные данные",
+            purpose="Убрать ложную точность и показать, что ещё не верифицировано.",
         ),
     ]
     if report_type in {"market", "investment", "strategy"}:
         appendices.append(
             PremiumAppendixSpec(
-                title="Assumption and sensitivity appendix",
-                purpose="Document scenario inputs and how conclusions shift.",
+                title="Приложение по предпосылкам и чувствительности",
+                purpose="Зафиксировать входные предпосылки сценариев и сдвиги выводов.",
             )
         )
     if report_type in {"technical_audit", "legal_regulatory", "due_diligence"}:
         appendices.append(
             PremiumAppendixSpec(
-                title="Issue register",
-                purpose="Detailed finding list with severity and remediation status.",
+                title="Реестр проблем",
+                purpose="Подробный список находок с критичностью и статусом исправления.",
             )
         )
     return appendices
@@ -439,25 +439,25 @@ def _appendices_for(report_type: PremiumReportType) -> list[PremiumAppendixSpec]
 
 def _deck_outline_for(report_type: PremiumReportType) -> list[str]:
     base = [
-        "Title and decision question",
-        "Executive answer",
-        "What changed or what matters most",
-        "Evidence base and confidence",
-        "Key visual 1",
-        "Key visual 2",
-        "Scenarios or options",
-        "Decision matrix",
-        "Risks and watchpoints",
-        "Recommended next steps",
+        "Титул и вопрос решения",
+        "Короткий ответ",
+        "Что изменилось или что важнее всего",
+        "Доказательная база и уверенность",
+        "Ключевой визуал 1",
+        "Ключевой визуал 2",
+        "Сценарии или варианты",
+        "Матрица решений",
+        "Риски и контрольные индикаторы",
+        "Рекомендуемые следующие шаги",
     ]
     if report_type == "technical_audit":
-        base[4] = "Architecture / system map"
-        base[5] = "Findings by severity"
-        base[6] = "Remediation roadmap"
+        base[4] = "Архитектура / карта системы"
+        base[5] = "Находки по критичности"
+        base[6] = "Дорожная карта исправлений"
     elif report_type == "competitive":
-        base[4] = "Market map"
-        base[5] = "Competitor benchmark"
-        base[6] = "Strategic options"
+        base[4] = "Карта рынка"
+        base[5] = "Бенчмарк конкурентов"
+        base[6] = "Стратегические варианты"
     return base
 
 
@@ -486,8 +486,34 @@ def _decision_context(
 ) -> str:
     clean = re.sub(r"\s+", " ", question).strip()
     if clean:
-        return f"Help a {audience.replace('_', ' ')} answer: {clean}"
-    return f"Help a {audience.replace('_', ' ')} make a {report_type.replace('_', ' ')} decision."
+        return f"Помочь аудитории «{_audience_label(audience)}» ответить на вопрос: {clean}"
+    return f"Помочь аудитории «{_audience_label(audience)}» принять решение по типу отчёта «{_report_type_label(report_type)}»."
+
+
+def _audience_label(audience: PremiumAudience) -> str:
+    return {
+        "buyer": "покупатель",
+        "investor": "инвестор",
+        "executive": "руководитель",
+        "operator": "оператор",
+        "developer": "девелопер",
+        "analyst": "аналитик",
+        "technical_lead": "технический руководитель",
+        "general_client": "клиент",
+    }.get(audience, str(audience).replace("_", " "))
+
+
+def _report_type_label(report_type: PremiumReportType) -> str:
+    return {
+        "market": "рыночный анализ",
+        "investment": "инвестиционный анализ",
+        "competitive": "конкурентный анализ",
+        "strategy": "стратегия",
+        "technical_audit": "технический аудит",
+        "legal_regulatory": "правовой и регуляторный анализ",
+        "due_diligence": "due diligence",
+        "general_research": "исследование",
+    }.get(report_type, str(report_type).replace("_", " "))
 
 
 def _fact_count(analysis: AnalysisOutput | None) -> int:

@@ -44,7 +44,7 @@ def test_grade_a_for_high_strong_share_and_diversity():
     assert g.moderate_count == 1
     assert g.weak_count == 0
     assert g.unique_domains == 5
-    assert "STRONG" in g.summary
+    assert "источников высокой надёжности" in g.summary
 
 
 def test_grade_c_when_weak_dominates_or_many_gaps():

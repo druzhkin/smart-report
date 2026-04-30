@@ -39,9 +39,198 @@ class PremiumReadiness:
         return {
             "ready": self.ready,
             "score": self.score,
-            "issues": [issue.__dict__ for issue in self.issues],
-            "strengths": list(self.strengths),
+            "issues": [_localized_issue(issue) for issue in self.issues],
+            "strengths": [_localized_strength(item) for item in self.strengths],
         }
+
+
+def _localized_issue(issue: PremiumReadinessIssue) -> dict:
+    message, recommendation = _RU_ISSUES.get(issue.code, (issue.message, issue.recommendation))
+    return {
+        "code": issue.code,
+        "severity": _RU_SEVERITY.get(issue.severity, issue.severity),
+        "message": message,
+        "recommendation": recommendation,
+    }
+
+
+_RU_SEVERITY = {
+    "critical": "критично",
+    "major": "важно",
+    "minor": "замечание",
+}
+
+
+_RU_ISSUES = {
+    "premium_too_few_sources": (
+        "В отчёте недостаточно источников для премиальной выдачи.",
+        "Запустить дополнительный сбор источников или загрузить готовые исследования.",
+    ),
+    "premium_too_few_authoritative_sources": (
+        "Недостаточно авторитетных источников: официальных, первичных или профильных Tier-1.",
+        "Добавить первичные и высоконадёжные источники до премиального экспорта.",
+    ),
+    "premium_missing_bibliography": (
+        "Нужна связка фактов с источниками, но библиография пустая.",
+        "Сгенерировать библиографию и пронести ссылки в клиентский отчёт.",
+    ),
+    "premium_missing_analysis_output": (
+        "Нет аналитического слоя AnalysisOutput, поэтому нельзя проверить согласия, конфликты, пробелы и факты.",
+        "Запустить v4-анализатор перед сборкой премиального документа.",
+    ),
+    "premium_insufficient_numeric_facts": (
+        "Недостаточно числовых фактов для премиального аналитического отчёта.",
+        "Добавить таблицу фактов, data pack или более сильные числовые источники.",
+    ),
+    "premium_thin_consensus": (
+        "Меньше двух согласованных утверждений между источниками.",
+        "Усилить кросс-источниковый синтез до выдачи платного отчёта.",
+    ),
+    "premium_no_tensions_or_gaps": (
+        "Нет конфликтов или пробелов. Это может означать поверхностное сравнение источников.",
+        "Проверить, что анализатор критически сравнил источники, а не только пересказал их.",
+    ),
+    "premium_unresolved_critical_conflicts": (
+        "Остались критические противоречия в аналитическом слое.",
+        "Разрешить их или явно вынести в ограничения перед премиальным экспортом.",
+    ),
+    "premium_low_evidence_quality": (
+        "Базовый evidence gate пометил отчёт как LOW_EVIDENCE_QUALITY.",
+        "Закрыть пробелы по авторитетным источникам перед созданием премиального артефакта.",
+    ),
+    "premium_critical_gaps_open": (
+        "Открыты критические пробелы по данным.",
+        "Запустить точечный follow-up research перед премиальным экспортом.",
+    ),
+    "premium_moderate_gaps_open": (
+        "Открыты значимые пробелы по данным.",
+        "Закрыть пробелы или явно перенести их в ограничения отчёта.",
+    ),
+    "premium_language_lint_warnings": (
+        "Языковая проверка нашла предупреждения.",
+        "Очистить язык и структуру до клиентского рендера.",
+    ),
+    "premium_low_citation_coverage": (
+        "Покрытие утверждений ссылками недостаточное.",
+        "Увеличить долю ссылок у ключевых выводов.",
+    ),
+    "premium_no_claims_for_evidence_audit": (
+        "Нет клиентских выводов для аудита доказательной поддержки.",
+        "Добавить короткий ответ и явные top findings перед платной выдачей.",
+    ),
+    "premium_unsupported_conclusions": (
+        "Evidence audit нашёл неподдержанные клиентские выводы.",
+        "Добавить inline-ссылки, связи с consensus или числовые факты к неподдержанным выводам.",
+    ),
+    "premium_weak_claim_evidence_support": (
+        "Слабая связка ключевых выводов с источниками.",
+        "Усилить покрытие claim-to-source перед премиальной выдачей.",
+    ),
+    "premium_no_conflicts_for_adjudication": (
+        "Нет конфликтов для оценки качества арбитража.",
+        "Проверить, что сравнение источников было критическим, а не пересказом.",
+    ),
+    "premium_critical_conflict_not_adjudicated": (
+        "Есть критические конфликты без достаточного арбитража.",
+        "Запустить точечный добор и написать источниковое разрешение конфликта.",
+    ),
+    "premium_unresolved_conflicts_not_adjudicated": (
+        "Есть нерешённые конфликты в клиентской логике.",
+        "Добавить логику разрешения, границы применимости или явные ограничения.",
+    ),
+    "premium_weak_conflict_adjudication": (
+        "Слабое разрешение противоречий между источниками.",
+        "Усилить язык арбитража конфликтов до премиальной выдачи.",
+    ),
+    "premium_missing_analytic_depth_plan": (
+        "Нет AnalyticDepthPlan, поэтому нельзя проверить дерево вопросов, гипотезы и ветки добора.",
+        "Построить AnalyticDepthPlan перед сборкой премиального отчёта.",
+    ),
+    "premium_thin_issue_tree": (
+        "Дерево исследования имеет меньше трёх верхнеуровневых веток.",
+        "Добавить ветки по доказательствам, гипотезам, бенчмаркам и решениям.",
+    ),
+    "premium_thin_hypothesis_set": (
+        "Меньше двух конкурирующих гипотез.",
+        "Добавить альтернативные объяснения или сценарные гипотезы.",
+    ),
+    "premium_missing_disconfirming_probe": (
+        "Нет проверки, которая могла бы опровергнуть главный вывод.",
+        "Добавить хотя бы один disconfirming probe: что сделает ответ неверным.",
+    ),
+    "premium_no_must_research_leads": (
+        "Нет обязательных исследовательских лидов для закрытия критических вопросов.",
+        "Перевести критические пробелы, конфликты и непроверенные числа в исполнимые leads.",
+    ),
+    "premium_closure_not_run": (
+        "Добор не был доведён до оценки закрытия.",
+        "Запустить или загрузить follow-up research и оценить analytic closure.",
+    ),
+    "premium_analytic_closure_weak": (
+        "Оценка закрытия аналитических лидов недостаточная.",
+        "Запустить точечный follow-up по открытым лидам перед премиальной выдачей.",
+    ),
+    "premium_analytic_closure_partial": (
+        "Часть исследовательских лидов закрыта не полностью.",
+        "Решить, допустимы ли ограничения, или добрать источники.",
+    ),
+    "premium_open_research_leads": (
+        "Остались открытые исследовательские лиды.",
+        "Закрыть их или явно вынести в ограничения перед платной выдачей.",
+    ),
+    "premium_report_too_short": (
+        "Премиальный отчёт запланирован короче 20 страниц.",
+        "Использовать полный план отчёта, а не one-pager или только презентацию.",
+    ),
+    "premium_deck_too_short": (
+        "Премиальная презентация запланирована короче 10 слайдов.",
+        "Оставить отдельные форматы: полный отчёт и управленческую презентацию.",
+    ),
+    "premium_too_few_visuals": (
+        "В плане меньше четырёх визуальных или табличных блоков.",
+        "Минимум: KPI-сетка, таблица доказательств, матрица решений и реестр рисков.",
+    ),
+    "premium_missing_report_formats": (
+        "Премиальная выдача должна включать PDF и редактируемый DOCX.",
+        "Оставить оба формата включёнными для платной выдачи.",
+    ),
+    "premium_missing_deck": (
+        "Премиальная выдача должна включать отдельную презентацию.",
+        "Сгенерировать презентацию из плана отчёта после сборки отчёта.",
+    ),
+    "premium_client_surface_leaks": (
+        "В клиентском тексте остались внутренние маркеры.",
+        "Санитизировать отчёт перед премиальным рендерингом.",
+    ),
+}
+
+
+def _localized_strength(strength: str) -> str:
+    replacements = {
+        "Evidence base has": "Доказательная база содержит",
+        "sources.": "источников.",
+        "Authoritative source threshold met": "Порог авторитетных источников выполнен",
+        "Numeric fact base is deep enough": "Числовая база достаточно глубокая",
+        "Consensus layer is present.": "Слой согласованных утверждений присутствует.",
+        "Critical comparison layer is present.": "Слой критического сравнения присутствует.",
+        "Citation coverage is strong": "Покрытие ссылками сильное",
+        "Evidence-support audit passed": "Аудит доказательной поддержки пройден",
+        "Conflict adjudication audit passed": "Аудит разрешения конфликтов пройден",
+        "Issue-tree decomposition is present.": "Декомпозиция дерева вопросов присутствует.",
+        "Competing hypothesis set has": "Набор конкурирующих гипотез содержит",
+        "item(s).": "элементов.",
+        "Disconfirming evidence probe is present.": "Проверка на опровержение вывода присутствует.",
+        "Executable must-priority research leads": "Обязательные исследовательские лиды",
+        "Analytic closure score is strong": "Оценка закрытия аналитических лидов сильная",
+        "Report target meets premium length": "Целевой объём отчёта соответствует премиальному уровню",
+        "Visual/table plan has": "План визуалов и таблиц содержит",
+        "required blocks.": "обязательных блоков.",
+        "No obvious internal client-surface leaks detected.": "Явных внутренних маркеров в клиентском тексте не найдено.",
+    }
+    out = strength
+    for old, new in replacements.items():
+        out = out.replace(old, new)
+    return out
 
 
 def assess_premium_readiness(

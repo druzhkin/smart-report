@@ -94,7 +94,7 @@ def _blocks_for_section(
         return [
             PremiumPreparedBlock(
                 kind="narrative",
-                title="Answer",
+                title="Короткий ответ",
                 body=report.executive_summary.main_answer,
             ),
             _kpi_grid(report, analysis),
@@ -104,11 +104,11 @@ def _blocks_for_section(
         return [
             PremiumPreparedBlock(
                 kind="methodology_box",
-                title="Scope and decision context",
+                title="Рамки и контекст решения",
                 body=report.question,
                 notes=[
-                    "The premium document must separate verified facts, interpretation, and recommendations.",
-                    "Limitations and unavailable data are explicit deliverable components.",
+                    "Премиальный документ должен разделять проверенные факты, интерпретацию и рекомендации.",
+                    "Ограничения и недоступные данные должны быть видимыми частями материала.",
                 ],
             )
         ]
@@ -118,7 +118,7 @@ def _blocks_for_section(
         return [
             PremiumPreparedBlock(
                 kind="narrative",
-                title="Baseline synthesis",
+                title="Базовый синтез",
                 body=report.main_synthesis,
             ),
             _timeline_block(report),
@@ -148,10 +148,10 @@ def _kpi_grid(report: FinalReport, analysis: AnalysisOutput | None) -> PremiumPr
         rows.append([fact.metric, fact.value, fact.subject, _first_fact_source(fact)])
     return PremiumPreparedBlock(
         kind="kpi_grid",
-        title="Key metrics",
-        columns=["Metric", "Value", "Subject", "Source"],
+        title="Ключевые метрики",
+        columns=["Метрика", "Значение", "Объект", "Источник"],
         rows=rows,
-        notes=["Empty rows mean the upstream analyzer did not provide enough numeric facts."],
+        notes=["Пустые строки означают, что аналитический слой не передал достаточно числовых фактов."],
     )
 
 
@@ -170,8 +170,8 @@ def _evidence_table(analysis: AnalysisOutput | None) -> PremiumPreparedBlock:
     ]
     return PremiumPreparedBlock(
         kind="evidence_table",
-        title="Numeric evidence register",
-        columns=["ID", "Value", "Metric", "Subject", "Timeframe", "Relevance", "Source"],
+        title="Реестр числовых доказательств",
+        columns=["ID", "Значение", "Метрика", "Объект", "Период", "Релевантность", "Источник"],
         rows=rows,
     )
 
@@ -183,8 +183,8 @@ def _source_quality_table(report: FinalReport) -> PremiumPreparedBlock:
     ]
     return PremiumPreparedBlock(
         kind="source_quality_table",
-        title="Source quality register",
-        columns=["Source", "URL", "Tool", "Reliability"],
+        title="Реестр качества источников",
+        columns=["Источник", "URL", "Инструмент", "Надёжность"],
         rows=rows,
     )
 
@@ -198,8 +198,8 @@ def _consensus_table(analysis: AnalysisOutput | None) -> PremiumPreparedBlock:
         ]
     return PremiumPreparedBlock(
         kind="evidence_table",
-        title="Consensus claims",
-        columns=["Claim", "Confidence", "Supporting sources"],
+        title="Согласованные утверждения",
+        columns=["Утверждение", "Уверенность", "Поддерживающие источники"],
         rows=rows,
     )
 
@@ -221,22 +221,22 @@ def _conflicts_table(analysis: AnalysisOutput | None) -> PremiumPreparedBlock:
         ]
     return PremiumPreparedBlock(
         kind="evidence_table",
-        title="Conflicts and divergent claims",
-        columns=["Topic", "Source A", "Claim A", "Source B", "Claim B", "Importance", "Resolution"],
+        title="Противоречия и расхождения",
+        columns=["Тема", "Источник A", "Утверждение A", "Источник B", "Утверждение B", "Важность", "Разрешение"],
         rows=rows,
     )
 
 
 def _scenario_matrix(report: FinalReport) -> PremiumPreparedBlock:
     rows = [
-        ["Base", "Most likely interpretation of the evidence", report.executive_summary.main_answer],
-        ["Upside", "Conditions that improve the answer", "See recommendations and monitoring triggers."],
-        ["Downside", "Conditions that invalidate the answer", "See risk register and open limitations."],
+        ["Базовый", "Наиболее вероятная интерпретация доказательств", report.executive_summary.main_answer],
+        ["Оптимистичный", "Условия, при которых вывод улучшается", "См. рекомендации и триггеры мониторинга."],
+        ["Пессимистичный", "Условия, при которых вывод теряет силу", "См. реестр рисков и открытые ограничения."],
     ]
     return PremiumPreparedBlock(
         kind="scenario_matrix",
-        title="Scenario matrix",
-        columns=["Scenario", "Definition", "Implication"],
+        title="Матрица сценариев",
+        columns=["Сценарий", "Определение", "Следствие"],
         rows=rows,
     )
 
@@ -245,27 +245,27 @@ def _sensitivity_table(analysis: AnalysisOutput | None) -> PremiumPreparedBlock:
     variables = []
     if analysis is not None:
         variables.extend(fact.metric for fact in analysis.high_relevance_facts[:8])
-    rows = [[variable, "Lower case", "Base case", "Higher case"] for variable in variables]
+    rows = [[variable, "Нижняя граница", "Базовая предпосылка", "Верхняя граница"] for variable in variables]
     return PremiumPreparedBlock(
         kind="sensitivity_table",
-        title="Sensitivity framework",
-        columns=["Driver", "Downside movement", "Base assumption", "Upside movement"],
+        title="Рамка чувствительности",
+        columns=["Драйвер", "Сдвиг вниз", "Базовая предпосылка", "Сдвиг вверх"],
         rows=rows,
-        notes=["Renderer/model layer can fill numeric deltas when source data supports it."],
+        notes=["Рендерер или модельный слой могут добавить числовые дельты, если источники это поддерживают."],
     )
 
 
 def _decision_matrix(report: FinalReport) -> PremiumPreparedBlock:
     findings = report.executive_summary.top_findings or []
     rows = [
-        ["Proceed", "Evidence supports action", findings[0] if findings else report.executive_summary.main_answer],
-        ["Wait", "Key trigger not met", report.gaps_filled_section or "Open questions remain."],
-        ["Reject / redesign", "Critical risk becomes binding", report.conflicts_section or "No critical conflict stated."],
+        ["Действовать", "Доказательства поддерживают действие", findings[0] if findings else report.executive_summary.main_answer],
+        ["Ждать", "Ключевой триггер не выполнен", report.gaps_filled_section or "Остаются открытые вопросы."],
+        ["Отказаться / пересобрать", "Критический риск становится главным", report.conflicts_section or "Критическое противоречие не указано."],
     ]
     return PremiumPreparedBlock(
         kind="decision_matrix",
-        title="Decision matrix",
-        columns=["Action", "Condition", "Rationale"],
+        title="Матрица решений",
+        columns=["Действие", "Условие", "Обоснование"],
         rows=rows,
     )
 
@@ -274,24 +274,24 @@ def _risk_register(report: FinalReport, analysis: AnalysisOutput | None) -> Prem
     rows: list[list[str]] = []
     if analysis is not None:
         rows.extend(
-            [gap.topic, "Evidence gap", gap.why_critical, gap.what_to_find]
+            [gap.topic, "Пробел в доказательствах", gap.why_critical, gap.what_to_find]
             for gap in analysis.gaps
         )
         rows.extend(
             [
                 conflict.topic,
-                f"Conflict: {conflict.importance}",
+                f"Противоречие: {conflict.importance}",
                 conflict.claim_a,
                 conflict.resolution_hint,
             ]
             for conflict in analysis.conflicts
         )
     if report.gaps_filled_section and not rows:
-        rows.append(["Open limitation", "Gap", report.gaps_filled_section, "Track before decision."])
+        rows.append(["Открытое ограничение", "Пробел", report.gaps_filled_section, "Отслеживать до решения."])
     return PremiumPreparedBlock(
         kind="risk_register",
-        title="Risk register",
-        columns=["Risk / topic", "Type", "Why it matters", "Mitigation / monitoring"],
+        title="Реестр рисков",
+        columns=["Риск / тема", "Тип", "Почему важно", "Снижение риска / мониторинг"],
         rows=rows,
     )
 
@@ -299,12 +299,12 @@ def _risk_register(report: FinalReport, analysis: AnalysisOutput | None) -> Prem
 def _timeline_block(report: FinalReport) -> PremiumPreparedBlock:
     return PremiumPreparedBlock(
         kind="timeline",
-        title="Monitoring timeline",
-        columns=["Stage", "What to check", "Why"],
+        title="Лента мониторинга",
+        columns=["Этап", "Что проверить", "Зачем"],
         rows=[
-            ["Now", "Verify source coverage and unresolved gaps", "Avoid false precision."],
-            ["Next update", "Refresh key facts and triggers", "Detect scenario change."],
-            ["Decision point", "Apply decision matrix", "Convert analysis into action."],
+            ["Сейчас", "Проверить покрытие источниками и нерешённые пробелы", "Избежать ложной точности."],
+            ["Следующее обновление", "Обновить ключевые факты и триггеры", "Увидеть смену сценария."],
+            ["Точка решения", "Применить матрицу решений", "Перевести анализ в действие."],
         ],
         notes=[report.executive_summary.confidence_note] if report.executive_summary.confidence_note else [],
     )
@@ -321,7 +321,7 @@ def _generic_matrix(
     return PremiumPreparedBlock(
         kind=kind,
         title=title,
-        columns=["Dimension", "Assessment", "Evidence"],
+        columns=["Параметр", "Оценка", "Доказательство"],
         rows=rows,
     )
 
@@ -334,22 +334,22 @@ def _appendix_sections(
     return [
         PremiumPreparedSection(
             id="appendix_sources",
-            title="Appendix A: Sources",
-            purpose="Full source register for verification.",
+            title="Приложение A: источники",
+            purpose="Полный реестр источников для проверки.",
             min_pages=1,
             blocks=[_source_quality_table(report)],
         ),
         PremiumPreparedSection(
             id="appendix_facts",
-            title="Appendix B: Fact Base",
-            purpose="Extracted numeric facts and source links.",
+            title="Приложение B: фактологическая база",
+            purpose="Извлечённые числовые факты и ссылки на источники.",
             min_pages=1,
             blocks=[_evidence_table(analysis)],
         ),
         PremiumPreparedSection(
             id="appendix_limits",
-            title="Appendix C: Limitations",
-            purpose="Known gaps, constraints, and unresolved tensions.",
+            title="Приложение C: ограничения",
+            purpose="Известные пробелы, ограничения и нерешённые расхождения.",
             min_pages=1,
             blocks=[_risk_register(report, analysis)],
         ),
@@ -364,7 +364,7 @@ def _deck_slides(plan: PremiumReportPlan) -> list[PremiumDeckSlideSpec]:
         slides.append(
             PremiumDeckSlideSpec(
                 title=title,
-                objective="Executive presentation slide derived from the full report.",
+                objective="Слайд для руководителя, производный от полного отчёта.",
                 source_section_id=source_section_id,
                 suggested_blocks=_suggested_blocks_for_slide(title),
             )
@@ -374,35 +374,60 @@ def _deck_slides(plan: PremiumReportPlan) -> list[PremiumDeckSlideSpec]:
 
 def _suggested_blocks_for_slide(title: str) -> list[PremiumBlockKind]:
     lower = title.lower()
-    if "evidence" in lower or "confidence" in lower:
+    if "evidence" in lower or "confidence" in lower or "доказ" in lower or "увер" in lower:
         return ["source_quality_table"]
-    if "risk" in lower:
+    if "risk" in lower or "риск" in lower:
         return ["risk_register"]
-    if "decision" in lower:
+    if "decision" in lower or "решен" in lower or "решени" in lower:
         return ["decision_matrix"]
-    if "scenario" in lower or "option" in lower:
+    if "scenario" in lower or "option" in lower or "сценар" in lower or "вариант" in lower:
         return ["scenario_matrix"]
-    if "visual" in lower or "key" in lower:
+    if "visual" in lower or "key" in lower or "визуал" in lower or "ключ" in lower:
         return ["kpi_grid"]
     return ["narrative"]
 
 
 def _title_for(report: FinalReport) -> str:
     question = " ".join((report.question or "").split())
-    return question[:120] if question else "Premium Research Report"
+    return question[:120] if question else "Премиальный аналитический отчёт"
 
 
 def _subtitle_for(plan: PremiumReportPlan) -> str:
     return (
-        f"{plan.report_type.replace('_', ' ').title()} report for "
-        f"{plan.audience.replace('_', ' ')} decision-making"
+        f"{_report_type_label(plan.report_type)} для аудитории: {_audience_label(plan.audience)}"
     )
 
 
 def _fallback_body_for(spec: PremiumSectionSpec, report: FinalReport) -> str:
     if report.main_synthesis:
         return report.main_synthesis
-    return f"{spec.purpose} This section requires additional assembled content."
+    return f"{spec.purpose} Этот раздел требует дополнительного собранного материала."
+
+
+def _audience_label(audience: str) -> str:
+    return {
+        "buyer": "покупатель",
+        "investor": "инвестор",
+        "executive": "руководитель",
+        "operator": "оператор",
+        "developer": "девелопер",
+        "analyst": "аналитик",
+        "technical_lead": "технический руководитель",
+        "general_client": "клиент",
+    }.get(audience, audience.replace("_", " "))
+
+
+def _report_type_label(report_type: str) -> str:
+    return {
+        "market": "Рыночный анализ",
+        "investment": "Инвестиционный анализ",
+        "competitive": "Конкурентный анализ",
+        "strategy": "Стратегический отчёт",
+        "technical_audit": "Технический аудит",
+        "legal_regulatory": "Правовой и регуляторный анализ",
+        "due_diligence": "Due diligence",
+        "general_research": "Исследование",
+    }.get(report_type, report_type.replace("_", " ").title())
 
 
 def _numeric_facts(analysis: AnalysisOutput | None) -> list[NumericFact]:

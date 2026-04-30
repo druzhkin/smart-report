@@ -142,11 +142,20 @@ def _inspect_docx(path: Path) -> ArtifactQaResult:
             "headings": len(headings),
             "text_chars": len(text),
             "estimated_pages": _estimate_docx_pages(text, len(doc.tables)),
-            "has_cover_brand": "SMART REPORT | PREMIUM ANALYTICAL REPORT" in text,
-            "has_decision_dashboard": "Client Decision Dashboard" in text,
-            "has_scorecard": "Executive Evidence Scorecard" in text,
-            "has_readiness_gate": "Premium Readiness Gate" in text,
-            "has_report_structure": "Report Structure" in text,
+            "has_cover_brand": (
+                "SMART REPORT | PREMIUM ANALYTICAL REPORT" in text
+                or "SMART REPORT | ПРЕМИАЛЬНЫЙ АНАЛИТИЧЕСКИЙ ОТЧЁТ" in text
+            ),
+            "has_decision_dashboard": (
+                "Client Decision Dashboard" in text or "Панель решения клиента" in text
+            ),
+            "has_scorecard": (
+                "Executive Evidence Scorecard" in text or "Карта доказательной базы" in text
+            ),
+            "has_readiness_gate": (
+                "Premium Readiness Gate" in text or "Гейт готовности к платной выдаче" in text
+            ),
+            "has_report_structure": "Report Structure" in text or "Структура отчёта" in text,
         }
         _add_common_content_issues(result, text)
         _require_metric(result, "paragraphs", 25, "DOCX has too few paragraphs for a long-form report.")
@@ -216,9 +225,11 @@ def _inspect_pptx(path: Path) -> ArtifactQaResult:
             "shapes": shape_count,
             "tables": table_count,
             "text_chars": len(text),
-            "has_executive_answer": "Executive Answer" in text,
-            "has_readiness": "Paid-Delivery Readiness" in text,
-            "has_evidence_base": "Evidence Base" in text,
+            "has_executive_answer": "Executive Answer" in text or "Короткий ответ" in text,
+            "has_readiness": (
+                "Paid-Delivery Readiness" in text or "Готовность к платной выдаче" in text
+            ),
+            "has_evidence_base": "Evidence Base" in text or "Доказательная база" in text,
         }
         _add_common_content_issues(result, text)
         _require_metric(result, "slides", 10, "PPTX has too few slides for the premium deck.")

@@ -709,6 +709,7 @@ class AutoDRStatusOut(BaseModel):
     state: str                                    # queued|running|completed|failed|cancelled
     progress_pct: int | None = None
     message: str | None = None
+    partial_chars: int | None = None
     # When state="completed", the rest of these are populated and the
     # session.source_reports has already been updated server-side.
     filename: str | None = None
@@ -1491,6 +1492,7 @@ async def auto_dr_status(session_id: str, request: Request, task_id: str) -> Aut
         progress_pct=poll.progress_pct,
         message=poll.message,
         error=poll.error,
+        partial_chars=int(job.get("partial_chars", 0) or 0),
     )
 
     # Auto-clean orphaned pending_dr_jobs entry on terminal-failure states.
@@ -1567,7 +1569,7 @@ def _with_analytic_depth_header(upload: UploadedMarkdown, job: dict) -> Uploaded
         f"Kind: {meta.get('kind') or ''}",
         f"Priority: {meta.get('priority') or ''}",
         f"Rationale: {meta.get('rationale') or ''}",
-        "Candidate sources: "
+        "Кандидаты источников: "
         + ", ".join(str(item) for item in (meta.get("candidate_sources") or []) if item),
         "Linked to: "
         + ", ".join(str(item) for item in (meta.get("linked_to") or []) if item),
@@ -2915,7 +2917,7 @@ def _next_research_brief_markdown(
     analytic_closure: Any,
 ) -> str:
     if depth_plan is None:
-        return "# Next Research Brief\n\nNo analytic-depth plan was generated for this package.\n"
+        return "# План добора\n\nДля этого пакета не был построен analytic-depth plan.\n"
 
     closure_by_id = {}
     if analytic_closure is not None:
@@ -2925,14 +2927,14 @@ def _next_research_brief_markdown(
         }
 
     lines = [
-        "# Next Research Brief",
+        "# План добора",
         "",
-        "This brief is generated from the analytic-depth layer. It lists the research branches that must be closed before the package should be treated as paid-client-ready.",
+        "Этот файл сгенерирован из аналитического слоя. Он показывает ветки исследования, которые нужно закрыть, прежде чем считать пакет готовым к платной выдаче.",
         "",
-        f"Question: {depth_plan.question}",
-        f"Domain hint: {depth_plan.domain_hint}",
+        f"Вопрос: {depth_plan.question}",
+        f"Домен: {depth_plan.domain_hint}",
         "",
-        "## Priority Leads",
+        "## Приоритетные направления добора",
         "",
     ]
     leads = [
@@ -2941,7 +2943,7 @@ def _next_research_brief_markdown(
         if lead.priority in {"must", "should"}
     ]
     if not leads:
-        lines.append("No must/should research leads were generated.")
+        lines.append("Обязательные или желательные направления добора не сгенерированы.")
     for lead in leads:
         closure = closure_by_id.get(lead.id)
         status = getattr(closure, "status", "not_assessed")
@@ -2949,31 +2951,31 @@ def _next_research_brief_markdown(
             [
                 f"### {lead.id}: {lead.kind} / {lead.priority}",
                 "",
-                f"Status: {status}",
-                f"Recommended service: {lead.recommended_service}"
+                f"Статус: {status}",
+                f"Рекомендуемый сервис: {lead.recommended_service}"
                 + (f" ({lead.recommended_mode})" if lead.recommended_mode else ""),
                 "",
-                "**Prompt**",
+                "**Промпт для добора**",
                 "",
                 lead.prompt,
                 "",
-                "**Why this matters**",
+                "**Зачем это важно**",
                 "",
-                lead.rationale or "No rationale provided.",
+                lead.rationale or "Обоснование не указано.",
                 "",
-                "**Targets**",
+                "**Цели проверки**",
                 "",
-                "- Entities: " + (", ".join(lead.target_entities) if lead.target_entities else "not specified"),
-                "- Metrics: " + (", ".join(lead.target_metrics) if lead.target_metrics else "not specified"),
-                "- Candidate sources: "
-                + (", ".join(lead.candidate_sources) if lead.candidate_sources else "not specified"),
+                "- Сущности: " + (", ".join(lead.target_entities) if lead.target_entities else "не указаны"),
+                "- Метрики: " + (", ".join(lead.target_metrics) if lead.target_metrics else "не указаны"),
+                "- Кандидаты источников: "
+                + (", ".join(lead.candidate_sources) if lead.candidate_sources else "не указаны"),
                 "",
             ]
         )
         if closure is not None and getattr(closure, "missing_signals", None):
             lines.extend(
                 [
-                    "**Missing closure signals**",
+                    "**Недостающие сигналы закрытия**",
                     "",
                     *[f"- {item}" for item in closure.missing_signals],
                     "",
@@ -2982,11 +2984,11 @@ def _next_research_brief_markdown(
 
     lines.extend(
         [
-            "## Benchmarks To Add",
+            "## Бенчмарки для добавления",
             "",
             *[f"- {item}" for item in depth_plan.benchmark_questions],
             "",
-            "## Monitoring Indicators",
+            "## Индикаторы мониторинга",
             "",
             *[f"- {item}" for item in depth_plan.monitoring_indicators],
             "",

@@ -416,16 +416,16 @@ def test_v4_full_cycle(monkeypatch, tmp_path):
     assert r.json()["premium_readiness"]["ready"] is False
     r = client.get(f"/api/v4/sessions/{sid}/next-research-brief")
     assert r.status_code == 200
-    assert "# Next Research Brief" in r.text
-    assert "## Priority Leads" in r.text
-    assert "**Prompt**" in r.text
+    assert "# План добора" in r.text
+    assert "## Приоритетные направления добора" in r.text
+    assert "**Промпт для добора**" in r.text
     r = client.get(
         f"/api/v4/sessions/{sid}/export",
         params={"format": "next-research-brief", "allow_draft": "true"},
     )
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("text/markdown")
-    assert "# Next Research Brief" in r.text
+    assert "# План добора" in r.text
     r = client.get(f"/api/v4/sessions/{sid}/analytic-closure")
     assert r.status_code == 200
     assert r.json()["lead_count"] > 0
@@ -493,12 +493,12 @@ def test_v4_full_cycle(monkeypatch, tmp_path):
         assert audit["visual_review"]["status"] == visual_review["status"]
         assert visual_review["status"] in {"pending", "blocked"}
         brief = zf.read("14_next_research_brief.md").decode("utf-8")
-        assert "# Next Research Brief" in brief
-        assert "## Priority Leads" in brief
-        assert "Recommended service:" in brief
-        assert "**Prompt**" in brief
-        assert "**Why this matters**" in brief
-        assert "- Candidate sources:" in brief
+        assert "# План добора" in brief
+        assert "## Приоритетные направления добора" in brief
+        assert "Рекомендуемый сервис:" in brief
+        assert "**Промпт для добора**" in brief
+        assert "**Зачем это важно**" in brief
+        assert "- Кандидаты источников:" in brief
     r = client.get(
         f"/api/v4/sessions/{sid}/export",
         params={"format": "premium-client-package"},
@@ -964,9 +964,9 @@ def test_next_research_brief_requires_analysis_but_not_final_report():
 
     r = client.get(f"/api/v4/sessions/{sid}/next-research-brief")
     assert r.status_code == 200, r.text
-    assert "# Next Research Brief" in r.text
+    assert "# План добора" in r.text
     assert "Pipeline starts" in r.text
-    assert "**Prompt**" in r.text
+    assert "**Промпт для добора**" in r.text
 
 
 def test_get_analytic_depth_plan_returns_research_map():

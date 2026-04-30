@@ -116,19 +116,19 @@ def compute_quality_grade(session) -> QualityGrade:
     elif score >= 0.75:
         grade = "A"
         summary = (
-            f"Сильная доказательная база: {strong}/{total} STRONG, "
+            f"Сильная доказательная база: {strong}/{total} источников высокой надёжности, "
             f"{unique_domains} уникальных доменов."
         )
     elif score >= 0.55:
         grade = "B"
         summary = (
-            f"Достаточно: {strong}/{total} STRONG, {gap_count} пробелов, "
+            f"Достаточно: {strong}/{total} источников высокой надёжности, {gap_count} пробелов, "
             f"{conflict_count} противоречий."
         )
     else:
         grade = "C"
         summary = (
-            f"Слабая база: {strong}/{total} STRONG, {gap_count} пробелов. "
+            f"Слабая база: {strong}/{total} источников высокой надёжности, {gap_count} пробелов. "
             "Рассмотрите дополнительный DR-прогон."
         )
 

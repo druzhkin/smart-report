@@ -22,20 +22,20 @@ type Item = {
 };
 
 const ITEMS: Item[] = [
-  { fmt: "premium-client-package", label: "Deliver to Client ZIP", Icon: Sparkles, accent: "text-[#B08D57]" },
-  { fmt: "premium-package", label: "Premium Draft Package ZIP", Icon: Archive, accent: "text-[#B08D57]" },
-  { fmt: "next-research-brief", label: "Next Research Brief MD", Icon: FileText, accent: "text-[#B08D57]" },
-  { fmt: "premium-docx", label: "Premium Report DOCX", Icon: Sparkles, accent: "text-[#B08D57]" },
-  { fmt: "premium-pptx", label: "Premium Deck PPTX", Icon: Presentation, accent: "text-[#B08D57]" },
-  { fmt: "docx", label: "Client Report DOCX", Icon: FileText, accent: "text-blue-600" },
-  { fmt: "pptx", label: "Simple PowerPoint PPTX", Icon: Presentation, accent: "text-orange-600" },
+  { fmt: "premium-client-package", label: "Клиентский пакет ZIP", Icon: Sparkles, accent: "text-[#B08D57]" },
+  { fmt: "premium-package", label: "Премиальный черновик ZIP", Icon: Archive, accent: "text-[#B08D57]" },
+  { fmt: "next-research-brief", label: "План добора MD", Icon: FileText, accent: "text-[#B08D57]" },
+  { fmt: "premium-docx", label: "Премиальный отчёт DOCX", Icon: Sparkles, accent: "text-[#B08D57]" },
+  { fmt: "premium-pptx", label: "Премиальная презентация PPTX", Icon: Presentation, accent: "text-[#B08D57]" },
+  { fmt: "docx", label: "Клиентский отчёт DOCX", Icon: FileText, accent: "text-blue-600" },
+  { fmt: "pptx", label: "Простая презентация PPTX", Icon: Presentation, accent: "text-orange-600" },
   { fmt: "onepager", label: "One-pager HTML", Icon: LayoutTemplate, accent: "text-[#1B3A5C]" },
   { fmt: "md", label: "Markdown", Icon: FileSpreadsheet, accent: "text-emerald-600" },
-  { fmt: "json", label: "Client Report JSON", Icon: FileCode, accent: "text-purple-600" },
-  { fmt: "sources-csv", label: "Sources CSV", Icon: FileSpreadsheet, accent: "text-emerald-600" },
-  { fmt: "facts-csv", label: "Facts CSV", Icon: FileSpreadsheet, accent: "text-emerald-600" },
-  { fmt: "data-pack", label: "Full Data Pack ZIP", Icon: Archive, accent: "text-slate-700" },
-  { fmt: "audit-json", label: "Audit Appendix JSON", Icon: FileCode, accent: "text-slate-500" },
+  { fmt: "json", label: "Клиентский отчёт JSON", Icon: FileCode, accent: "text-purple-600" },
+  { fmt: "sources-csv", label: "Источники CSV", Icon: FileSpreadsheet, accent: "text-emerald-600" },
+  { fmt: "facts-csv", label: "Факты CSV", Icon: FileSpreadsheet, accent: "text-emerald-600" },
+  { fmt: "data-pack", label: "Полный data pack ZIP", Icon: Archive, accent: "text-slate-700" },
+  { fmt: "audit-json", label: "Аудит JSON", Icon: FileCode, accent: "text-slate-500" },
 ];
 
 export function ExportDropdownV4({ id }: { id: string }) {

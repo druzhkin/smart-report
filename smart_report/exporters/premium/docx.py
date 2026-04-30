@@ -98,14 +98,14 @@ def _setup_header_footer(section) -> None:
     fp = footer.paragraphs[0]
     fp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     fp.paragraph_format.space_before = Pt(0)
-    run = fp.add_run("Premium Analytical Report | Page ")
+    run = fp.add_run("Премиальный аналитический отчёт | стр. ")
     _set_run(run, size=7.5, color=MUTED)
     _add_page_number(fp)
 
 
 def _render_cover(doc: Document, report: PremiumReportDocument) -> None:
     _add_rule(doc, NAVY, 30)
-    kicker = doc.add_paragraph("SMART REPORT | PREMIUM ANALYTICAL REPORT")
+    kicker = doc.add_paragraph("SMART REPORT | ПРЕМИАЛЬНЫЙ АНАЛИТИЧЕСКИЙ ОТЧЁТ")
     kicker.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     _set_run(kicker.runs[0], size=8, color=GOLD, bold=True, all_caps=True)
 
@@ -119,10 +119,10 @@ def _render_cover(doc: Document, report: PremiumReportDocument) -> None:
     meta.alignment = WD_TABLE_ALIGNMENT.CENTER
     _style_table(meta, header=False)
     values = [
-        ("Report type", report.plan.report_type.replace("_", " ").title()),
-        ("Audience", report.plan.audience.replace("_", " ").title()),
-        ("Min pages", str(report.plan.deliverables.report_min_pages)),
-        ("Evidence", f"{report.source_count} sources / {report.numeric_fact_count} facts"),
+        ("Тип отчёта", _report_type_label(report.plan.report_type)),
+        ("Аудитория", _audience_label(report.plan.audience)),
+        ("Мин. объём", f"{report.plan.deliverables.report_min_pages} стр."),
+        ("Доказательства", f"{report.source_count} источников / {report.numeric_fact_count} фактов"),
     ]
     for idx, (label, value) in enumerate(values):
         cell = meta.rows[0].cells[idx]
@@ -143,10 +143,10 @@ def _render_cover(doc: Document, report: PremiumReportDocument) -> None:
 
 
 def _render_decision_dashboard(doc: Document, report: PremiumReportDocument) -> None:
-    doc.add_heading("Client Decision Dashboard", level=1)
+    doc.add_heading("Панель решения клиента", level=1)
     intro = doc.add_paragraph(
-        "A one-page control panel for the client: answer, evidence depth, delivery status, "
-        "and the next decision step."
+        "Одностраничная панель для клиента: ответ, глубина доказательств, статус готовности "
+        "и следующий шаг."
     )
     _set_run(intro.runs[0], size=9.5, color=MUTED, italic=True)
 
@@ -155,9 +155,9 @@ def _render_decision_dashboard(doc: Document, report: PremiumReportDocument) -> 
     score = readiness.get("score", "?")
     issues = readiness.get("issues") or []
     next_step = (
-        "Use as paid-client deliverable."
+        "Можно использовать как платный клиентский материал."
         if ready
-        else "Close listed blockers before paid-client delivery."
+        else "Закрыть указанные блокеры перед платной выдачей клиенту."
     )
     if isinstance(issues, list) and issues:
         first_issue = issues[0]
@@ -166,23 +166,23 @@ def _render_decision_dashboard(doc: Document, report: PremiumReportDocument) -> 
 
     cards = [
         (
-            "Executive answer",
-            _first_section_block_body(report, "executive_summary", "Answer")
+            "Короткий ответ",
+            _first_section_block_body(report, "executive_summary", "Короткий ответ")
             or report.title,
             NAVY,
         ),
         (
-            "Evidence depth",
-            f"{report.source_count} sources; {report.numeric_fact_count} numeric facts.",
+            "Глубина доказательств",
+            f"{report.source_count} источников; {report.numeric_fact_count} числовых фактов.",
             GOLD,
         ),
         (
-            "Paid-delivery gate",
-            f"{'Ready' if ready else 'Not ready'}; score {score}/100; {len(issues)} issue(s).",
+            "Гейт платной выдачи",
+            f"{'Готов' if ready else 'Не готов'}; оценка {score}/100; проблем: {len(issues)}.",
             "2E7D32" if ready else "B42318",
         ),
         (
-            "Next action",
+            "Следующее действие",
             next_step,
             INK,
         ),
@@ -207,17 +207,17 @@ def _render_decision_dashboard(doc: Document, report: PremiumReportDocument) -> 
 
 
 def _render_scorecard(doc: Document, report: PremiumReportDocument) -> None:
-    doc.add_heading("Executive Evidence Scorecard", level=1)
+    doc.add_heading("Карта доказательной базы", level=1)
     rows = [
-        ["Quality bar", report.plan.quality_bar],
-        ["Required evidence", f"{report.plan.evidence.min_sources}+ sources, {report.plan.evidence.min_numeric_facts}+ numeric facts"],
-        ["Prepared evidence", f"{report.source_count} sources, {report.numeric_fact_count} numeric facts"],
-        ["Deliverables", _deliverables(report)],
+        ["Порог качества", report.plan.quality_bar],
+        ["Требуемые доказательства", f"{report.plan.evidence.min_sources}+ источников, {report.plan.evidence.min_numeric_facts}+ числовых фактов"],
+        ["Собранные доказательства", f"{report.source_count} источников, {report.numeric_fact_count} числовых фактов"],
+        ["Материалы", _deliverables(report)],
     ]
     _render_key_value_table(doc, rows)
     doc.add_paragraph(
-        "This scorecard is a delivery control, not decoration. If evidence is thin, "
-        "the report must expose that limitation instead of hiding uncertainty."
+        "Эта карта является контролем качества выдачи, а не декором. Если доказательная база тонкая, "
+        "отчёт должен явно показать ограничение, а не прятать неопределённость."
     )
 
 
@@ -231,15 +231,15 @@ def _render_readiness_gate(doc: Document, report: PremiumReportDocument) -> None
     issues = readiness.get("issues") or []
     strengths = readiness.get("strengths") or []
 
-    doc.add_heading("Premium Readiness Gate", level=1)
-    status = "READY FOR PAID CLIENT DELIVERY" if ready else "NOT READY FOR PAID CLIENT DELIVERY"
+    doc.add_heading("Гейт готовности к платной выдаче", level=1)
+    status = "ГОТОВ К ПЛАТНОЙ ВЫДАЧЕ КЛИЕНТУ" if ready else "НЕ ГОТОВ К ПЛАТНОЙ ВЫДАЧЕ КЛИЕНТУ"
     status_line = doc.add_paragraph(status)
     _set_run(status_line.runs[0], size=11, color=NAVY if ready else "B42318", bold=True)
     rows = [
-        ["Status", status],
-        ["Score", f"{score}/100"],
-        ["Open issues", str(len(issues))],
-        ["Strengths", str(len(strengths))],
+        ["Статус", status],
+        ["Оценка", f"{score}/100"],
+        ["Открытые проблемы", str(len(issues))],
+        ["Сильные стороны", str(len(strengths))],
     ]
     _render_key_value_table(doc, rows)
 
@@ -249,10 +249,10 @@ def _render_readiness_gate(doc: Document, report: PremiumReportDocument) -> None
         cell = warning.rows[0].cells[0]
         _shade(cell, "FDECEC")
         p = cell.paragraphs[0]
-        p.add_run("Delivery warning: ").bold = True
+        p.add_run("Предупреждение по выдаче: ").bold = True
         p.add_run(
-            "This document is a premium draft. It should not be sold or presented "
-            "as a final paid-client report until the blockers below are resolved."
+            "Этот документ пока является премиальным черновиком. Его нельзя продавать или показывать "
+            "как финальный платный отчёт, пока блокеры ниже не закрыты."
         )
 
     visible_issues = [
@@ -262,7 +262,7 @@ def _render_readiness_gate(doc: Document, report: PremiumReportDocument) -> None
     if visible_issues:
         _render_table(
             doc,
-            ["Severity", "Code", "Issue", "Recommended fix"],
+            ["Критичность", "Код", "Проблема", "Что исправить"],
             [
                 [
                     str(issue.get("severity", "")),
@@ -278,13 +278,13 @@ def _render_readiness_gate(doc: Document, report: PremiumReportDocument) -> None
 
 
 def _render_toc_placeholder(doc: Document, report: PremiumReportDocument) -> None:
-    doc.add_heading("Report Structure", level=1)
+    doc.add_heading("Структура отчёта", level=1)
     rows = [[str(i), section.title, section.purpose] for i, section in enumerate(report.sections, 1)]
     rows.extend(
         [f"A{idx}", section.title, section.purpose]
         for idx, section in enumerate(report.appendices, 1)
     )
-    _render_table(doc, ["#", "Section", "Purpose"], rows)
+    _render_table(doc, ["#", "Раздел", "Зачем нужен"], rows)
 
 
 def _render_section(doc: Document, section: PremiumPreparedSection, *, appendix: bool = False) -> None:
@@ -300,8 +300,7 @@ def _render_section(doc: Document, section: PremiumPreparedSection, *, appendix:
 def _render_block(doc: Document, block: PremiumPreparedBlock) -> None:
     doc.add_heading(block.title, level=2)
     if block.body:
-        for para in _paragraphs(block.body):
-            doc.add_paragraph(para)
+        _render_markdown_like_body(doc, block.body)
     if block.rows:
         _render_table(doc, block.columns, block.rows)
     if block.notes:
@@ -314,7 +313,7 @@ def _render_notes(doc: Document, notes: list[str]) -> None:
     cell = table.rows[0].cells[0]
     _shade(cell, "FFF8E7")
     p = cell.paragraphs[0]
-    p.add_run("Analyst note: ").bold = True
+    p.add_run("Заметка аналитика: ").bold = True
     p.add_run(" ".join(notes))
 
 
@@ -335,7 +334,7 @@ def _render_key_value_table(doc: Document, rows: list[list[str]]) -> None:
 
 def _render_table(doc: Document, headers: list[str], rows: list[list[str]]) -> None:
     if not headers:
-        headers = [f"Column {idx + 1}" for idx in range(max((len(row) for row in rows), default=1))]
+        headers = [f"Колонка {idx + 1}" for idx in range(max((len(row) for row in rows), default=1))]
     visible_rows = rows[:40]
     table = doc.add_table(rows=len(visible_rows) + 1, cols=len(headers))
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
@@ -352,7 +351,7 @@ def _render_table(doc: Document, headers: list[str], rows: list[list[str]]) -> N
                 _shade(cell, "FAFBFC")
             cell.paragraphs[0].add_run(str(value or ""))
     if len(rows) > len(visible_rows):
-        doc.add_paragraph(f"Table truncated for readability: {len(rows) - len(visible_rows)} rows remain in the data pack.")
+        doc.add_paragraph(f"Таблица сокращена для читаемости: ещё {len(rows) - len(visible_rows)} строк остаются в data pack.")
 
 
 def _style_table(table, *, header: bool = True) -> None:
@@ -462,6 +461,26 @@ def _paragraphs(text: str) -> list[str]:
     return [part.strip() for part in str(text).splitlines() if part.strip()]
 
 
+def _render_markdown_like_body(doc: Document, text: str) -> None:
+    """Render common markdown shapes as readable DOCX paragraphs."""
+
+    for raw in _paragraphs(text):
+        line = raw.strip()
+        if line.startswith("### "):
+            doc.add_heading(line[4:].strip(), level=3)
+            continue
+        if line.startswith("## "):
+            doc.add_heading(line[3:].strip(), level=2)
+            continue
+        if line.startswith("# "):
+            doc.add_heading(line[2:].strip(), level=2)
+            continue
+        if line.startswith(("- ", "* ")):
+            doc.add_paragraph(line[2:].strip(), style="List Bullet")
+            continue
+        doc.add_paragraph(line)
+
+
 def _deliverables(report: PremiumReportDocument) -> str:
     deliverables = report.plan.deliverables
     names = []
@@ -474,8 +493,34 @@ def _deliverables(report: PremiumReportDocument) -> str:
     if deliverables.require_data_pack:
         names.append("data pack")
     if deliverables.require_qa_audit:
-        names.append("QA audit")
+        names.append("QA-аудит")
     return ", ".join(names)
+
+
+def _audience_label(audience: str) -> str:
+    return {
+        "buyer": "покупатель",
+        "investor": "инвестор",
+        "executive": "руководитель",
+        "operator": "оператор",
+        "developer": "девелопер",
+        "analyst": "аналитик",
+        "technical_lead": "технический руководитель",
+        "general_client": "клиент",
+    }.get(audience, audience.replace("_", " "))
+
+
+def _report_type_label(report_type: str) -> str:
+    return {
+        "market": "Рыночный анализ",
+        "investment": "Инвестиционный анализ",
+        "competitive": "Конкурентный анализ",
+        "strategy": "Стратегический отчёт",
+        "technical_audit": "Технический аудит",
+        "legal_regulatory": "Правовой и регуляторный анализ",
+        "due_diligence": "Due diligence",
+        "general_research": "Исследование",
+    }.get(report_type, report_type.replace("_", " ").title())
 
 
 def _first_section_block_body(

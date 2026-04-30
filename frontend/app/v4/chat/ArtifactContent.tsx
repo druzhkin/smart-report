@@ -236,7 +236,7 @@ export function ReportArtifact({ finalReport, openSource }: ReportArtifactProps)
       <aside className="report-toc">
         <div className="title">Разделы</div>
         {[
-          ["exec", "Executive Summary"],
+          ["exec", "Резюме"],
           ["synthesis", "Синтез"],
           ["consensus", "Согласия"],
           ["conflicts", "Противоречия"],
@@ -278,7 +278,7 @@ export function ReportArtifact({ finalReport, openSource }: ReportArtifactProps)
 
       <div className="report-scroll">
         <div className="report-inner">
-          {/* Executive Summary */}
+          {/* Резюме */}
           <section id="r-exec" className="cover">
             <div className="eyebrow">Отчёт уровня акционера</div>
             <p

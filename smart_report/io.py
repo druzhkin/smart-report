@@ -184,7 +184,7 @@ def write_markdown_report(path: Path, report_dict: dict) -> None:
     lines.append(f"# Report: {q.get('text', '')}\n")
     lines.append(f"_question_id: `{q.get('id', '')}`_\n")
     if summary.get("main_finding"):
-        lines.append("## Executive Summary\n")
+        lines.append("## Резюме\n")
         lines.append(summary["main_finding"] + "\n")
         if summary.get("top_numbers"):
             lines.append("**Top numbers:**")

@@ -56,17 +56,17 @@ def _cover(prs, layout, document: PremiumReportDocument) -> None:
     _textbox(slide, 0.65, 0.55, 4.0, 0.3, "SMART REPORT", 8, GOLD, bold=True)
     _textbox(slide, 0.65, 1.55, 10.4, 1.15, document.title, 28, NAVY, bold=True)
     _textbox(slide, 0.68, 2.82, 8.8, 0.55, document.subtitle, 13, MUTED)
-    _metric_card(slide, 0.7, 4.65, "Report", document.plan.report_type.replace("_", " ").title())
-    _metric_card(slide, 3.2, 4.65, "Audience", document.plan.audience.replace("_", " ").title())
-    _metric_card(slide, 5.7, 4.65, "Sources", str(document.source_count))
-    _metric_card(slide, 8.2, 4.65, "Numeric facts", str(document.numeric_fact_count))
+    _metric_card(slide, 0.7, 4.65, "Тип отчёта", _report_type_label(document.plan.report_type))
+    _metric_card(slide, 3.2, 4.65, "Аудитория", _audience_label(document.plan.audience))
+    _metric_card(slide, 5.7, 4.65, "Источники", str(document.source_count))
+    _metric_card(slide, 8.2, 4.65, "Числовые факты", str(document.numeric_fact_count))
     _footer(slide, 1)
 
 
 def _executive_answer(prs, layout, document: PremiumReportDocument) -> None:
     slide = prs.slides.add_slide(layout)
-    _title(slide, "Executive Answer")
-    answer = _first_block_body(document.sections, "executive_summary", "Answer")
+    _title(slide, "Короткий ответ")
+    answer = _first_block_body(document.sections, "executive_summary", "Короткий ответ")
     _textbox(slide, 0.7, 1.25, 7.2, 1.45, answer or document.plan.decision_context, 18, INK, bold=True)
     _table(
         slide,
@@ -74,11 +74,11 @@ def _executive_answer(prs, layout, document: PremiumReportDocument) -> None:
         3.15,
         5.9,
         2.45,
-        ["Decision lens", "Implication"],
+        ["Фокус решения", "Следствие"],
         [
-            ["Evidence", f"{document.source_count} sources / {document.numeric_fact_count} facts"],
-            ["Quality bar", document.plan.quality_bar],
-            ["Deliverables", _deliverables(document)],
+            ["Доказательства", f"{document.source_count} источников / {document.numeric_fact_count} фактов"],
+            ["Порог качества", document.plan.quality_bar],
+            ["Материалы", _deliverables(document)],
         ],
     )
     _callout(slide, 7.1, 3.1, 4.9, 2.5, document.plan.decision_context)
@@ -87,16 +87,16 @@ def _executive_answer(prs, layout, document: PremiumReportDocument) -> None:
 
 def _readiness(prs, layout, document: PremiumReportDocument) -> None:
     slide = prs.slides.add_slide(layout)
-    _title(slide, "Paid-Delivery Readiness")
+    _title(slide, "Готовность к платной выдаче")
     readiness = document.premium_readiness or {}
     ready = bool(readiness.get("ready"))
     score = readiness.get("score", "?")
-    status = "READY" if ready else "NOT READY"
+    status = "ГОТОВ" if ready else "НЕ ГОТОВ"
     color = GREEN if ready else RED
-    _metric_card(slide, 0.7, 1.25, "Status", status, value_color=color, width=2.6)
-    _metric_card(slide, 3.55, 1.25, "Score", f"{score}/100", value_color=color, width=2.6)
+    _metric_card(slide, 0.7, 1.25, "Статус", status, value_color=color, width=2.6)
+    _metric_card(slide, 3.55, 1.25, "Оценка", f"{score}/100", value_color=color, width=2.6)
     issues = [issue for issue in readiness.get("issues", []) if isinstance(issue, dict)]
-    _metric_card(slide, 6.4, 1.25, "Open issues", str(len(issues)), value_color=color, width=2.6)
+    _metric_card(slide, 6.4, 1.25, "Проблемы", str(len(issues)), value_color=color, width=2.6)
     rows = [
         [
             str(issue.get("severity", "")),
@@ -104,20 +104,20 @@ def _readiness(prs, layout, document: PremiumReportDocument) -> None:
             str(issue.get("recommendation", ""))[:95],
         ]
         for issue in issues[:5]
-    ] or [["-", "No premium readiness issues in the exported gate.", "-"]]
-    _table(slide, 0.7, 3.0, 11.8, 3.05, ["Severity", "Issue", "Recommended fix"], rows)
+    ] or [["-", "В экспортируемом гейте нет проблем готовности.", "-"]]
+    _table(slide, 0.7, 3.0, 11.8, 3.05, ["Критичность", "Проблема", "Что исправить"], rows)
     _footer(slide, 3)
 
 
 def _evidence(prs, layout, document: PremiumReportDocument) -> None:
     slide = prs.slides.add_slide(layout)
-    _title(slide, "Evidence Base")
+    _title(slide, "Доказательная база")
     rows = []
     for section in document.sections:
         for block in section.blocks:
             if block.kind in {"evidence_table", "source_quality_table", "kpi_grid"}:
                 rows.append([block.title, block.kind.replace("_", " "), str(len(block.rows))])
-    _table(slide, 0.7, 1.35, 11.6, 4.85, ["Block", "Type", "Rows"], rows[:8])
+    _table(slide, 0.7, 1.35, 11.6, 4.85, ["Блок", "Тип", "Строк"], rows[:8])
     _footer(slide, 4)
 
 
@@ -128,26 +128,26 @@ def _section_slide(prs, layout, number: int, section: PremiumPreparedSection) ->
     rows = []
     for block in section.blocks[:4]:
         rows.append([block.title, block.kind.replace("_", " "), _block_signal(block)])
-    _table(slide, 0.7, 1.95, 11.6, 3.8, ["Analytical block", "Format", "Signal"], rows)
+    _table(slide, 0.7, 1.95, 11.6, 3.8, ["Аналитический блок", "Формат", "Сигнал"], rows)
     _footer(slide, number + 4)
 
 
 def _deck_close(prs, layout, document: PremiumReportDocument) -> None:
     slide = prs.slides.add_slide(layout)
-    _title(slide, "Next Decisions")
+    _title(slide, "Следующие решения")
     rows = [
-        ["1", "Close evidence blockers", "Run targeted follow-up for critical gaps and disputed figures."],
-        ["2", "Lock client narrative", "Convert the full report into a short board-level storyline."],
-        ["3", "Package delivery", _deliverables(document)],
+        ["1", "Закрыть доказательные блокеры", "Запустить точечный добор по критическим пробелам и спорным цифрам."],
+        ["2", "Зафиксировать клиентский нарратив", "Перевести полный отчёт в короткую историю уровня совета директоров."],
+        ["3", "Собрать пакет выдачи", _deliverables(document)],
     ]
-    _table(slide, 0.7, 1.45, 11.6, 3.3, ["#", "Move", "Why it matters"], rows)
+    _table(slide, 0.7, 1.45, 11.6, 3.3, ["#", "Шаг", "Зачем"], rows)
     _callout(
         slide,
         0.7,
         5.3,
         11.6,
         0.75,
-        "The deck is an executive presentation. The DOCX report remains the full evidence-backed deliverable.",
+        "Презентация является управленческим резюме. Полный доказательный материал остаётся в DOCX-отчёте.",
     )
     _footer(slide, len(document.sections[:6]) + 5)
 
@@ -169,7 +169,7 @@ def _title(slide, text: str) -> None:
 
 
 def _footer(slide, page: int) -> None:
-    _textbox(slide, 0.7, 6.92, 6.0, 0.25, "Smart Report | Premium deck", 7, MUTED)
+    _textbox(slide, 0.7, 6.92, 6.0, 0.25, "Smart Report | Премиальная презентация", 7, MUTED)
     _textbox(slide, 11.8, 6.92, 0.8, 0.25, str(page), 7, MUTED)
 
 
@@ -268,25 +268,51 @@ def _first_block_body(sections: list[PremiumPreparedSection], section_id: str, b
 
 def _block_signal(block: PremiumPreparedBlock) -> str:
     if block.rows:
-        return f"{len(block.rows)} row(s)"
+        return f"{len(block.rows)} строк"
     if block.body:
         return block.body[:120]
     if block.notes:
         return block.notes[0][:120]
-    return "Prepared for narrative synthesis"
+    return "Подготовлено для аналитического синтеза"
 
 
 def _deliverables(document: PremiumReportDocument) -> str:
     deliverables = document.plan.deliverables
     names = []
     if deliverables.require_docx:
-        names.append("DOCX report")
+        names.append("DOCX-отчёт")
     if deliverables.require_pptx:
-        names.append("PPTX deck")
+        names.append("PPTX-презентация")
     if deliverables.require_pdf:
         names.append("PDF")
     if deliverables.require_data_pack:
         names.append("data pack")
     if deliverables.require_qa_audit:
-        names.append("QA audit")
+        names.append("QA-аудит")
     return ", ".join(names)
+
+
+def _audience_label(audience: str) -> str:
+    return {
+        "buyer": "покупатель",
+        "investor": "инвестор",
+        "executive": "руководитель",
+        "operator": "оператор",
+        "developer": "девелопер",
+        "analyst": "аналитик",
+        "technical_lead": "технический руководитель",
+        "general_client": "клиент",
+    }.get(audience, audience.replace("_", " "))
+
+
+def _report_type_label(report_type: str) -> str:
+    return {
+        "market": "Рыночный анализ",
+        "investment": "Инвестиционный анализ",
+        "competitive": "Конкурентный анализ",
+        "strategy": "Стратегический отчёт",
+        "technical_audit": "Технический аудит",
+        "legal_regulatory": "Правовой и регуляторный анализ",
+        "due_diligence": "Due diligence",
+        "general_research": "Исследование",
+    }.get(report_type, report_type.replace("_", " ").title())

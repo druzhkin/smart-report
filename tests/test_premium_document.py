@@ -95,10 +95,10 @@ def test_assemble_premium_document_uses_existing_analysis_layers():
         for section in [*document.sections, *document.appendices]
         for block in section.blocks
     }
-    assert "Numeric evidence register" in block_titles
-    assert "Conflicts and divergent claims" in block_titles
-    assert "Risk register" in block_titles
-    assert "Decision matrix" in block_titles
+    assert "Реестр числовых доказательств" in block_titles
+    assert "Противоречия и расхождения" in block_titles
+    assert "Реестр рисков" in block_titles
+    assert "Матрица решений" in block_titles
 
 
 def test_assemble_premium_document_does_not_mutate_legacy_report():
@@ -143,15 +143,15 @@ def test_render_premium_docx_opens_and_contains_report_structure(tmp_path):
         for cell in row.cells
     )
     text = "\n".join([*(p.text for p in loaded.paragraphs), table_text])
-    assert "SMART REPORT | PREMIUM ANALYTICAL REPORT" in text
-    assert "Client Decision Dashboard" in text
-    assert "Executive answer" in text
-    assert "Paid-delivery gate" in text
-    assert "Executive Evidence Scorecard" in text
-    assert "Premium Readiness Gate" in text
-    assert "NOT READY FOR PAID CLIENT DELIVERY" in text
-    assert "Report Structure" in text
-    assert "Numeric evidence register" in text
+    assert "SMART REPORT | ПРЕМИАЛЬНЫЙ АНАЛИТИЧЕСКИЙ ОТЧЁТ" in text
+    assert "Панель решения клиента" in text
+    assert "Короткий ответ" in text
+    assert "Гейт платной выдачи" in text
+    assert "Карта доказательной базы" in text
+    assert "Гейт готовности к платной выдаче" in text
+    assert "НЕ ГОТОВ К ПЛАТНОЙ ВЫДАЧЕ КЛИЕНТУ" in text
+    assert "Структура отчёта" in text
+    assert "Реестр числовых доказательств" in text
     assert len(loaded.tables) >= 4
 
 
@@ -188,6 +188,6 @@ def test_render_premium_pptx_opens_and_contains_deck_structure(tmp_path):
         for shape in slide.shapes
         if hasattr(shape, "text")
     )
-    assert "Executive Answer" in slide_text
-    assert "Paid-Delivery Readiness" in slide_text
-    assert "NOT READY" in slide_text
+    assert "Короткий ответ" in slide_text
+    assert "Готовность к платной выдаче" in slide_text
+    assert "НЕ ГОТОВ" in slide_text

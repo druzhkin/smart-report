@@ -38,7 +38,7 @@ def render_markdown(rd: REPORT_DICT) -> str:
         lines.append(f"**Вопрос:** {q}\n")
 
     es = rd.get("executive_summary") or {}
-    lines.append("\n## Executive Summary\n")
+    lines.append("\n## Резюме\n")
 
     main_answer = (es.get("main_answer") or "").strip()
     if main_answer:
@@ -199,7 +199,7 @@ def write_docx(path: Path, rd: REPORT_DICT) -> Path:
         p.add_run(q)
 
     es = rd.get("executive_summary") or {}
-    doc.add_heading("Executive Summary", level=1)
+    doc.add_heading("Резюме", level=1)
     main = es.get("main_answer") or ""
     if main:
         doc.add_paragraph(main)
@@ -273,7 +273,7 @@ def write_pptx(path: Path, rd: REPORT_DICT) -> Path:
 
     # Executive summary slide.
     slide = prs.slides.add_slide(blank)
-    slide.shapes.title.text = "Executive Summary"
+    slide.shapes.title.text = "Резюме"
     tx = slide.shapes.add_textbox(
         Inches(0.5), Inches(1.3), Inches(9), Inches(5.5)
     ).text_frame

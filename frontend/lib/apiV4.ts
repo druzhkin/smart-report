@@ -990,6 +990,7 @@ export type AutoDRStatusOut = {
   state: "queued" | "running" | "completed" | "failed" | "cancelled";
   progress_pct: number | null;
   message: string | null;
+  partial_chars?: number | null;
   filename: string | null;
   word_count: number | null;
   source_count: number | null;

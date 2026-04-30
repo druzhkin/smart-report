@@ -1320,6 +1320,17 @@
   background: var(--accent, #c69749);
   border-color: var(--accent, #c69749);
 }
+.ws-root .dr-stage-item.blocked {
+  color: var(--accent-2);
+  background: color-mix(in srgb, var(--paper) 86%, var(--accent-2) 14%);
+}
+.ws-root .dr-stage-item.blocked b {
+  color: var(--ink);
+}
+.ws-root .dr-stage-item.blocked .dr-stage-dot {
+  background: var(--accent-2);
+  border-color: var(--accent-2);
+}
 .ws-root .dr-live-feed {
   padding: 12px;
   display: grid;
@@ -1395,6 +1406,10 @@
 .ws-root .dr-mission-card.active {
   border-color: var(--accent, #c69749);
   background: var(--paper-2);
+}
+.ws-root .dr-mission-card.failed {
+  border-color: color-mix(in srgb, var(--accent-2) 72%, var(--rule) 28%);
+  background: color-mix(in srgb, var(--paper) 88%, var(--accent-2) 12%);
 }
 .ws-root .dr-mission-card:hover {
   transform: translateY(-1px);

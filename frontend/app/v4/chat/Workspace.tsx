@@ -199,6 +199,13 @@ export default function Workspace() {
     state: string;
     progress_pct: number | null;
     message: string | null;
+    error?: string | null;
+    filename?: string | null;
+    word_count?: number | null;
+    source_count?: number | null;
+    cost_usd?: number | null;
+    cost_rub?: number | null;
+    partial_chars?: number | null;
     poll_count: number;
     started_at: number;          // unix seconds, set on first push
     last_polled_at: number;
@@ -702,6 +709,13 @@ export default function Workspace() {
               service, mode, state: st.state,
               progress_pct: st.progress_pct,
               message: st.message,
+              error: st.error,
+              filename: st.filename,
+              word_count: st.word_count,
+              source_count: st.source_count,
+              cost_usd: st.cost_usd,
+              cost_rub: st.cost_rub,
+              partial_chars: st.partial_chars ?? null,
               poll_count: pollCount,
               started_at: startedAt,
               last_polled_at: Math.floor(Date.now() / 1000),
@@ -1939,7 +1953,7 @@ export default function Workspace() {
         content:
           `${out.message}\n\n` +
           `Closure score: ${out.analytic_closure?.overall_score ?? "н/д"}/100. ` +
-          `Premium readiness: ${out.premium_readiness?.score ?? "н/д"}/100.`,
+          `Готовность к платной выдаче: ${out.premium_readiness?.score ?? "н/д"}/100.`,
       });
     } catch (e) {
       setMessages((ms) => ms.filter((m) => m.kind !== "thinking"));
@@ -2397,7 +2411,7 @@ export default function Workspace() {
       {
         label: "Premium gate",
         status: premiumReadiness?.ready ? "closed" : premiumReadiness ? "risk" : premiumRefinementStatus ? "running" : "pending",
-        detail: premiumReadiness ? `${premiumReadiness.score}/100` : premiumRefinementStatus?.recommended_action || "not evaluated",
+        detail: premiumReadiness ? `${premiumReadiness.score}/100` : premiumRefinementStatus?.recommended_action || "не оценено",
       },
     ];
     const activeProvider = taskRows.find((task) => task.state === "running" || task.state === "queued");
@@ -2641,11 +2655,11 @@ export default function Workspace() {
                   setPremiumRefinementStatus(status);
                   setArtifact({ kind: "premium-status", data: status });
                 } catch (e) {
-                  showToast(`Не удалось открыть premium status: ${e instanceof Error ? e.message : String(e)}`);
+                  showToast(`Не удалось открыть статус качества: ${e instanceof Error ? e.message : String(e)}`);
                 }
               }}
             >
-              premium status
+              статус качества
             </button>
             <button
               className="icon-btn"
@@ -3235,14 +3249,14 @@ export default function Workspace() {
                   {qualityGrade && qualityGrade.grade !== "N/A" && (
                     <div className={`quality-grade quality-grade--${qualityGrade.grade.toLowerCase()}`}>
                       <div className="quality-grade__head">
-                        <span className="quality-grade__label">Quality</span>
+                        <span className="quality-grade__label">Качество</span>
                         <span className="quality-grade__letter">{qualityGrade.grade}</span>
                         <span className="quality-grade__score">{(qualityGrade.score * 100).toFixed(0)}/100</span>
                       </div>
                       <div className="quality-grade__summary">{qualityGrade.summary}</div>
                       <div className="quality-grade__metrics">
                         <span title="Источники с высокой надёжностью">
-                          STRONG <b>{qualityGrade.strong_count}</b>/{qualityGrade.total_sources}
+                          сильных источников <b>{qualityGrade.strong_count}</b>/{qualityGrade.total_sources}
                         </span>
                         <span title="Уникальных доменов в библиографии">
                           доменов <b>{qualityGrade.unique_domains}</b>
@@ -3256,21 +3270,21 @@ export default function Workspace() {
                   {premiumReadiness && (
                     <div className={`quality-grade quality-grade--${premiumReadiness.ready ? "a" : "c"}`}>
                       <div className="quality-grade__head">
-                        <span className="quality-grade__label">Premium readiness</span>
-                        <span className="quality-grade__letter">{premiumReadiness.ready ? "READY" : "NOT READY"}</span>
+                        <span className="quality-grade__label">Готовность к платной выдаче</span>
+                        <span className="quality-grade__letter">{premiumReadiness.ready ? "ГОТОВ" : "НЕ ГОТОВ"}</span>
                         <span className="quality-grade__score">{premiumReadiness.score}/100</span>
                       </div>
                       <div className="quality-grade__summary">
                         {premiumReadiness.ready
-                          ? "Paid-report quality gate passed."
-                          : (premiumReadiness.issues[0]?.message || "Premium quality gate has open issues.")}
+                          ? "Гейт качества платного отчёта пройден."
+                          : (premiumReadiness.issues[0]?.message || "В премиальном гейте качества есть открытые проблемы.")}
                       </div>
                       <div className="quality-grade__metrics">
-                        <span>issues <b>{premiumReadiness.issues.length}</b></span>
-                        <span>strengths <b>{premiumReadiness.strengths.length}</b></span>
+                        <span>проблемы <b>{premiumReadiness.issues.length}</b></span>
+                        <span>сильные стороны <b>{premiumReadiness.strengths.length}</b></span>
                         {premiumReadiness.issues[0]?.recommendation && (
                           <span title={premiumReadiness.issues[0].recommendation}>
-                            next: <b>{premiumReadiness.issues[0].severity}</b>
+                            следующий шаг: <b>{premiumReadiness.issues[0].severity}</b>
                           </span>
                         )}
                       </div>
@@ -3301,7 +3315,7 @@ export default function Workspace() {
                 if (!status) {
                   return (
                     <div style={{ padding: 24, color: "var(--ink-3)" }}>
-                      Premium refinement status is not loaded.
+                      Статус премиального улучшения не загружен.
                     </div>
                   );
                 }
@@ -3310,36 +3324,36 @@ export default function Workspace() {
                 const nextLeads = status.next_research_leads || [];
                 return (
                   <div className="prompt-doc">
-                    <h1>Premium Refinement Loop</h1>
+                    <h1>Цикл премиального улучшения</h1>
                     <div className="quality-grade quality-grade--b">
                       <div className="quality-grade__head">
-                        <span className="quality-grade__label">Next step</span>
+                        <span className="quality-grade__label">Следующий шаг</span>
                         <span className="quality-grade__letter">{status.recommended_action}</span>
                       </div>
                       <div className="quality-grade__summary">{status.message}</div>
                       <div className="quality-grade__metrics">
-                        <span>followups <b>{status.pending_followup_task_ids.length}</b></span>
-                        <span>resynthesis <b>{status.final_report_needs_followup_resynthesis ? "yes" : "no"}</b></span>
-                        <span>auto-refresh <b>15s</b></span>
+                        <span>доборы <b>{status.pending_followup_task_ids.length}</b></span>
+                        <span>ресинтез <b>{status.final_report_needs_followup_resynthesis ? "да" : "нет"}</b></span>
+                        <span>автообновление <b>15с</b></span>
                         {status.running_synthesize_task_id && (
                           <span>synth <b>{status.running_synthesize_task_id.slice(0, 8)}</b></span>
                         )}
                       </div>
                     </div>
                     <div className="prompt-section">
-                      <h2>Closure</h2>
+                      <h2>Закрытие добора</h2>
                       <table className="mini-table">
                         <tbody>
-                          <tr><td>Score</td><td>{closure?.overall_score ?? "n/a"}/100</td></tr>
-                          <tr><td>Leads</td><td>{closure?.lead_count ?? "n/a"}</td></tr>
-                          <tr><td>Not started</td><td>{closure?.not_started ?? "n/a"}</td></tr>
-                          <tr><td>Not closed</td><td>{closure?.not_closed ?? "n/a"}</td></tr>
+                          <tr><td>Оценка</td><td>{closure?.overall_score ?? "н/д"}/100</td></tr>
+                          <tr><td>Лиды</td><td>{closure?.lead_count ?? "н/д"}</td></tr>
+                          <tr><td>Не начато</td><td>{closure?.not_started ?? "н/д"}</td></tr>
+                          <tr><td>Не закрыто</td><td>{closure?.not_closed ?? "н/д"}</td></tr>
                         </tbody>
                       </table>
                     </div>
                     {nextLeads.length > 0 && (
                       <div className="prompt-section">
-                        <h2>Next research leads</h2>
+                        <h2>Следующие направления добора</h2>
                         <div className="premium-lead-list">
                           {nextLeads.map((lead) => (
                             <div className="premium-lead-card" key={lead.lead_id}>
@@ -3364,13 +3378,13 @@ export default function Workspace() {
                       </div>
                     )}
                     <div className="prompt-section">
-                      <h2>Paid-delivery gate</h2>
+                      <h2>Гейт платной выдачи</h2>
                       <table className="mini-table">
                         <tbody>
-                          <tr><td>Status</td><td>{readiness?.ready ? "READY" : "NOT READY"}</td></tr>
-                          <tr><td>Score</td><td>{readiness?.score ?? "n/a"}/100</td></tr>
-                          <tr><td>Issues</td><td>{readiness?.issues?.length ?? "n/a"}</td></tr>
-                          <tr><td>First blocker</td><td>{readiness?.issues?.[0]?.message || "n/a"}</td></tr>
+                          <tr><td>Статус</td><td>{readiness?.ready ? "ГОТОВ" : "НЕ ГОТОВ"}</td></tr>
+                          <tr><td>Оценка</td><td>{readiness?.score ?? "н/д"}/100</td></tr>
+                          <tr><td>Проблемы</td><td>{readiness?.issues?.length ?? "н/д"}</td></tr>
+                          <tr><td>Первый блокер</td><td>{readiness?.issues?.[0]?.message || "н/д"}</td></tr>
                         </tbody>
                       </table>
                     </div>
@@ -3400,7 +3414,7 @@ export default function Workspace() {
                   p.state === "completed" ? "✓ готово" :
                   p.state === "cancelled" ? "✕ отменено" :
                   p.state === "failed" ? "✗ ошибка" : p.state;
-                const taskRows = activeResearchTasks.map((task) => {
+                const taskRowsBase = activeResearchTasks.map((task) => {
                   const progress = drProgress[task.taskId];
                   const taskState = progress?.state || "running";
                   const taskPct = progress?.progress_pct;
@@ -3417,32 +3431,78 @@ export default function Workspace() {
                     message: progress?.message || "",
                   };
                 });
+                const selectedTask = activeResearchTasks.find((task) => task.taskId === tid);
+                const taskRows = taskRowsBase.some((task) => task.taskId === tid)
+                  ? taskRowsBase
+                  : [
+                      ...taskRowsBase,
+                      {
+                        taskId: tid,
+                        service: p.service,
+                        mode: p.mode,
+                        state: p.state,
+                        pct: p.progress_pct,
+                        elapsed: elapsedLabel,
+                        message: p.message || p.error || "",
+                        isFollowup: false,
+                        leadId: undefined,
+                        kind: undefined,
+                        priority: undefined,
+                        rationale: undefined,
+                        candidateSources: undefined,
+                        linkedTo: undefined,
+                        promptPreview: undefined,
+                      },
+                    ];
                 const runningCount = taskRows.filter((task) => task.state === "running" || task.state === "queued").length;
                 const completedCount = taskRows.filter((task) => task.state === "completed").length;
                 const failedCount = taskRows.filter((task) => task.state === "failed" || task.state === "cancelled").length;
-                const selectedTask = activeResearchTasks.find((task) => task.taskId === tid);
                 const selectedTaskRow = taskRows.find((task) => task.taskId === tid);
+                const selectedMeta = selectedTask || {
+                  service: p.service,
+                  mode: p.mode,
+                  leadId: undefined,
+                };
                 const progressPct = p.progress_pct ?? null;
+                const hasProviderPayload = Boolean(
+                  p.filename || p.word_count || p.source_count || (p.partial_chars && p.partial_chars > 0)
+                );
+                const providerDetail =
+                  p.state === "failed" || p.state === "cancelled"
+                    ? `${p.poll_count} checks, terminal state`
+                    : `${p.poll_count} проверок, последний ответ ${lastPolledAgo !== null ? `${lastPolledAgo}с назад` : "ожидается"}`;
+                const evidenceDetail =
+                  p.state === "completed"
+                    ? `Сохранено как ${p.filename || "исследовательский отчёт"}`
+                    : p.error === "interrupted_with_partial"
+                      ? `${p.partial_chars || 0} chars preserved as partial result`
+                      : p.state === "failed"
+                        ? (p.error || p.message || "Провайдер не вернул пригодный payload")
+                        : p.message || "Жду материал от источника";
+                const evidenceState =
+                  p.state === "completed" ? "done" :
+                  p.state === "failed" || p.state === "cancelled" ? "blocked" :
+                  hasProviderPayload ? "active" : "pending";
                 const stageRows = [
                   {
-                    label: "Task accepted",
-                    detail: selectedTask?.service ? `${selectedTask.service} / ${selectedTask.mode}` : "Research provider selected",
+                    label: "Задача принята",
+                    detail: selectedMeta.service ? `${selectedMeta.service} / ${selectedMeta.mode}` : "Провайдер исследования выбран",
                     state: "done",
                   },
                   {
-                    label: "Provider polling",
-                    detail: `${p.poll_count} checks, last response ${lastPolledAgo !== null ? `${lastPolledAgo}s ago` : "pending"}`,
-                    state: p.state === "queued" || p.state === "running" ? "active" : "done",
+                    label: "Опрос провайдера",
+                    detail: providerDetail,
+                    state: p.state === "queued" || p.state === "running" ? "active" : p.state === "completed" ? "done" : "blocked",
                   },
                   {
-                    label: "Evidence capture",
-                    detail: p.message || "Waiting for source payload",
-                    state: p.state === "completed" ? "done" : progressPct != null && progressPct > 0 ? "active" : "pending",
+                    label: "Захват доказательств",
+                    detail: evidenceDetail,
+                    state: evidenceState,
                   },
                   {
-                    label: "Analytic synthesis",
-                    detail: selectedTask?.leadId ? `Feeds lead ${selectedTask.leadId}` : "Will be merged into report context",
-                    state: p.state === "completed" ? "active" : "pending",
+                    label: "Аналитический синтез",
+                    detail: selectedMeta.leadId ? `Закрывает lead ${selectedMeta.leadId}` : "Будет добавлено в контекст отчёта",
+                    state: p.state === "completed" ? "active" : p.state === "failed" || p.state === "cancelled" ? "blocked" : "pending",
                   },
                 ];
                 const activityLines = [
@@ -3453,9 +3513,15 @@ export default function Workspace() {
                   .filter((line, index, lines) => lines.indexOf(line) === index)
                   .slice(0, 4);
                 const expectedPollEvery = p.poll_count < 8 ? 15 : 30;
-                const nextPollIn = lastPolledAgo === null
+                const nextPollInRaw = lastPolledAgo === null
                   ? expectedPollEvery
-                  : Math.max(0, expectedPollEvery - lastPolledAgo);
+                  : expectedPollEvery - lastPolledAgo;
+                const nextPollLabel =
+                  p.state !== "running" && p.state !== "queued"
+                    ? "не запланировано"
+                    : nextPollInRaw <= 0
+                      ? "проверяю сейчас"
+                      : `~${nextPollInRaw}s`;
                 const healthState =
                   p.state === "completed" ? "complete" :
                   p.state === "failed" || p.state === "cancelled" ? "blocked" :
@@ -3463,53 +3529,65 @@ export default function Workspace() {
                   "live";
                 const healthRows = [
                   {
-                    label: "System signal",
+                    label: "Сигнал системы",
                     value:
-                      healthState === "live" ? "Live polling" :
-                      healthState === "stale" ? "Provider slow response" :
-                      healthState === "complete" ? "Result received" :
-                      "Needs attention",
+                      healthState === "live" ? "Живой опрос" :
+                      healthState === "stale" ? "Провайдер отвечает медленно" :
+                      healthState === "complete" ? "Результат получен" :
+                      "Требует внимания",
                   },
                   {
-                    label: "Next check",
-                    value: p.state === "running" || p.state === "queued"
-                      ? `~${nextPollIn}s`
-                      : "not scheduled",
+                    label: "Следующая проверка",
+                    value: nextPollLabel,
                   },
                   {
-                    label: "Current bottleneck",
+                    label: "Текущее узкое место",
                     value:
-                      p.state === "queued" ? "provider queue" :
-                      p.state === "running" ? "external research provider" :
-                      p.state === "completed" ? "local synthesis" :
+                      p.state === "queued" ? "очередь провайдера" :
+                      p.state === "running" ? "внешний исследовательский провайдер" :
+                      p.state === "completed" ? "локальный синтез" :
+                      p.error === "interrupted_with_partial" ? "восстановление частичного результата" :
+                      p.state === "failed" ? (p.error || "провайдер не справился") :
                       p.state,
                   },
                 ];
+                const emptyFeed =
+                  p.state === "failed" || p.state === "cancelled"
+                    ? (p.error || p.message || "Провайдер остановился до получения пригодного материала.")
+                    : p.state === "completed"
+                      ? "Результат провайдера сохранён. Можно анализировать или синтезировать."
+                      : lastPolledAgo !== null
+                        ? `Провайдер ещё работает; последний опрос ${lastPolledAgo}с назад. Материала пока нет.`
+                        : "Жду первый материал от провайдера.";
+                const progressTip =
+                  p.state === "failed" || p.state === "cancelled"
+                    ? "Задача уже не продолжится сама. Перезапустите провайдера, примите частичный результат, если он доступен, или используйте уже собранные источники."
+                    : "Можно закрыть вкладку — задача продолжит выполняться на стороне сервиса. Когда будет готово, отчёт появится в чате автоматически.";
                 return (
                   <div className="dr-progress-view">
                     <div className="dr-cockpit">
                       <div className="dr-cockpit-head">
                         <div>
-                          <div className="dr-mission-kicker">Research cockpit</div>
-                          <div className="dr-cockpit-title">Live intelligence collection</div>
+                          <div className="dr-mission-kicker">Пульт исследования</div>
+                          <div className="dr-cockpit-title">Живой сбор информации</div>
                         </div>
-                        <div className="dr-cockpit-pulse" aria-label="Live polling indicator" />
+                        <div className="dr-cockpit-pulse" aria-label="Индикатор живого опроса" />
                       </div>
                       <div className="dr-cockpit-grid">
                         <div className="dr-cockpit-metric">
-                          <span>Running</span>
+                          <span>В работе</span>
                           <b>{runningCount}</b>
                         </div>
                         <div className="dr-cockpit-metric">
-                          <span>Completed</span>
+                          <span>Завершено</span>
                           <b>{completedCount}</b>
                         </div>
                         <div className="dr-cockpit-metric">
-                          <span>Exceptions</span>
+                          <span>Сбоев</span>
                           <b>{failedCount}</b>
                         </div>
                         <div className="dr-cockpit-metric">
-                          <span>Elapsed</span>
+                          <span>Прошло</span>
                           <b>{elapsedLabel}</b>
                         </div>
                       </div>
@@ -3534,11 +3612,11 @@ export default function Workspace() {
                           ))}
                         </div>
                         <div className="dr-live-feed">
-                          <div className="dr-live-feed__label">Live feed</div>
+                          <div className="dr-live-feed__label">Лента событий</div>
                           {activityLines.length > 0 ? (
                             activityLines.map((line) => <div key={line} className="dr-live-feed__line">{line}</div>)
                           ) : (
-                            <div className="dr-live-feed__empty">Waiting for the first provider payload.</div>
+                            <div className="dr-live-feed__empty">{emptyFeed}</div>
                           )}
                         </div>
                       </div>
@@ -3547,7 +3625,7 @@ export default function Workspace() {
                       <div className="dr-mission-head">
                         <div>
                           <div className="dr-mission-kicker">Analytic depth control</div>
-                          <div className="dr-mission-title">Исследовательские задачи в работе</div>
+                          <div className="dr-mission-title">Исследовательские задачи и события</div>
                         </div>
                         <div className="dr-mission-count">{taskRows.length}</div>
                       </div>
@@ -3557,7 +3635,11 @@ export default function Workspace() {
                             <button
                               key={task.taskId}
                               type="button"
-                              className={"dr-mission-card" + (task.taskId === tid ? " active" : "")}
+                              className={
+                                "dr-mission-card" +
+                                (task.taskId === tid ? " active" : "") +
+                                (task.state === "failed" || task.state === "cancelled" ? " failed" : "")
+                              }
                               onClick={() => setArtifact({ kind: "dr-progress", data: { taskId: task.taskId } })}
                               title={task.message || task.taskId}
                             >
@@ -3567,7 +3649,11 @@ export default function Workspace() {
                               </span>
                               <span className="dr-mission-status">{task.state}</span>
                               <span className="dr-mission-meta">
-                                {task.pct != null ? `${task.pct}%` : "polling"} · {task.elapsed}
+                                {task.state === "failed" || task.state === "cancelled"
+                                  ? "stopped"
+                                  : task.state === "completed"
+                                    ? "saved"
+                                    : task.pct != null ? `${task.pct}%` : "polling"} · {task.elapsed}
                               </span>
                             </button>
                           ))}
@@ -3628,10 +3714,7 @@ export default function Workspace() {
                         <div className="dr-progress-message-text">{p.message}</div>
                       </div>
                     )}
-                    <div className="dr-progress-tip">
-                      💡 Можно закрыть вкладку — задача продолжит выполняться на стороне сервиса.
-                      Когда будет готово, отчёт появится в чате автоматически.
-                    </div>
+                    <div className="dr-progress-tip">{progressTip}</div>
                   </div>
                 );
               })()}
