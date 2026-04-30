@@ -396,6 +396,18 @@ def test_v4_full_cycle(monkeypatch, tmp_path):
     assert r.json()["analytic_depth"]["research_leads"]
     assert r.json()["analytic_closure"]["lead_count"] > 0
     assert r.json()["premium_readiness"]["ready"] is False
+    r = client.get(f"/api/v4/sessions/{sid}/next-research-brief")
+    assert r.status_code == 200
+    assert "# Next Research Brief" in r.text
+    assert "## Priority Leads" in r.text
+    assert "**Prompt**" in r.text
+    r = client.get(
+        f"/api/v4/sessions/{sid}/export",
+        params={"format": "next-research-brief", "allow_draft": "true"},
+    )
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/markdown")
+    assert "# Next Research Brief" in r.text
     r = client.get(f"/api/v4/sessions/{sid}/analytic-closure")
     assert r.status_code == 200
     assert r.json()["lead_count"] > 0
@@ -903,6 +915,40 @@ def test_get_analytic_depth_requires_analysis():
 
     assert r.status_code == 409
     assert "call /analyze first" in r.text
+
+
+def test_next_research_brief_requires_analysis_but_not_final_report():
+    from smart_report.models import AnalysisOutput, Gap
+
+    client = _authed_client()
+    sid = client.post(
+        "/api/v4/sessions",
+        json={"question": "forecast Moscow premium real estate prices"},
+    ).json()["session_id"]
+
+    r = client.get(f"/api/v4/sessions/{sid}/next-research-brief")
+    assert r.status_code == 409
+    assert "call /analyze first" in r.text
+
+    session = v4._store.get(sid)
+    session.analysis = AnalysisOutput(
+        gaps=[
+            Gap(
+                topic="Pipeline starts",
+                why_critical="Supply changes price pressure.",
+                what_to_find="Named launches with dates and source URLs.",
+                candidate_sources=["developer sites"],
+            )
+        ]
+    )
+    session.final_report = None
+    v4._store.update(session)
+
+    r = client.get(f"/api/v4/sessions/{sid}/next-research-brief")
+    assert r.status_code == 200, r.text
+    assert "# Next Research Brief" in r.text
+    assert "Pipeline starts" in r.text
+    assert "**Prompt**" in r.text
 
 
 def test_get_analytic_depth_plan_returns_research_map():

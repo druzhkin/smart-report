@@ -27,6 +27,7 @@ import {
   runAutoDepthLeads,
   runPremiumRefine,
   getPremiumRefinementStatus,
+  nextResearchBriefUrl,
   pollAutoDRStatus,
   pollLongTaskStatus,
   isAsyncOut,
@@ -2407,12 +2408,24 @@ export default function Workspace() {
         kind: "Premium loop",
         title: "Paid-report refinement status",
         actions: (
-          <button
-            className="icon-btn primary"
-            onClick={actPremiumRefine}
-          >
-            continue
-          </button>
+          <>
+            {sessionId && (
+              <a
+                className="icon-btn"
+                href={nextResearchBriefUrl(sessionId)}
+                target="_blank"
+                rel="noreferrer"
+              >
+                brief
+              </a>
+            )}
+            <button
+              className="icon-btn primary"
+              onClick={actPremiumRefine}
+            >
+              continue
+            </button>
+          </>
         ),
       };
     }
@@ -3259,8 +3272,132 @@ export default function Workspace() {
                     message: progress?.message || "",
                   };
                 });
+                const runningCount = taskRows.filter((task) => task.state === "running" || task.state === "queued").length;
+                const completedCount = taskRows.filter((task) => task.state === "completed").length;
+                const failedCount = taskRows.filter((task) => task.state === "failed" || task.state === "cancelled").length;
+                const selectedTask = activeResearchTasks.find((task) => task.taskId === tid);
+                const selectedTaskRow = taskRows.find((task) => task.taskId === tid);
+                const progressPct = p.progress_pct ?? null;
+                const stageRows = [
+                  {
+                    label: "Task accepted",
+                    detail: selectedTask?.service ? `${selectedTask.service} / ${selectedTask.mode}` : "Research provider selected",
+                    state: "done",
+                  },
+                  {
+                    label: "Provider polling",
+                    detail: `${p.poll_count} checks, last response ${lastPolledAgo !== null ? `${lastPolledAgo}s ago` : "pending"}`,
+                    state: p.state === "queued" || p.state === "running" ? "active" : "done",
+                  },
+                  {
+                    label: "Evidence capture",
+                    detail: p.message || "Waiting for source payload",
+                    state: p.state === "completed" ? "done" : progressPct != null && progressPct > 0 ? "active" : "pending",
+                  },
+                  {
+                    label: "Analytic synthesis",
+                    detail: selectedTask?.leadId ? `Feeds lead ${selectedTask.leadId}` : "Will be merged into report context",
+                    state: p.state === "completed" ? "active" : "pending",
+                  },
+                ];
+                const activityLines = [
+                  selectedTaskRow?.message,
+                  ...taskRows.map((task) => task.message),
+                ]
+                  .filter((line): line is string => Boolean(line && line.trim()))
+                  .filter((line, index, lines) => lines.indexOf(line) === index)
+                  .slice(0, 4);
+                const expectedPollEvery = p.poll_count < 8 ? 15 : 30;
+                const nextPollIn = lastPolledAgo === null
+                  ? expectedPollEvery
+                  : Math.max(0, expectedPollEvery - lastPolledAgo);
+                const healthState =
+                  p.state === "completed" ? "complete" :
+                  p.state === "failed" || p.state === "cancelled" ? "blocked" :
+                  lastPolledAgo !== null && lastPolledAgo > 75 ? "stale" :
+                  "live";
+                const healthRows = [
+                  {
+                    label: "System signal",
+                    value:
+                      healthState === "live" ? "Live polling" :
+                      healthState === "stale" ? "Provider slow response" :
+                      healthState === "complete" ? "Result received" :
+                      "Needs attention",
+                  },
+                  {
+                    label: "Next check",
+                    value: p.state === "running" || p.state === "queued"
+                      ? `~${nextPollIn}s`
+                      : "not scheduled",
+                  },
+                  {
+                    label: "Current bottleneck",
+                    value:
+                      p.state === "queued" ? "provider queue" :
+                      p.state === "running" ? "external research provider" :
+                      p.state === "completed" ? "local synthesis" :
+                      p.state,
+                  },
+                ];
                 return (
                   <div className="dr-progress-view">
+                    <div className="dr-cockpit">
+                      <div className="dr-cockpit-head">
+                        <div>
+                          <div className="dr-mission-kicker">Research cockpit</div>
+                          <div className="dr-cockpit-title">Live intelligence collection</div>
+                        </div>
+                        <div className="dr-cockpit-pulse" aria-label="Live polling indicator" />
+                      </div>
+                      <div className="dr-cockpit-grid">
+                        <div className="dr-cockpit-metric">
+                          <span>Running</span>
+                          <b>{runningCount}</b>
+                        </div>
+                        <div className="dr-cockpit-metric">
+                          <span>Completed</span>
+                          <b>{completedCount}</b>
+                        </div>
+                        <div className="dr-cockpit-metric">
+                          <span>Exceptions</span>
+                          <b>{failedCount}</b>
+                        </div>
+                        <div className="dr-cockpit-metric">
+                          <span>Elapsed</span>
+                          <b>{elapsedLabel}</b>
+                        </div>
+                      </div>
+                      <div className={`dr-cockpit-health ${healthState}`}>
+                        {healthRows.map((row) => (
+                          <div key={row.label} className="dr-cockpit-health__item">
+                            <span>{row.label}</span>
+                            <b>{row.value}</b>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="dr-cockpit-body">
+                        <div className="dr-stage-list">
+                          {stageRows.map((stage) => (
+                            <div key={stage.label} className={`dr-stage-item ${stage.state}`}>
+                              <span className="dr-stage-dot" />
+                              <div>
+                                <b>{stage.label}</b>
+                                <span>{stage.detail}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="dr-live-feed">
+                          <div className="dr-live-feed__label">Live feed</div>
+                          {activityLines.length > 0 ? (
+                            activityLines.map((line) => <div key={line} className="dr-live-feed__line">{line}</div>)
+                          ) : (
+                            <div className="dr-live-feed__empty">Waiting for the first provider payload.</div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
                     <div className="dr-mission">
                       <div className="dr-mission-head">
                         <div>
@@ -3295,7 +3432,6 @@ export default function Workspace() {
                       )}
                     </div>
                     {(() => {
-                      const selectedTask = activeResearchTasks.find((task) => task.taskId === tid);
                       if (!selectedTask?.leadId) return null;
                       return (
                         <div className="dr-lead-card">
@@ -3308,6 +3444,9 @@ export default function Workspace() {
                           </div>
                           {selectedTask.rationale && (
                             <div className="dr-lead-card__text">{selectedTask.rationale}</div>
+                          )}
+                          {selectedTask.promptPreview && (
+                            <div className="dr-lead-card__prompt">{selectedTask.promptPreview}</div>
                           )}
                           {selectedTask.candidateSources && selectedTask.candidateSources.length > 0 && (
                             <div className="dr-lead-card__sources">

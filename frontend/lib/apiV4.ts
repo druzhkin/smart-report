@@ -1200,6 +1200,10 @@ export function exportUrl(
   return `${V4_BASE}/api/v4/sessions/${encodeURIComponent(id)}/export?${params.toString()}`;
 }
 
+export function nextResearchBriefUrl(id: string): string {
+  return `${V4_BASE}/api/v4/sessions/${encodeURIComponent(id)}/next-research-brief`;
+}
+
 // -- Gamma PPTX (Gamma API integration, replaces stub) --------------------
 // Real PPTX generation: 1-3 min. Uses the long-task pattern.
 

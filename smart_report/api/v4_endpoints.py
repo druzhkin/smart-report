@@ -1846,6 +1846,38 @@ async def get_analytic_closure(session_id: str, request: Request) -> dict:
     ).model_dump(mode="json")
 
 
+@router.get("/sessions/{session_id}/next-research-brief")
+async def get_next_research_brief(session_id: str, request: Request) -> FileResponse:
+    """Download the executable next-research brief without building a ZIP.
+
+    This can be used immediately after /analyze, before a final report exists.
+    It is the handoff artifact for a human analyst or another research agent:
+    open analytic-depth leads, prompts, candidate sources, and current closure
+    status.
+    """
+    session = _get_owned(session_id, request)
+    if session.analysis is None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"session {session_id} has no analysis yet; call /analyze first",
+        )
+    client_report = (
+        sanitize_final_report(session.final_report)
+        if session.final_report is not None
+        else None
+    )
+    out_path = _write_next_research_brief_file(
+        _session_artefact_dir(session_id) / "next_research_brief.md",
+        session,
+        client_report,
+    )
+    return FileResponse(
+        str(out_path),
+        media_type="text/markdown; charset=utf-8",
+        filename="next_research_brief.md",
+    )
+
+
 @router.get("/sessions/{session_id}/premium-readiness")
 async def get_premium_readiness(session_id: str, request: Request) -> dict:
     """Return the stricter paid-report readiness gate.
@@ -2174,6 +2206,7 @@ async def get_events(session_id: str, request: Request, since: int = 0, timeout:
 _EXPORT_FORMATS = {
     "md", "json", "docx", "premium-docx", "premium-pptx", "pptx", "onepager",
     "premium-package", "premium-client-package",
+    "next-research-brief",
     "data-pack", "sources-csv", "facts-csv", "audit-json",
     "gamma-pptx", "gamma-pdf",
     "gamma-pptx-real",  # served from disk after export-gamma-pptx finishes
@@ -2223,6 +2256,18 @@ async def export_session(
     if format == "audit-json":
         out_path = _write_audit_json(out_dir / "audit.json", session)
         return FileResponse(str(out_path), media_type="application/json", filename="audit.json")
+
+    if format == "next-research-brief":
+        out_path = _write_next_research_brief_file(
+            out_dir / "next_research_brief.md",
+            session,
+            client_report,
+        )
+        return FileResponse(
+            str(out_path),
+            media_type="text/markdown; charset=utf-8",
+            filename="next_research_brief.md",
+        )
 
     # Real Gamma-generated PPTX is produced by the async export-gamma-pptx
     # endpoint (1-3 min generation). The /export route only serves the
@@ -2684,6 +2729,33 @@ def _write_premium_package(
             "14_next_research_brief.md",
             _next_research_brief_markdown(depth_plan, analytic_closure),
         )
+    return path
+
+
+def _write_next_research_brief_file(
+    path: Path,
+    session: V4Session,
+    client_report: FinalReport | None,
+) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    depth_plan = (
+        build_analytic_depth_plan(
+            session.raw_question,
+            analysis=session.analysis,
+            report=client_report,
+        )
+        if session.analysis
+        else None
+    )
+    analytic_closure = (
+        assess_analytic_closure(depth_plan, list(session.followup_reports or []))
+        if depth_plan
+        else None
+    )
+    path.write_text(
+        _next_research_brief_markdown(depth_plan, analytic_closure),
+        encoding="utf-8",
+    )
     return path
 
 

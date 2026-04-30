@@ -24,6 +24,7 @@ type Item = {
 const ITEMS: Item[] = [
   { fmt: "premium-client-package", label: "Deliver to Client ZIP", Icon: Sparkles, accent: "text-[#B08D57]" },
   { fmt: "premium-package", label: "Premium Draft Package ZIP", Icon: Archive, accent: "text-[#B08D57]" },
+  { fmt: "next-research-brief", label: "Next Research Brief MD", Icon: FileText, accent: "text-[#B08D57]" },
   { fmt: "premium-docx", label: "Premium Report DOCX", Icon: Sparkles, accent: "text-[#B08D57]" },
   { fmt: "premium-pptx", label: "Premium Deck PPTX", Icon: Presentation, accent: "text-[#B08D57]" },
   { fmt: "docx", label: "Client Report DOCX", Icon: FileText, accent: "text-blue-600" },

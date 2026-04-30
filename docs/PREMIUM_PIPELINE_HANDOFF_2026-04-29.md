@@ -1124,6 +1124,54 @@ Verification:
 - expanded premium/v4/evidence suite -> `99 passed`;
 - frontend production build -> passed.
 
+### 31. Next Research Brief can be downloaded before final synthesis
+
+Added a standalone next-research-brief download path:
+
+- `GET /api/v4/sessions/{id}/next-research-brief`
+- `GET /api/v4/sessions/{id}/export?format=next-research-brief&allow_draft=true`
+
+The standalone endpoint requires `analysis`, but does not require
+`final_report`. This is important for long runs: after the analytic-depth layer
+has identified open leads, a human analyst or another research agent can
+download the executable brief immediately, without waiting for a premium ZIP.
+
+Frontend additions:
+
+- export dropdown now includes `Next Research Brief MD`;
+- the premium status artifact header has a `brief` action beside `continue`.
+
+Verification:
+
+- `pytest -q tests\test_v4_endpoints.py -k "next_research_brief or full_flow"` -> passed;
+- `cd frontend && npm run build` -> passed.
+
+### 32. DR waiting panel is now an operational research cockpit
+
+The old DR waiting view was technically correct but psychologically weak: it
+looked like a static polling panel, so a 10-30 minute research run could feel
+stuck even when the backend was alive.
+
+Added an additive v4 chat UI layer for `dr-progress` artifacts:
+
+- research cockpit header with live polling indicator;
+- queue metrics: running, completed, exceptions, elapsed;
+- health strip: system signal, next check, current bottleneck;
+- stage timeline: task accepted, provider polling, evidence capture,
+  analytic synthesis;
+- live feed based on provider progress messages;
+- prompt preview inside analytic-depth lead cards;
+- subtle progress scan animation on the existing progress bar.
+
+This does not change DR execution semantics. It only makes long waits legible
+and useful for the user while external providers run.
+
+Verification:
+
+- `cd frontend && npm run build` -> passed;
+- `pytest -q tests\test_v4_endpoints.py -k "next_research_brief or premium_refinement_status"` -> `2 passed`;
+- `git diff --check` -> clean except CRLF warnings.
+
 ### 4. Premium deck design is functional, not yet agency-grade
 
 The deck is separate and editable, but it is still a conservative native PPTX
