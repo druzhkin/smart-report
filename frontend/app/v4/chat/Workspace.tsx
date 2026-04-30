@@ -45,6 +45,7 @@ import {
   type PremiumReadiness,
   type PremiumRefinementStatusOut,
   type AutoDepthLeadOut,
+  type V4Event,
 } from "@/lib/apiV4";
 import { DrPicker, type DrServiceKey } from "./DrPicker";
 import { ModelPicker, getPipelineModel } from "@/components/ModelPicker";
@@ -177,6 +178,7 @@ export default function Workspace() {
   const [premiumReadiness, setPremiumReadiness] = useState<PremiumReadiness | null>(null);
   const [premiumRefinementStatus, setPremiumRefinementStatus] =
     useState<PremiumRefinementStatusOut | null>(null);
+  const [recentEvents, setRecentEvents] = useState<V4Event[]>([]);
   const [sourceContent, setSourceContent] = useState<{ filename: string; content: string } | null>(null);
   // Multiple concurrent DR tasks supported — user can fire Valyu, Exa,
   // and OpenAI in parallel and each gets its own poll loop. (Was a Map
@@ -205,10 +207,10 @@ export default function Workspace() {
   // so the «прошло X с» clock updates smoothly between polls.
   const [, setProgressTick] = useState(0);
   useEffect(() => {
-    if (artifact?.kind !== "dr-progress") return;
+    if (artifact?.kind !== "dr-progress" && !pending && activeResearchTasks.length === 0) return;
     const t = setInterval(() => setProgressTick((n) => (n + 1) % 1000), 1000);
     return () => clearInterval(t);
-  }, [artifact?.kind]);
+  }, [artifact?.kind, pending, activeResearchTasks.length]);
 
   useEffect(() => {
     if (!sessionId || artifact?.kind !== "premium-status") return;
@@ -941,6 +943,14 @@ export default function Workspace() {
         try {
           const r = await getEvents(sessionId, cursor, 25);
           if (cancelled) return;
+          if (r.events.length > 0) {
+            setRecentEvents((prev) => {
+              const merged = [...prev, ...r.events]
+                .filter((ev, index, arr) => arr.findIndex((x) => x.seq === ev.seq) === index)
+                .sort((a, b) => a.seq - b.seq);
+              return merged.slice(-30);
+            });
+          }
           for (const ev of r.events) {
             if (ev.seq <= lastSeenSeq) continue;
             lastSeenSeq = ev.seq;
@@ -2341,6 +2351,138 @@ export default function Workspace() {
   // ===== Phase stepper =====
   const currentStepIdx = PHASE_STEPS.findIndex((s) => s.when(phase));
 
+  const renderResearchCommandCenter = () => {
+    const now = Math.floor(Date.now() / 1000);
+    const taskRows = activeResearchTasks.map((task) => {
+      const progress = drProgress[task.taskId];
+      const elapsed = progress?.started_at ? Math.max(0, now - progress.started_at) : 0;
+      return {
+        ...task,
+        state: progress?.state || "running",
+        pct: progress?.progress_pct,
+        message: progress?.message || "",
+        elapsedLabel: elapsed < 60 ? `${elapsed}s` : `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`,
+        stale: progress?.last_polled_at ? now - progress.last_polled_at > 75 : false,
+      };
+    });
+    const latestEvents = recentEvents.slice(-8).reverse();
+    const signalMessages = [
+      ...taskRows.map((task) => task.message),
+      ...latestEvents.map((event) => event.message),
+    ]
+      .filter((line): line is string => Boolean(line && line.trim()))
+      .filter((line, index, lines) => lines.indexOf(line) === index)
+      .slice(0, 5);
+    const branches = [
+      {
+        label: "Source base",
+        status: activeResearchTasks.length > 0 ? "running" : analysisData?.per_source_summary?.length ? "closed" : "pending",
+        detail: `${analysisData?.per_source_summary?.length || 0} source summaries`,
+      },
+      {
+        label: "Consensus",
+        status: analysisData?.consensus?.length ? "closed" : pending ? "running" : "pending",
+        detail: `${analysisData?.consensus?.length || 0} claims`,
+      },
+      {
+        label: "Conflicts",
+        status: analysisData?.conflicts?.length ? "risk" : analysisData ? "closed" : "pending",
+        detail: `${analysisData?.conflicts?.length || 0} conflicts`,
+      },
+      {
+        label: "Gaps",
+        status: analysisData?.gaps?.length ? "risk" : analysisData ? "closed" : "pending",
+        detail: `${analysisData?.gaps?.length || 0} gaps`,
+      },
+      {
+        label: "Premium gate",
+        status: premiumReadiness?.ready ? "closed" : premiumReadiness ? "risk" : premiumRefinementStatus ? "running" : "pending",
+        detail: premiumReadiness ? `${premiumReadiness.score}/100` : premiumRefinementStatus?.recommended_action || "not evaluated",
+      },
+    ];
+    const activeProvider = taskRows.find((task) => task.state === "running" || task.state === "queued");
+    const readinessLabel =
+      premiumReadiness?.ready ? "premium-grade" :
+      premiumReadiness ? "needs refinement" :
+      analysisData ? "analyst-grade draft" :
+      activeResearchTasks.length > 0 ? "collecting evidence" :
+      pending ? "working" :
+      "idle";
+    const riskCount =
+      (analysisData?.conflicts?.length || 0) +
+      (analysisData?.gaps?.length || 0) +
+      (analysisData?.unverified_numbers?.length || 0) +
+      (premiumReadiness?.issues?.length || 0);
+    const commandVisible = pending || activeResearchTasks.length > 0;
+    if (!commandVisible) return null;
+    return (
+      <section className="research-command" aria-label="Research command center">
+        <div className="research-command__top">
+          <div>
+            <div className="research-command__kicker">Research command center</div>
+            <h2>Работа над отчётом идёт</h2>
+          </div>
+          <div className="research-command__grade">
+            <span>readiness</span>
+            <b>{readinessLabel}</b>
+          </div>
+        </div>
+
+        <div className="research-command__metrics">
+          <div><span>Active DR</span><b>{activeResearchTasks.length}</b></div>
+          <div><span>Events</span><b>{recentEvents.length}</b></div>
+          <div><span>Open risk</span><b>{riskCount}</b></div>
+          <div><span>Cost</span><b>₽ {Math.round(cost)}</b></div>
+        </div>
+
+        <div className="research-command__body">
+          <div className="research-map">
+            {branches.map((branch) => (
+              <div key={branch.label} className={`research-map__row ${branch.status}`}>
+                <span className="research-map__dot" />
+                <div>
+                  <b>{branch.label}</b>
+                  <span>{branch.detail}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="research-finds">
+            <div className="research-command__label">Current findings</div>
+            {signalMessages.length > 0 ? (
+              signalMessages.map((line) => (
+                <div key={line} className="research-finds__line">{line}</div>
+              ))
+            ) : (
+              <div className="research-finds__empty">Waiting for the first analytical signal.</div>
+            )}
+          </div>
+        </div>
+
+        <div className="research-command__footer">
+          <div>
+            <span>current bottleneck</span>
+            <b>{activeProvider ? `${activeProvider.service} / ${activeProvider.mode}` : pending ? "local analysis" : "none"}</b>
+          </div>
+          <div>
+            <span>provider state</span>
+            <b>{activeProvider ? `${activeProvider.state}${activeProvider.stale ? " / slow" : ""}` : "not running"}</b>
+          </div>
+          <button
+            type="button"
+            className="research-command__button"
+            onClick={() => {
+              if (activeProvider) setArtifact({ kind: "dr-progress", data: { taskId: activeProvider.taskId } });
+              else if (analysisData) setArtifact({ kind: "critique", data: analysisData });
+            }}
+          >
+            inspect
+          </button>
+        </div>
+      </section>
+    );
+  };
+
   // ===== Artifact header =====
   const artifactHead = (() => {
     if (!artifact) return null;
@@ -2824,7 +2966,10 @@ export default function Workspace() {
           </div>
 
           <div className="chat-scroll" ref={scrollRef}>
-            <div className="chat-inner">{messages.map(renderMsg)}</div>
+            <div className={"chat-inner" + (pending || activeResearchTasks.length > 0 ? " with-command" : "")}>
+              {renderResearchCommandCenter()}
+              {messages.map(renderMsg)}
+            </div>
           </div>
 
           {phase === PHASE.START && !sessionId && (

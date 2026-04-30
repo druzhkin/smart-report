@@ -1172,6 +1172,41 @@ Verification:
 - `pytest -q tests\test_v4_endpoints.py -k "next_research_brief or premium_refinement_status"` -> `2 passed`;
 - `git diff --check` -> clean except CRLF warnings.
 
+### 33. Long-run chat now has a Research Command Center
+
+Added a second, broader waiting-state layer in the main chat column. This is
+different from the narrow DR artifact panel: it is visible during any pending
+pipeline work or active DR tasks, so the user does not have to open the right
+artifact panel to understand what is happening.
+
+The command center is domain-neutral and derives its state from existing v4
+signals:
+
+- active DR tasks and `drProgress`;
+- live `/events` stream;
+- `analysis` outputs: source summaries, consensus, conflicts, gaps,
+  unverified numbers;
+- premium readiness and premium refinement status when available.
+
+It renders:
+
+- readiness label (`collecting evidence`, `analyst-grade draft`,
+  `needs refinement`, `premium-grade`);
+- active DR count, live event count, open risk count, current cost;
+- research map rows for source base, consensus, conflicts, gaps, premium gate;
+- current findings stream from provider messages and backend events;
+- current bottleneck and provider state;
+- `inspect` action to open the DR progress artifact or analysis artifact.
+
+This turns the waiting state into product value: the user sees the analytical
+work evolve instead of watching a long technical log.
+
+Verification:
+
+- `cd frontend && npm run build` -> passed;
+- `pytest -q tests\test_v4_endpoints.py -k "next_research_brief or premium_refinement_status"` -> `2 passed`;
+- `git diff --check` -> clean except CRLF warnings.
+
 ### 4. Premium deck design is functional, not yet agency-grade
 
 The deck is separate and editable, but it is still a conservative native PPTX
