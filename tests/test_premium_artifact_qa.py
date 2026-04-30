@@ -119,9 +119,12 @@ def test_premium_artifact_qa_structural_checks_pass_without_render(premium_artif
     pptx_result = next(item for item in report["results"] if item["kind"] == "pptx")
     assert docx_result["metrics"]["tables"] >= 4
     assert docx_result["metrics"]["estimated_pages"] >= 1
-    assert docx_result["metrics"]["has_readiness_gate"] is True
+    assert docx_result["metrics"]["has_decision_dashboard"] is True
+    assert docx_result["metrics"]["has_scorecard"] is True
+    assert docx_result["metrics"]["has_readiness_gate"] is False
     assert pptx_result["metrics"]["slides"] >= 10
-    assert pptx_result["metrics"]["has_readiness"] is True
+    assert pptx_result["metrics"]["has_client_position"] is True
+    assert pptx_result["metrics"]["has_readiness"] is False
 
 
 def test_premium_artifact_qa_reports_missing_render_tools(monkeypatch, premium_artifacts, tmp_path):

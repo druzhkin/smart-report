@@ -2,7 +2,7 @@
 
 This is a separate deck artifact for the premium package. It uses the same
 renderer-neutral PremiumReportDocument as the DOCX report, but optimizes the
-output for presentation: answer, evidence, readiness, scenarios/risks, and
+output for presentation: answer, position, evidence, scenarios/risks, and
 section-level implications. It is intentionally domain-neutral.
 """
 
@@ -22,11 +22,16 @@ RED = "B42318"
 GREEN = "027A48"
 
 
-def render_premium_pptx(document: PremiumReportDocument, path: Path) -> Path:
+def render_premium_pptx(
+    document: PremiumReportDocument,
+    path: Path,
+    *,
+    include_internal_audit: bool = False,
+) -> Path:
     """Render an editable premium PPTX deck."""
 
     from pptx import Presentation
-    from pptx.util import Inches, Pt
+    from pptx.util import Inches
 
     path.parent.mkdir(parents=True, exist_ok=True)
     prs = Presentation()
@@ -39,7 +44,10 @@ def render_premium_pptx(document: PremiumReportDocument, path: Path) -> Path:
     blank = prs.slide_layouts[6]
     _cover(prs, blank, document)
     _executive_answer(prs, blank, document)
-    _readiness(prs, blank, document)
+    if include_internal_audit:
+        _readiness(prs, blank, document)
+    else:
+        _client_position(prs, blank, document)
     _evidence(prs, blank, document)
 
     for idx, section in enumerate(document.sections[:6], start=1):
@@ -83,6 +91,36 @@ def _executive_answer(prs, layout, document: PremiumReportDocument) -> None:
     )
     _callout(slide, 7.1, 3.1, 4.9, 2.5, document.plan.decision_context)
     _footer(slide, 2)
+
+
+def _client_position(prs, layout, document: PremiumReportDocument) -> None:
+    slide = prs.slides.add_slide(layout)
+    _title(slide, "Позиция и ограничения")
+    _metric_card(slide, 0.7, 1.25, "Доверие", _client_confidence_label(document), value_color=GOLD, width=3.45)
+    _metric_card(slide, 4.45, 1.25, "Источники", str(document.source_count), width=2.35)
+    _metric_card(slide, 7.1, 1.25, "Числовые факты", str(document.numeric_fact_count), width=2.75)
+    _table(
+        slide,
+        0.7,
+        2.75,
+        11.8,
+        2.5,
+        ["Вопрос клиента", "Что даёт отчёт", "Как использовать"],
+        [
+            ["Какое решение принять?", document.plan.decision_context, "Сравнить базовый вывод со сценариями и рисками."],
+            ["Насколько вывод проверяем?", f"{document.source_count} источников; {document.numeric_fact_count} числовых фактов.", "Проверять спорные цифры по приложенному реестру источников."],
+            ["Где осторожность?", "Неполные и конфликтующие данные выделены в отдельных разделах.", "Не читать прогноз как точечное обещание; использовать коридоры."],
+        ],
+    )
+    _callout(
+        slide,
+        0.7,
+        5.55,
+        11.8,
+        0.65,
+        "Презентация даёт управленческую линию. Полная доказательная база и ограничения раскрыты в DOCX-отчёте.",
+    )
+    _footer(slide, 3)
 
 
 def _readiness(prs, layout, document: PremiumReportDocument) -> None:
@@ -201,7 +239,7 @@ def _callout(slide, x: float, y: float, w: float, h: float, text: str) -> None:
 
 
 def _table(slide, x: float, y: float, w: float, h: float, headers: list[str], rows: list[list[str]]) -> None:
-    from pptx.util import Inches, Pt
+    from pptx.util import Inches
 
     rows = rows or [["-", "-", "-"]]
     table_shape = slide.shapes.add_table(len(rows) + 1, len(headers), Inches(x), Inches(y), Inches(w), Inches(h))
@@ -280,6 +318,20 @@ def _block_signal(block: PremiumPreparedBlock) -> str:
     if block.notes:
         return block.notes[0][:120]
     return "Подготовлено для аналитического синтеза"
+
+
+def _client_confidence_label(document: PremiumReportDocument) -> str:
+    readiness = document.premium_readiness or {}
+    score = readiness.get("score")
+    if isinstance(score, (int, float)) and not isinstance(score, bool):
+        if score >= 85:
+            return "высокий"
+        if score >= 70:
+            return "средний"
+        return "ограниченный"
+    if document.source_count >= 15 and document.numeric_fact_count >= 60:
+        return "средний+"
+    return "ограниченный"
 
 
 def _section_insight_rows(section: PremiumPreparedSection) -> list[list[str]]:

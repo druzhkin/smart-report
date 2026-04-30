@@ -29,7 +29,12 @@ PAPER = "F7F4EE"
 LINE = "D9DEE7"
 
 
-def render_premium_docx(document: PremiumReportDocument, path: Path) -> Path:
+def render_premium_docx(
+    document: PremiumReportDocument,
+    path: Path,
+    *,
+    include_internal_audit: bool = False,
+) -> Path:
     """Render a premium long-form report DOCX."""
 
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -39,9 +44,11 @@ def render_premium_docx(document: PremiumReportDocument, path: Path) -> Path:
     doc.core_properties.author = "Smart Report"
     _setup_document(doc)
     _render_cover(doc, document)
-    _render_decision_dashboard(doc, document)
-    _render_scorecard(doc, document)
-    _render_readiness_gate(doc, document)
+    _render_decision_dashboard(doc, document, include_internal_audit=include_internal_audit)
+    _render_client_evidence_snapshot(doc, document)
+    if include_internal_audit:
+        _render_scorecard(doc, document)
+        _render_readiness_gate(doc, document)
     _render_toc_placeholder(doc, document)
     for section in document.sections:
         _render_section(doc, section)
@@ -142,11 +149,17 @@ def _render_cover(doc: Document, report: PremiumReportDocument) -> None:
     doc.add_section(WD_SECTION_START.NEW_PAGE)
 
 
-def _render_decision_dashboard(doc: Document, report: PremiumReportDocument) -> None:
-    doc.add_heading("Панель решения клиента", level=1)
+def _render_decision_dashboard(
+    doc: Document,
+    report: PremiumReportDocument,
+    *,
+    include_internal_audit: bool = False,
+) -> None:
+    doc.add_heading("Резюме для решения", level=1)
     intro = doc.add_paragraph(
-        "Одностраничная панель для клиента: ответ, глубина доказательств, статус готовности "
-        "и следующий шаг."
+        "Эта страница фиксирует управленческий ответ, уровень доказательной базы и практическое "
+        "следствие для решения. Ограничения и спорные места вынесены явно, чтобы читатель видел "
+        "не только вывод, но и границы его применимости."
     )
     _set_run(intro.runs[0], size=9.5, color=MUTED, italic=True)
 
@@ -154,15 +167,6 @@ def _render_decision_dashboard(doc: Document, report: PremiumReportDocument) -> 
     ready = bool(readiness.get("ready"))
     score = readiness.get("score", "?")
     issues = readiness.get("issues") or []
-    next_step = (
-        "Можно использовать как платный клиентский материал."
-        if ready
-        else "Закрыть указанные блокеры перед платной выдачей клиенту."
-    )
-    if isinstance(issues, list) and issues:
-        first_issue = issues[0]
-        if isinstance(first_issue, dict) and first_issue.get("recommendation"):
-            next_step = str(first_issue.get("recommendation"))
 
     cards = [
         (
@@ -177,13 +181,17 @@ def _render_decision_dashboard(doc: Document, report: PremiumReportDocument) -> 
             GOLD,
         ),
         (
-            "Гейт платной выдачи",
-            f"{'Готов' if ready else 'Не готов'}; оценка {score}/100; проблем: {len(issues)}.",
-            "2E7D32" if ready else "B42318",
+            "Уровень доверия",
+            (
+                f"Внутренний score {score}/100; открытых вопросов: {len(issues)}."
+                if include_internal_audit
+                else _client_confidence_label(report)
+            ),
+            "2E7D32" if ready else GOLD,
         ),
         (
-            "Следующее действие",
-            next_step,
+            "Практическое следствие",
+            report.plan.decision_context,
             INK,
         ),
     ]
@@ -204,6 +212,23 @@ def _render_decision_dashboard(doc: Document, report: PremiumReportDocument) -> 
         _set_run(body, size=9.2, color=INK)
 
     doc.add_paragraph()
+
+
+def _render_client_evidence_snapshot(doc: Document, report: PremiumReportDocument) -> None:
+    doc.add_heading("Карта доказательств", level=1)
+    rows = [
+        ["Покрытие источниками", f"{report.source_count} источников"],
+        ["Числовая база", f"{report.numeric_fact_count} числовых фактов"],
+        ["Факт-к-source связка", "Ключевые утверждения сопровождаются ссылками и вынесены в приложения."],
+        ["Ограничения", "Неполные или спорные данные явно отмечены в разделах рисков и ограничений."],
+    ]
+    _render_key_value_table(doc, rows)
+    note = doc.add_paragraph(
+        "Принцип чтения: выводы в основном тексте отделены от приложений. Детальные реестры "
+        "источников, фактов и спорных утверждений сохранены ниже для проверки, но не заменяют "
+        "управленческий синтез."
+    )
+    _set_run(note.runs[0], size=9.2, color=MUTED, italic=True)
 
 
 def _render_scorecard(doc: Document, report: PremiumReportDocument) -> None:
@@ -495,6 +520,20 @@ def _deliverables(report: PremiumReportDocument) -> str:
     if deliverables.require_qa_audit:
         names.append("QA-аудит")
     return ", ".join(names)
+
+
+def _client_confidence_label(report: PremiumReportDocument) -> str:
+    readiness = report.premium_readiness or {}
+    score = readiness.get("score")
+    if isinstance(score, (int, float)) and not isinstance(score, bool):
+        if score >= 85:
+            return "Высокий: доказательная база достаточна для управленческого решения."
+        if score >= 70:
+            return "Средний: вывод пригоден для решения, но требует чтения ограничений."
+        return "Ограниченный: выводы нужно использовать как рабочую гипотезу."
+    if report.source_count >= 15 and report.numeric_fact_count >= 60:
+        return "Средний или высокий: база источников и числовых фактов достаточна."
+    return "Ограниченный: доказательная база требует расширения."
 
 
 def _audience_label(audience: str) -> str:

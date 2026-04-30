@@ -147,10 +147,14 @@ def _inspect_docx(path: Path) -> ArtifactQaResult:
                 or "SMART REPORT | ПРЕМИАЛЬНЫЙ АНАЛИТИЧЕСКИЙ ОТЧЁТ" in text
             ),
             "has_decision_dashboard": (
-                "Client Decision Dashboard" in text or "Панель решения клиента" in text
+                "Client Decision Dashboard" in text
+                or "Панель решения клиента" in text
+                or "Резюме для решения" in text
             ),
             "has_scorecard": (
-                "Executive Evidence Scorecard" in text or "Карта доказательной базы" in text
+                "Executive Evidence Scorecard" in text
+                or "Карта доказательной базы" in text
+                or "Карта доказательств" in text
             ),
             "has_readiness_gate": (
                 "Premium Readiness Gate" in text or "Гейт готовности к платной выдаче" in text
@@ -163,9 +167,8 @@ def _inspect_docx(path: Path) -> ArtifactQaResult:
         _require_metric(result, "text_chars", 5000, "DOCX text volume is below structural QA minimum.")
         for key, message in {
             "has_cover_brand": "DOCX cover brand marker is missing.",
-            "has_decision_dashboard": "DOCX client decision dashboard is missing.",
-            "has_scorecard": "DOCX evidence scorecard is missing.",
-            "has_readiness_gate": "DOCX readiness gate is missing.",
+            "has_decision_dashboard": "DOCX decision summary is missing.",
+            "has_scorecard": "DOCX evidence map is missing.",
             "has_report_structure": "DOCX report structure section is missing.",
         }.items():
             if not result.metrics.get(key):
@@ -226,6 +229,10 @@ def _inspect_pptx(path: Path) -> ArtifactQaResult:
             "tables": table_count,
             "text_chars": len(text),
             "has_executive_answer": "Executive Answer" in text or "Короткий ответ" in text,
+            "has_client_position": (
+                "Client Position" in text
+                or "Позиция и ограничения" in text
+            ),
             "has_readiness": (
                 "Paid-Delivery Readiness" in text or "Готовность к платной выдаче" in text
             ),
@@ -237,7 +244,7 @@ def _inspect_pptx(path: Path) -> ArtifactQaResult:
         _require_metric(result, "text_chars", 1000, "PPTX text volume is below structural QA minimum.")
         for key, message in {
             "has_executive_answer": "PPTX executive answer slide is missing.",
-            "has_readiness": "PPTX readiness slide is missing.",
+            "has_client_position": "PPTX client position slide is missing.",
             "has_evidence_base": "PPTX evidence base slide is missing.",
         }.items():
             if not result.metrics.get(key):

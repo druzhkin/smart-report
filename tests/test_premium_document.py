@@ -144,15 +144,52 @@ def test_render_premium_docx_opens_and_contains_report_structure(tmp_path):
     )
     text = "\n".join([*(p.text for p in loaded.paragraphs), table_text])
     assert "SMART REPORT | ПРЕМИАЛЬНЫЙ АНАЛИТИЧЕСКИЙ ОТЧЁТ" in text
-    assert "Панель решения клиента" in text
+    assert "Резюме для решения" in text
     assert "Короткий ответ" in text
-    assert "Гейт платной выдачи" in text
-    assert "Карта доказательной базы" in text
-    assert "Гейт готовности к платной выдаче" in text
-    assert "НЕ ГОТОВ К ПЛАТНОЙ ВЫДАЧЕ КЛИЕНТУ" in text
+    assert "Карта доказательств" in text
+    assert "НЕ ГОТОВ К ПЛАТНОЙ ВЫДАЧЕ КЛИЕНТУ" not in text
     assert "Структура отчёта" in text
     assert "Реестр числовых доказательств" in text
     assert len(loaded.tables) >= 4
+
+
+def test_render_premium_docx_can_include_internal_audit_when_requested(tmp_path):
+    pytest.importorskip("docx")
+    from docx import Document
+
+    document = assemble_premium_report_document(
+        _report(),
+        analysis=_analysis(),
+        premium_readiness={
+            "ready": False,
+            "score": 61,
+            "issues": [
+                {
+                    "code": "premium_too_few_authoritative_sources",
+                    "severity": "critical",
+                    "message": "Authoritative source threshold is not met.",
+                    "recommendation": "Add primary sources before delivery.",
+                }
+            ],
+            "strengths": ["Consensus layer is present."],
+        },
+    )
+    out = render_premium_docx(
+        document,
+        tmp_path / "premium_internal.docx",
+        include_internal_audit=True,
+    )
+
+    loaded = Document(out)
+    table_text = "\n".join(
+        cell.text
+        for table in loaded.tables
+        for row in table.rows
+        for cell in row.cells
+    )
+    text = "\n".join([*(p.text for p in loaded.paragraphs), table_text])
+    assert "Гейт готовности к платной выдаче" in text
+    assert "НЕ ГОТОВ К ПЛАТНОЙ ВЫДАЧЕ КЛИЕНТУ" in text
 
 
 def test_render_premium_pptx_opens_and_contains_deck_structure(tmp_path):
@@ -189,5 +226,44 @@ def test_render_premium_pptx_opens_and_contains_deck_structure(tmp_path):
         if hasattr(shape, "text")
     )
     assert "Короткий ответ" in slide_text
+    assert "Позиция и ограничения" in slide_text
+    assert "Готовность к платной выдаче" not in slide_text
+    assert "НЕ ГОТОВ" not in slide_text
+
+
+def test_render_premium_pptx_can_include_internal_audit_when_requested(tmp_path):
+    pytest.importorskip("pptx")
+    from pptx import Presentation
+
+    document = assemble_premium_report_document(
+        _report(),
+        analysis=_analysis(),
+        premium_readiness={
+            "ready": False,
+            "score": 61,
+            "issues": [
+                {
+                    "code": "premium_too_few_authoritative_sources",
+                    "severity": "critical",
+                    "message": "Authoritative source threshold is not met.",
+                    "recommendation": "Add primary sources before delivery.",
+                }
+            ],
+            "strengths": ["Consensus layer is present."],
+        },
+    )
+    out = render_premium_pptx(
+        document,
+        tmp_path / "premium_internal_deck.pptx",
+        include_internal_audit=True,
+    )
+
+    deck = Presentation(str(out))
+    slide_text = "\n".join(
+        shape.text
+        for slide in deck.slides
+        for shape in slide.shapes
+        if hasattr(shape, "text")
+    )
     assert "Готовность к платной выдаче" in slide_text
     assert "НЕ ГОТОВ" in slide_text
