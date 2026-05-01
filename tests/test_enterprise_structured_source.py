@@ -137,6 +137,57 @@ def test_quality_gate_blocks_thin_visual_support():
     assert "thin_visual_support" in {issue.code for issue in gate.issues}
 
 
+def test_structured_source_tracks_scientific_connectors_explicitly():
+    report = _report()
+    report.all_sources = [
+        Source(
+            title="arXiv paper",
+            url="https://arxiv.org/abs/1234.5678",
+            tool="valyu/valyu-arxiv",
+            reliability="high",
+        ),
+        Source(
+            title="Semantic academic result",
+            url="https://example.com/paper",
+            tool="exa-semantic-academic",
+            reliability="medium",
+        ),
+    ]
+    report.metadata = {"detected_domain": "technical_research"}
+
+    source = structured_source_from_final_report(report)
+
+    assert source.research_coverage.connectors_used == ["valyu_arxiv", "exa_semantic"]
+    assert source.research_coverage.scientific_or_primary_connectors == [
+        "valyu_arxiv",
+        "exa_semantic",
+    ]
+    assert source.research_coverage.known_coverage_gaps == []
+    assert run_enterprise_quality_gates(source).passed
+
+
+def test_quality_gate_blocks_scientific_domain_without_paper_search():
+    report = _report()
+    report.all_sources = [
+        Source(
+            title="Manual market note",
+            url="https://example.com/manual",
+            tool="manual",
+            reliability="medium",
+        )
+    ]
+    report.metadata = {"detected_domain": "scientific"}
+    source = structured_source_from_final_report(report)
+
+    gate = run_enterprise_quality_gates(source)
+
+    assert not gate.passed
+    assert "missing_scientific_connector" in {issue.code for issue in gate.issues}
+    assert source.research_coverage.known_coverage_gaps == [
+        "scientific_or_paper_search_not_declared"
+    ]
+
+
 def _report() -> FinalReport:
     return FinalReport(
         session_id="enterprise-source",

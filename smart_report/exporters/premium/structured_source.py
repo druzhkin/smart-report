@@ -38,12 +38,38 @@ ReportArtifactFormat = Literal["docx", "pdf", "pptx", "gamma_pptx", "html", "dat
 QualityGateSeverity = Literal["critical", "major", "minor"]
 ResearchConnector = Literal[
     "valyu",
+    "valyu_arxiv",
+    "valyu_pubmed",
+    "valyu_biorxiv",
+    "valyu_medrxiv",
     "exa",
+    "exa_semantic",
     "tavily",
     "perplexity",
     "uploaded_source",
+    "academic_upload",
     "manual_source",
 ]
+
+SCIENTIFIC_CONNECTORS: set[ResearchConnector] = {
+    "valyu",
+    "valyu_arxiv",
+    "valyu_pubmed",
+    "valyu_biorxiv",
+    "valyu_medrxiv",
+    "exa",
+    "exa_semantic",
+    "academic_upload",
+}
+
+SCIENCE_REQUIRED_DOMAINS = {
+    "academic",
+    "biomedical",
+    "clinical",
+    "medical",
+    "scientific",
+    "technical_research",
+}
 
 
 DEFAULT_REGENERATION_FORMATS: tuple[ReportArtifactFormat, ...] = ("docx", "pdf", "pptx")
@@ -416,6 +442,15 @@ def run_enterprise_quality_gates(
                 "Record whether Valyu, Exa, Tavily, Perplexity, uploads, or manual sources were used.",
             )
         )
+    if _requires_scientific_connector(source.research_coverage) and not source.research_coverage.scientific_or_primary_connectors:
+        issues.append(
+            _issue(
+                "missing_scientific_connector",
+                "major",
+                "Report domain requires paper or scientific search coverage, but none is declared.",
+                "Use Valyu arXiv/PubMed/bioRxiv/medRxiv, Exa semantic academic search, or upload academic sources.",
+            )
+        )
 
     text = _client_text(source)
     for marker in INTERNAL_CLIENT_MARKERS:
@@ -671,6 +706,19 @@ def _first_sentence(text: str) -> str:
 
 def _connector_from_tool(tool: str) -> ResearchConnector:
     value = str(tool or "").lower()
+    normalized = value.replace("-", "_").replace("/", "_")
+    if "pubmed" in normalized:
+        return "valyu_pubmed"
+    if "medrxiv" in normalized:
+        return "valyu_medrxiv"
+    if "biorxiv" in normalized or "bio_rxiv" in normalized:
+        return "valyu_biorxiv"
+    if "arxiv" in normalized or "ar_xiv" in normalized:
+        return "valyu_arxiv"
+    if "exa" in normalized and ("semantic" in normalized or "academic" in normalized):
+        return "exa_semantic"
+    if "academic" in normalized and ("upload" in normalized or "manual" in normalized):
+        return "academic_upload"
     for connector in ("valyu", "exa", "tavily", "perplexity"):
         if connector in value:
             return connector  # type: ignore[return-value]
@@ -684,10 +732,23 @@ def _coverage_from_sources(
     metadata: dict[str, Any],
 ) -> ResearchCoverage:
     connectors = list(dict.fromkeys(source.connector for source in sources))
-    scientific = [item for item in connectors if item in {"valyu", "exa"}]
+    scientific = [item for item in connectors if item in SCIENTIFIC_CONNECTORS]
     domain = str(metadata.get("detected_domain") or metadata.get("domain") or "general")
+    gaps: list[str] = []
+    if _domain_requires_scientific_connector(domain) and not scientific:
+        gaps.append("scientific_or_paper_search_not_declared")
     return ResearchCoverage(
         declared_domain=domain,
         connectors_used=connectors,
         scientific_or_primary_connectors=scientific,
+        known_coverage_gaps=gaps,
     )
+
+
+def _requires_scientific_connector(coverage: ResearchCoverage) -> bool:
+    return _domain_requires_scientific_connector(coverage.declared_domain)
+
+
+def _domain_requires_scientific_connector(domain: str) -> bool:
+    normalized = str(domain or "").lower().replace("-", "_").replace(" ", "_")
+    return any(marker in normalized for marker in SCIENCE_REQUIRED_DOMAINS)
