@@ -32,6 +32,7 @@ from .pdf import render_premium_pdf
 from .planner import build_premium_report_plan
 from .pptx import render_premium_pptx
 from .readiness import PremiumReadiness, PremiumReadinessIssue, assess_premium_readiness
+from .storyboard_quality import assess_premium_storyboard_quality
 from .structured_source import (
     DEFAULT_REGENERATION_FORMATS,
     ReportActorRole,
@@ -87,6 +88,7 @@ __all__ = [
     "PremiumReadiness",
     "PremiumReadinessIssue",
     "assess_premium_readiness",
+    "assess_premium_storyboard_quality",
     "build_premium_report_plan",
     "DEFAULT_REGENERATION_FORMATS",
     "ReportActorRole",

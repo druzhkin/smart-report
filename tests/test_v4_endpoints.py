@@ -522,13 +522,14 @@ def test_v4_full_cycle(monkeypatch, tmp_path):
             "05_audit.json",
             "06_analytic_closure.json",
             "07_artifact_qa.json",
-            "08_sources.csv",
-            "09_facts.csv",
-            "10_data_pack.zip",
-            "11_evidence_audit.json",
-            "12_adjudication_audit.json",
-            "13_visual_review.json",
-            "14_next_research_brief.md",
+            "08_storyboard_quality.json",
+            "09_sources.csv",
+            "10_facts.csv",
+            "11_data_pack.zip",
+            "12_evidence_audit.json",
+            "13_adjudication_audit.json",
+            "14_visual_review.json",
+            "15_next_research_brief.md",
         } <= names
         artifact_qa = json.loads(zf.read("07_artifact_qa.json").decode("utf-8"))
         assert artifact_qa["summary"]["artifacts"] == 3
@@ -542,6 +543,8 @@ def test_v4_full_cycle(monkeypatch, tmp_path):
         manifest = json.loads(zf.read("00_manifest.json").decode("utf-8"))
         assert manifest["package_type"] == "smart_report_premium_delivery"
         assert manifest["artifact_qa_status"] in {"passed", "blocked", "failed"}
+        assert isinstance(manifest["storyboard_quality_ready"], bool)
+        assert manifest["storyboard_quality_score"] >= 0
         assert manifest["docx_pages"] is None or manifest["docx_pages"] >= 1
         assert manifest["docx_pages_source"] in {None, "rendered_pages", "estimated_pages"}
         assert manifest["pdf_pages"] is None or manifest["pdf_pages"] >= 20
@@ -549,10 +552,13 @@ def test_v4_full_cycle(monkeypatch, tmp_path):
         assert isinstance(manifest["open_analytic_leads"], int)
         assert isinstance(manifest["unsupported_conclusions"], int)
         audit = json.loads(zf.read("05_audit.json").decode("utf-8"))
-        visual_review = json.loads(zf.read("13_visual_review.json").decode("utf-8"))
+        storyboard_quality = json.loads(zf.read("08_storyboard_quality.json").decode("utf-8"))
+        assert isinstance(storyboard_quality["ready"], bool)
+        assert storyboard_quality["metrics"]["page_count"] >= 8
+        visual_review = json.loads(zf.read("14_visual_review.json").decode("utf-8"))
         assert audit["visual_review"]["status"] == visual_review["status"]
         assert visual_review["status"] in {"pending", "blocked"}
-        brief = zf.read("14_next_research_brief.md").decode("utf-8")
+        brief = zf.read("15_next_research_brief.md").decode("utf-8")
         assert "# План добора" in brief
         assert "## Приоритетные направления добора" in brief
         assert "Рекомендуемый сервис:" in brief
@@ -571,6 +577,7 @@ def test_v4_full_cycle(monkeypatch, tmp_path):
         "analytic_closure_open_leads",
         "evidence_audit_unsupported_conclusions",
         "adjudication_audit_critical_unresolved",
+        "storyboard_quality_not_ready",
         "visual_review_not_approved",
     } <= blockers
     assert "artifact_qa_not_passed" not in blockers
@@ -955,7 +962,6 @@ def test_auto_dr_cancel_tavily_is_soft_cancel(monkeypatch):
 def test_auto_dr_cancel_valyu_attempts_hard_cancel(monkeypatch):
     """Valyu wrapper attempts SDK cancel — falls back to soft if it raises.
     Without VALYU_API_KEY in test env, the call is skipped and we get soft."""
-    import os
     from smart_report.sources import auto_dr as auto_dr_mod
 
     async def _fake_submit(service, question, *, mode="standard", session_id=None, store=None):

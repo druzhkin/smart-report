@@ -6,6 +6,7 @@ from smart_report.exporters import v4_to_report_dict
 from smart_report.exporters.premium import (
     CarboneRenderError,
     assemble_premium_report_document,
+    assess_premium_storyboard_quality,
     render_premium_carbone_pdf,
     render_premium_docx,
     render_premium_pdf,
@@ -244,6 +245,31 @@ def test_assemble_premium_document_uses_existing_analysis_layers():
     assert "Противоречия и расхождения" in block_titles
     assert "Реестр рисков" in block_titles
     assert "Матрица решений" in block_titles
+
+
+def test_premium_storyboard_quality_blocks_thin_or_unsourced_pages():
+    document = assemble_premium_report_document(_report(), analysis=_analysis())
+
+    quality = assess_premium_storyboard_quality(document)
+
+    assert quality["ready"] is True
+    assert quality["score"] >= 88
+    assert quality["metrics"]["visual_ratio"] >= 0.65
+    assert quality["metrics"]["source_backed_visual_ratio"] >= 0.70
+
+    broken = document.model_copy(deep=True)
+    broken.pages[0].narrative = "Too thin."
+    broken.pages[1].source_notes = []
+    if broken.pages[1].visual:
+        broken.pages[1].visual.source_notes = []
+
+    broken_quality = assess_premium_storyboard_quality(broken)
+
+    assert broken_quality["ready"] is False
+    assert {issue["code"] for issue in broken_quality["issues"]} >= {
+        "storyboard_page_narrative_too_thin",
+        "storyboard_page_visual_without_source",
+    }
 
 
 def test_assemble_premium_document_does_not_mutate_legacy_report():

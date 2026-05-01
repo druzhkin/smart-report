@@ -48,6 +48,7 @@ from ..events import ALLOWED_PHASES, EventEmitter
 from ..exporters import (
     assess_client_readiness,
     assess_premium_readiness,
+    assess_premium_storyboard_quality,
     apply_report_edits,
     build_regeneration_plan,
     contains_client_leak,
@@ -758,7 +759,6 @@ async def auto_dr(session_id: str, request: Request, payload: AutoDRIn):
     from ..sources.auto_dr import (
         AutoDRError, run_auto_dr, submit_async_research,
     )
-    from ..sources.valyu_deepresearch import RESEARCH_MODE_PRICE_USD
 
     question = (payload.prompt or "").strip()
     if not question:
@@ -2842,6 +2842,7 @@ def _write_premium_package(
         analysis=session.analysis,
         premium_readiness=premium_readiness,
     )
+    storyboard_quality = assess_premium_storyboard_quality(premium_document)
     pdf_path = _render_premium_pdf(premium_document, path.parent / "premium_report.pdf")
     report_path = _render_premium_docx(premium_document, path.parent / "premium_report.docx")
     deck_path = _render_premium_pptx(premium_document, path.parent / "premium_deck.pptx")
@@ -2859,6 +2860,8 @@ def _write_premium_package(
         "ready_for_paid_premium_delivery": bool(premium_readiness.get("ready")),
         "premium_score": premium_readiness.get("score"),
         "artifact_qa_status": artifact_qa.get("status"),
+        "storyboard_quality_ready": storyboard_quality.get("ready"),
+        "storyboard_quality_score": storyboard_quality.get("score"),
         "docx_pages": artifact_summary.get("docx_pages"),
         "docx_pages_source": artifact_summary.get("docx_pages_source"),
         "pdf_pages": artifact_summary.get("pdf_pages"),
@@ -2885,13 +2888,14 @@ def _write_premium_package(
             "06_analytic_closure.json",
             "07_artifact_qa.json",
             "07_artifact_qa/",
-            "08_sources.csv",
-            "09_facts.csv",
-            "10_data_pack.zip",
-            "11_evidence_audit.json",
-            "12_adjudication_audit.json",
-            "13_visual_review.json",
-            "14_next_research_brief.md",
+            "08_storyboard_quality.json",
+            "09_sources.csv",
+            "10_facts.csv",
+            "11_data_pack.zip",
+            "12_evidence_audit.json",
+            "13_adjudication_audit.json",
+            "14_visual_review.json",
+            "15_next_research_brief.md",
         ],
     }
     with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
@@ -2922,23 +2926,27 @@ def _write_premium_package(
             json.dumps(artifact_qa, ensure_ascii=False, indent=2, default=str),
         )
         _write_artifact_qa_bundle(zf, artifact_qa, path.parent / "artifact_qa")
-        zf.writestr("08_sources.csv", _sources_csv_text(client_report))
-        zf.writestr("09_facts.csv", _facts_csv_text(session))
-        zf.write(data_pack_path, "10_data_pack.zip")
         zf.writestr(
-            "11_evidence_audit.json",
+            "08_storyboard_quality.json",
+            json.dumps(storyboard_quality, ensure_ascii=False, indent=2, default=str),
+        )
+        zf.writestr("09_sources.csv", _sources_csv_text(client_report))
+        zf.writestr("10_facts.csv", _facts_csv_text(session))
+        zf.write(data_pack_path, "11_data_pack.zip")
+        zf.writestr(
+            "12_evidence_audit.json",
             json.dumps(evidence_audit.model_dump(mode="json"), ensure_ascii=False, indent=2, default=str),
         )
         zf.writestr(
-            "12_adjudication_audit.json",
+            "13_adjudication_audit.json",
             json.dumps(adjudication_audit.model_dump(mode="json"), ensure_ascii=False, indent=2, default=str),
         )
         zf.writestr(
-            "13_visual_review.json",
+            "14_visual_review.json",
             json.dumps(visual_review.model_dump(mode="json"), ensure_ascii=False, indent=2, default=str),
         )
         zf.writestr(
-            "14_next_research_brief.md",
+            "15_next_research_brief.md",
             _next_research_brief_markdown(depth_plan, analytic_closure),
         )
     return path
@@ -2977,10 +2985,11 @@ def _read_premium_package_gate(path: Path) -> dict:
         premium_readiness = json.loads(zf.read("03_premium_readiness.json").decode("utf-8"))
         client_readiness = json.loads(zf.read("04_client_readiness.json").decode("utf-8"))
         artifact_qa = json.loads(zf.read("07_artifact_qa.json").decode("utf-8"))
+        storyboard_quality = json.loads(zf.read("08_storyboard_quality.json").decode("utf-8"))
         analytic_closure = json.loads(zf.read("06_analytic_closure.json").decode("utf-8"))
-        evidence_audit = json.loads(zf.read("11_evidence_audit.json").decode("utf-8"))
-        adjudication_audit = json.loads(zf.read("12_adjudication_audit.json").decode("utf-8"))
-        visual_review = json.loads(zf.read("13_visual_review.json").decode("utf-8"))
+        evidence_audit = json.loads(zf.read("12_evidence_audit.json").decode("utf-8"))
+        adjudication_audit = json.loads(zf.read("13_adjudication_audit.json").decode("utf-8"))
+        visual_review = json.loads(zf.read("14_visual_review.json").decode("utf-8"))
     blockers = []
     if not client_readiness.get("ready"):
         blockers.append("client_readiness_not_ready")
@@ -2988,6 +2997,8 @@ def _read_premium_package_gate(path: Path) -> dict:
         blockers.append("premium_readiness_not_ready")
     if artifact_qa.get("status") != "passed":
         blockers.append("artifact_qa_not_passed")
+    if not storyboard_quality.get("ready"):
+        blockers.append("storyboard_quality_not_ready")
     docx_pages = _artifact_qa_docx_page_count(artifact_qa)
     if docx_pages is not None and docx_pages < 20:
         blockers.append("premium_report_below_20_pages")
@@ -3008,6 +3019,7 @@ def _read_premium_package_gate(path: Path) -> dict:
         "client_readiness": client_readiness,
         "premium_readiness": premium_readiness,
         "artifact_qa": artifact_qa,
+        "storyboard_quality": storyboard_quality,
         "analytic_closure": analytic_closure,
         "evidence_audit": evidence_audit,
         "adjudication_audit": adjudication_audit,

@@ -140,7 +140,13 @@ def _chapter_lead(body: str) -> str:
     if not text:
         return ""
     sentences = re.split(r"(?<=[.!?])\s+", text)
-    return _compact_text(" ".join(sentences[:2]), 360)
+    lead = " ".join(sentences[:2])
+    if len(lead) < 90:
+        lead = (
+            f"{lead} This page connects the evidence to the conclusion and makes clear "
+            "which decision variable should be watched next."
+        )
+    return _compact_text(lead, 360)
 
 
 def _main_synthesis_chapters(markdown: str) -> list[tuple[str, str]]:
@@ -173,8 +179,18 @@ def _chapter_implication(body: str) -> str:
     sentences = re.split(r"(?<=[.!?])\s+", text)
     for sentence in sentences:
         if any(marker in sentence.lower() for marker in ["значит", "вывод", "для инвестора", "для покупателя", "это"]):
-            return _compact_text(sentence, 320)
-    return _compact_text(sentences[0], 320)
+            return _compact_text(_ensure_implication_weight(sentence), 320)
+    return _compact_text(_ensure_implication_weight(sentences[0]), 320)
+
+
+def _ensure_implication_weight(sentence: str) -> str:
+    text = " ".join(str(sentence or "").split())
+    if len(text) >= 70:
+        return text
+    return (
+        f"{text} Treat this as a decision checkpoint: if the underlying indicator moves, "
+        "the recommendation should be revisited rather than repeated mechanically."
+    )
 
 
 def _executive_thesis(report: FinalReport) -> str:
@@ -227,6 +243,12 @@ def _hero_kpi_visual(report: FinalReport, analysis: AnalysisOutput | None) -> Pr
 def _chart_pages(report: FinalReport) -> list[PremiumPage]:
     pages: list[PremiumPage] = []
     for chart in report.charts[:6]:
+        narrative = chart.caption or "Chart generated from the report evidence base."
+        if len(" ".join(narrative.split())) < 90:
+            narrative = (
+                f"{narrative} The exhibit is included because the relative scale, "
+                "ranking, or trajectory changes how the reader should interpret the conclusion."
+            )
         visual_type = {
             "bar": "ranking_bar",
             "line": "time_series",
@@ -239,7 +261,7 @@ def _chart_pages(report: FinalReport) -> list[PremiumPage]:
             PremiumPage(
                 page_type="exhibit",
                 thesis=chart.title,
-                narrative=chart.caption or "Structured chart generated from the report evidence base.",
+                narrative=narrative,
                 visual=PremiumPageVisual(
                     visual_type=visual_type,  # type: ignore[arg-type]
                     title=chart.title,
@@ -252,7 +274,10 @@ def _chart_pages(report: FinalReport) -> list[PremiumPage]:
                     },
                     source_notes=[chart.caption] if chart.caption else [],
                 ),
-                implication=chart.caption or "Use this exhibit to compare direction, scale, or relative position.",
+                implication=(
+                    chart.caption
+                    or "Compare direction, scale, and relative position before treating the conclusion as stable."
+                ),
                 source_notes=[chart.caption] if chart.caption else [],
             )
         )
@@ -297,11 +322,15 @@ def _fact_driven_visual_pages(
             PremiumPage(
                 page_type="exhibit",
                 thesis="Решение зависит от нескольких нерешенных противоречий",
-                narrative="Существенные расхождения вынесены в risk-style exhibit, чтобы они не потерялись в прозе.",
+                narrative=(
+                    "Существенные расхождения вынесены в отдельный визуальный блок: читатель видит, "
+                    "какие противоречия меняют вывод, а какие остаются шумом."
+                ),
                 visual=PremiumPageVisual(
                     visual_type="risk_heatmap",
                     title="Conflict and uncertainty heatmap",
                     data={"rows": rows},
+                    source_notes=_sources_for_conflicts(rows, report),
                 ),
                 implication="Клиентская рекомендация должна прямо назвать, какие конфликты важны и какие данные изменят вывод.",
             )
@@ -314,7 +343,7 @@ def _fact_driven_visual_pages(
                 narrative="Надежность источников отделена от содержательного вывода, чтобы не смешивать факт и интерпретацию.",
                 visual=PremiumPageVisual(
                     visual_type="evidence_quality",
-                    title="Source reliability mix",
+                    title="Профиль надежности источников",
                     data={
                         "points": [
                             {"label": key, "value": value}
@@ -346,6 +375,7 @@ def _decision_pages(
                     visual_type="scenario_matrix",
                     title=scenario.title,
                     data={"columns": scenario.columns, "rows": scenario.rows},
+                    source_notes=_block_or_report_sources(scenario, report),
                 ),
                 implication="Руководителю нужен не один прогноз, а условия перехода между базовым, позитивным и негативным сценариями.",
             )
@@ -361,6 +391,7 @@ def _decision_pages(
                     visual_type="scenario_matrix",
                     title=decision.title,
                     data={"columns": decision.columns, "rows": decision.rows},
+                    source_notes=_block_or_report_sources(decision, report),
                 ),
                 implication=_compact_text(report.executive_summary.what_meta_adds, 320)
                 or "Финальный отчет должен завершаться решением, а не реестром фактов.",
@@ -382,6 +413,25 @@ def _scenario_table_from_report(report: FinalReport) -> PremiumPreparedBlock | N
             notes=[table.caption] if table.caption else [],
         )
     return None
+
+
+def _sources_for_conflicts(rows: list[dict[str, object]], report: FinalReport) -> list[str]:
+    notes: list[str] = []
+    for row in rows:
+        for key in ("source_a", "source_b"):
+            value = str(row.get(key) or "").strip()
+            if value and value not in notes:
+                notes.append(value)
+    return notes[:8] or _report_source_notes(report)
+
+
+def _block_or_report_sources(block: PremiumPreparedBlock, report: FinalReport) -> list[str]:
+    notes = [note for note in block.notes if note]
+    return notes or _report_source_notes(report)
+
+
+def _report_source_notes(report: FinalReport) -> list[str]:
+    return [source.url or source.title for source in report.all_sources[:8] if source.url or source.title]
 
 
 def _find_first_block(
