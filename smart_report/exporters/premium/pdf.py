@@ -19,7 +19,13 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
 
-from .models import PremiumPreparedBlock, PremiumPreparedSection, PremiumReportDocument
+from .models import (
+    PremiumPage,
+    PremiumPageVisual,
+    PremiumPreparedBlock,
+    PremiumPreparedSection,
+    PremiumReportDocument,
+)
 
 PAGE_W, PAGE_H = A4
 MARGIN_X = 42
@@ -63,17 +69,9 @@ def render_premium_pdf(
     page_no = _contents(c, document, page_no)
     page_no = _opening_spread(c, document, page_no)
 
-    exhibits = _exhibit_blocks(document)
-    for exhibit_no, block in enumerate(exhibits, start=1):
-        page_no = _exhibit_page(c, document, block, exhibit_no, page_no)
-
-    for idx, section in enumerate(document.sections, start=1):
-        if idx in {1, 4}:
-            page_no = _section_opener(c, document, section, page_no)
-        page_no = _section_page(c, document, section, page_no)
-
-    for appendix in document.appendices:
-        page_no = _section_page(c, document, appendix, page_no, appendix=True)
+    storyboard = document.pages or _fallback_storyboard(document)
+    for story_no, page in enumerate(storyboard, start=1):
+        page_no = _story_page(c, document, page, story_no, page_no)
 
     while page_no < document.plan.deliverables.report_min_pages:
         page_no = _methodology_page(c, document, page_no, page_no + 1)
@@ -319,6 +317,269 @@ def _exhibit_page(
     _footer(c, document, page_no)
     c.showPage()
     return page_no
+
+
+def _story_page(
+    c: canvas.Canvas,
+    document: PremiumReportDocument,
+    page: PremiumPage,
+    story_no: int,
+    page_no: int,
+) -> int:
+    page_no += 1
+    _header(c, document, page_no)
+    is_exhibit = page.page_type in {"exhibit", "appendix"} or (
+        page.visual is not None and page.visual.visual_type not in {"none", "narrative_text"}
+    )
+    c.setFillColor(GREEN if is_exhibit else DARK_GREEN)
+    c.setFont(FONT_BOLD, 10)
+    c.drawString(
+        MARGIN_X,
+        TOP,
+        _label(document, "exhibit", story_no) if is_exhibit else _label(document, "section"),
+    )
+    c.setFillColor(INK)
+    c.setFont(FONT_REGULAR, 24)
+    _draw_wrapped(c, page.thesis, MARGIN_X, TOP - 28, PAGE_W - 2 * MARGIN_X, 28, FONT_REGULAR, 24, max_lines=3)
+
+    y = TOP - 114
+    visual_h = 318 if page.visual and page.visual.visual_type != "narrative_text" else 228
+    visual_y = y - visual_h
+    if page.visual and page.visual.visual_type != "none":
+        _draw_page_visual(c, document, page.visual, MARGIN_X, visual_y, PAGE_W - 2 * MARGIN_X, visual_h)
+        y = visual_y - 24
+    else:
+        _draw_exhibit_placeholder(c, MARGIN_X, visual_y, PAGE_W - 2 * MARGIN_X, visual_h, page.page_type)
+        y = visual_y - 24
+
+    narrative = page.narrative or _visual_body(page.visual) or page.thesis
+    implication = page.implication or "This page converts the evidence base into a decision-useful conclusion."
+    source_note = _source_note_for_page(document, page)
+    text_w = (PAGE_W - 2 * MARGIN_X - 22) * 0.62
+    callout_x = MARGIN_X + text_w + 22
+    callout_w = PAGE_W - MARGIN_X - callout_x
+
+    c.setFillColor(INK)
+    c.setFont(FONT_BOLD, 10)
+    c.drawString(MARGIN_X, y, "Interpretation")
+    c.setFillColor(MUTED)
+    used = _draw_wrapped(c, narrative, MARGIN_X, y - 18, text_w, 12, FONT_REGULAR, 9.2, max_lines=9)
+
+    callout_h = max(86, min(132, used + 42))
+    c.setFillColor(PALE_GREEN)
+    c.rect(callout_x, y - callout_h + 4, callout_w, callout_h, fill=1, stroke=0)
+    c.setFillColor(DARK_GREEN)
+    c.setFont(FONT_BOLD, 8)
+    c.drawString(callout_x + 12, y - 16, "What it means")
+    c.setFillColor(INK)
+    _draw_wrapped(c, implication, callout_x + 12, y - 34, callout_w - 24, 11, FONT_REGULAR, 8.4, max_lines=6)
+
+    c.setFillColor(MUTED)
+    c.setFont(FONT_REGULAR, 7)
+    c.drawString(MARGIN_X, BOTTOM + 18, source_note)
+    _footer(c, document, page_no)
+    c.showPage()
+    return page_no
+
+
+def _draw_page_visual(
+    c: canvas.Canvas,
+    document: PremiumReportDocument,
+    visual: PremiumPageVisual,
+    x: float,
+    y: float,
+    w: float,
+    h: float,
+) -> None:
+    c.setFillColor(colors.HexColor("#F4F8F6"))
+    c.rect(x, y, w, h, fill=1, stroke=0)
+    c.setStrokeColor(LINE)
+    c.rect(x, y, w, h, fill=0, stroke=1)
+    c.setFillColor(GREEN)
+    c.setFont(FONT_BOLD, 8)
+    c.drawString(x + 18, y + h - 24, str(visual.visual_type).replace("_", " ").upper())
+    c.setFillColor(INK)
+    c.setFont(FONT_BOLD, 13)
+    _draw_wrapped(c, visual.title, x + 18, y + h - 44, w - 36, 15, FONT_BOLD, 12, max_lines=2)
+
+    inner_x, inner_y, inner_w, inner_h = x + 18, y + 24, w - 36, h - 88
+    if visual.visual_type == "hero_kpi_strip":
+        _draw_visual_kpis(c, visual, inner_x, inner_y, inner_w, inner_h)
+        return
+    if visual.visual_type in {"scenario_matrix", "risk_heatmap", "source_table"}:
+        _draw_visual_table(c, visual, inner_x, inner_y + inner_h, inner_w, inner_h)
+        return
+    if visual.visual_type == "evidence_quality":
+        _draw_visual_evidence_quality(c, visual, inner_x, inner_y, inner_w, inner_h)
+        return
+    if visual.visual_type == "narrative_text":
+        _draw_visual_narrative(c, visual, inner_x, inner_y + inner_h, inner_w, inner_h)
+        return
+    points = _points_from_visual(visual)
+    if points:
+        _draw_bar_line_chart(c, [(label, value) for label, value in points], inner_x, inner_y, inner_w, inner_h, russian=False)
+        return
+    _draw_exhibit_placeholder(c, inner_x, inner_y, inner_w, inner_h, visual.visual_type)
+
+
+def _draw_visual_kpis(
+    c: canvas.Canvas,
+    visual: PremiumPageVisual,
+    x: float,
+    y: float,
+    w: float,
+    h: float,
+) -> None:
+    items = visual.data.get("items", [])
+    if not isinstance(items, list) or not items:
+        _draw_exhibit_placeholder(c, x, y, w, h, visual.visual_type)
+        return
+    rows = []
+    for item in items[:6]:
+        if isinstance(item, dict):
+            rows.append([
+                str(item.get("label") or "Metric"),
+                str(item.get("value") or ""),
+                str(item.get("importance") or ""),
+                str(item.get("source") or ""),
+            ])
+    block = PremiumPreparedBlock(kind="kpi_grid", title=visual.title, rows=rows)
+    _draw_kpi_exhibit(c, block, x, y + h - 8, w)
+
+
+def _draw_visual_table(
+    c: canvas.Canvas,
+    visual: PremiumPageVisual,
+    x: float,
+    y: float,
+    w: float,
+    h: float,
+) -> None:
+    if visual.visual_type == "risk_heatmap":
+        columns = ["Topic", "Importance", "Source A", "Source B", "Resolution"]
+        raw_rows = visual.data.get("rows", [])
+        rows = [
+            [
+                str(row.get("topic", "")),
+                str(row.get("importance", "")),
+                str(row.get("source_a", "")),
+                str(row.get("source_b", "")),
+                str(row.get("resolution", "")),
+            ]
+            for row in raw_rows
+            if isinstance(row, dict)
+        ]
+        _draw_table(c, columns, rows[:7], x, y, w, dense=True)
+        return
+    columns = visual.data.get("columns", [])
+    rows = visual.data.get("rows", [])
+    if not isinstance(columns, list) or not isinstance(rows, list):
+        _draw_exhibit_placeholder(c, x, y - h, w, h, visual.visual_type)
+        return
+    _draw_table(
+        c,
+        [str(col) for col in columns],
+        [[str(cell) for cell in row] for row in rows[:8] if isinstance(row, list)],
+        x,
+        y,
+        w,
+        dense=True,
+    )
+
+
+def _draw_visual_evidence_quality(
+    c: canvas.Canvas,
+    visual: PremiumPageVisual,
+    x: float,
+    y: float,
+    w: float,
+    h: float,
+) -> None:
+    points = visual.data.get("points", [])
+    buckets = {"high": 0.0, "medium": 0.0, "low": 0.0}
+    if isinstance(points, list):
+        for point in points:
+            if isinstance(point, dict):
+                label = str(point.get("label", "")).lower()
+                value = _first_number(point.get("value")) or 0
+                if label in buckets:
+                    buckets[label] += value
+    total = max(sum(buckets.values()), 1)
+    cx, cy = x + w * 0.38, y + h * 0.48
+    radius = min(w, h) * 0.28
+    start = 90
+    palette = {
+        "high": GREEN,
+        "medium": colors.HexColor("#8DCBA5"),
+        "low": colors.HexColor("#B75E55"),
+    }
+    for key in ("high", "medium", "low"):
+        if buckets[key] <= 0:
+            continue
+        extent = 360 * buckets[key] / total
+        c.setFillColor(palette[key])
+        c.wedge(cx - radius, cy - radius, cx + radius, cy + radius, start, start + extent, fill=1)
+        start += extent
+    c.setFillColor(INK)
+    c.setFont(FONT_BOLD, 7)
+    c.drawString(x + 20, y + h - 22, "Source reliability mix")
+    c.setFillColor(MUTED)
+    c.setFont(FONT_REGULAR, 8)
+    for idx, key in enumerate(("high", "medium", "low")):
+        c.drawString(x + w * 0.65, y + h * 0.62 - idx * 18, f"{key}: {int(buckets[key])}")
+
+
+def _draw_visual_narrative(
+    c: canvas.Canvas,
+    visual: PremiumPageVisual,
+    x: float,
+    y: float,
+    w: float,
+    h: float,
+) -> None:
+    body = _visual_body(visual)
+    c.setFillColor(WHITE)
+    c.rect(x, y - h, w, h, fill=1, stroke=0)
+    c.setFillColor(GREEN)
+    c.rect(x, y - h, 7, h, fill=1, stroke=0)
+    c.setFillColor(INK)
+    _draw_wrapped(c, body, x + 20, y - 20, w - 40, 13, FONT_REGULAR, 9.6, max_lines=15)
+
+
+def _points_from_visual(visual: PremiumPageVisual) -> list[tuple[str, float]]:
+    raw_points = visual.data.get("points")
+    if not raw_points and isinstance(visual.data.get("data"), dict):
+        raw_points = visual.data["data"].get("points")
+    points: list[tuple[str, float]] = []
+    if isinstance(raw_points, list):
+        for item in raw_points:
+            if not isinstance(item, dict):
+                continue
+            value = _first_number(item.get("value"))
+            if value is None:
+                continue
+            points.append((_clip(item.get("label") or item.get("x") or "Signal", 32), value))
+    return points[:8]
+
+
+def _visual_body(visual: PremiumPageVisual | None) -> str:
+    if not visual:
+        return ""
+    body = visual.data.get("body")
+    if body:
+        return str(body)
+    rows = visual.data.get("rows")
+    if isinstance(rows, list) and rows:
+        return " ".join(" - ".join(str(cell) for cell in row[:3]) for row in rows[:3] if isinstance(row, list))
+    return visual.title
+
+
+def _source_note_for_page(document: PremiumReportDocument, page: PremiumPage) -> str:
+    notes = page.source_notes or (page.visual.source_notes if page.visual else [])
+    cleaned = [_clip(note, 72) for note in notes if str(note or "").strip()]
+    if cleaned:
+        return "Source: " + "; ".join(cleaned[:4])
+    return _label(document, "source_note")
 
 
 def _draw_kpi_exhibit(
@@ -649,7 +910,7 @@ def _draw_exhibit_support_visual(
     left_w = w * 0.52
     c.setFillColor(colors.HexColor("#DCEEE5"))
     c.rect(x + 18, y + 22, left_w - 30, h - 44, fill=1, stroke=0)
-    russian = bool(re.search(r"[А-Яа-яЁё]", f"{document.title} {document.subtitle}"))
+    russian = _has_cyrillic(f"{document.title} {document.subtitle}")
     _draw_support_chart(c, block, x + 18, y + 22, left_w - 30, h - 44, russian=russian)
 
     tx = x + left_w + 10
@@ -885,7 +1146,7 @@ def _footer(c: canvas.Canvas, document: PremiumReportDocument, page_no: int) -> 
 
 
 def _label(document: PremiumReportDocument, key: str, number: int | None = None) -> str:
-    russian = bool(re.search(r"[А-Яа-яЁё]", f"{document.title} {document.subtitle}"))
+    russian = _has_cyrillic(f"{document.title} {document.subtitle}")
     if russian:
         labels = {
             "contents": "Содержание",
@@ -914,6 +1175,25 @@ def _label(document: PremiumReportDocument, key: str, number: int | None = None)
 def _green_rule(c: canvas.Canvas, x: float, y: float, width: float) -> None:
     c.setFillColor(GREEN)
     c.rect(x, y, width, 6, fill=1, stroke=0)
+
+
+def _fallback_storyboard(document: PremiumReportDocument) -> list[PremiumPage]:
+    pages: list[PremiumPage] = []
+    for idx, block in enumerate(_exhibit_blocks(document), start=1):
+        pages.append(
+            PremiumPage(
+                page_type="exhibit",
+                thesis=block.title,
+                narrative=block.body or f"{block.title} summarizes the most decision-relevant evidence block.",
+                visual=PremiumPageVisual(
+                    visual_type="scenario_matrix" if block.rows else "narrative_text",
+                    title=block.title,
+                    data={"columns": block.columns, "rows": block.rows, "body": block.body},
+                ),
+                implication=f"Use exhibit {idx} to validate the section conclusion before relying on it.",
+            )
+        )
+    return pages
 
 
 def _exhibit_blocks(document: PremiumReportDocument) -> list[PremiumPreparedBlock]:
@@ -973,6 +1253,10 @@ def _plain_text(text: object) -> str:
     clean = clean.replace("`", "")
     clean = re.sub(r"^\s*[-*+]\s+", "", clean, flags=re.MULTILINE)
     return clean
+
+
+def _has_cyrillic(text: object) -> bool:
+    return any("\u0400" <= char <= "\u04FF" for char in str(text or ""))
 
 
 def _upper(text: str) -> str:

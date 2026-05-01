@@ -88,10 +88,10 @@ def _storyboard_pages(
             source_notes=_top_source_notes(report, analysis),
         )
     ]
-    pages.extend(_narrative_pages(report))
     pages.extend(_chart_pages(report))
-    pages.extend(_decision_pages(report, sections))
     pages.extend(_fact_driven_visual_pages(report, analysis))
+    pages.extend(_decision_pages(report, sections))
+    pages.extend(_narrative_pages(report))
     pages.extend(_appendix_pages(appendices))
     return _dedupe_pages(pages)
 
