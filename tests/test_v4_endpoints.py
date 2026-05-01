@@ -399,9 +399,17 @@ def test_v4_full_cycle(monkeypatch, tmp_path):
     assert edited["publication_quality"] is not None
     assert len(edited["source"]["versions"]) == 2
 
+    r = client.post(f"/api/v4/sessions/{sid}/apply-remediation", json={})
+    assert r.status_code == 200, r.text
+    remediated = r.json()
+    assert len(remediated["source"]["versions"]) == 3
+    assert remediated["publication_quality"] is not None
+    assert "remediation_plan" in remediated["publication_quality"]
+
     r = client.get(f"/api/v4/sessions/{sid}/quality-gate")
     assert r.status_code == 200
-    assert r.json()["passed"] is False
+    assert r.json()["passed"] is True
+    assert remediated["publication_quality"]["ready"] is False
 
     r = client.post(
         f"/api/v4/sessions/{sid}/regenerate",

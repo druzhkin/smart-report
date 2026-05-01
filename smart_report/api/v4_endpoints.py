@@ -49,6 +49,7 @@ from ..exporters import (
     assess_client_readiness,
     assess_premium_readiness,
     assess_premium_storyboard_quality,
+    apply_publication_remediation,
     apply_report_edits,
     assemble_premium_report_document,
     build_regeneration_plan,
@@ -167,6 +168,10 @@ class StructuredReportRegenerateIn(BaseModel):
     requested_formats: list[ReportArtifactFormat] | None = None
     allow_draft: bool = False
     visual_review_approved: bool = False
+
+
+class StructuredReportRemediationIn(BaseModel):
+    remediation_plan: list[dict[str, Any]] | None = None
 
 
 # ---- long-running task pattern (analyze / synthesize) ---------------------
@@ -2270,6 +2275,38 @@ async def get_structured_report_quality_gate(session_id: str, request: Request) 
     source = _get_or_create_structured_source(session, persist=True)
     gate = run_enterprise_quality_gates(source)
     return gate.model_dump(mode="json")
+
+
+@router.post("/sessions/{session_id}/apply-remediation")
+async def apply_structured_report_remediation(
+    session_id: str,
+    payload: StructuredReportRemediationIn,
+    request: Request,
+) -> dict:
+    session = _get_owned(session_id, request)
+    source = _get_or_create_structured_source(session, persist=False)
+    publication_quality = _publication_quality_for_structured_source(session, source)
+    remediation_plan = payload.remediation_plan
+    if remediation_plan is None:
+        remediation_plan = list((publication_quality or {}).get("remediation_plan") or [])
+    if not remediation_plan:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "No publication remediation actions are currently available.",
+                "publication_quality": publication_quality,
+            },
+        )
+    updated = apply_publication_remediation(source, remediation_plan)
+    session.structured_report_source = updated.model_dump(mode="json")
+    _store.update(session)
+    plan = build_regeneration_plan(updated)
+    return {
+        "source": updated.model_dump(mode="json"),
+        "quality_gate": plan.quality_gate.model_dump(mode="json"),
+        "regeneration_plan": plan.model_dump(mode="json"),
+        "publication_quality": _publication_quality_for_structured_source(session, updated),
+    }
 
 
 def _publication_quality_for_structured_source(

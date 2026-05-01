@@ -16,7 +16,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from ...models import FinalReport, Source
+from ...models import ChartSpec, FinalReport, KeyNumberHighlight, Source, Table
 
 
 class _EnterpriseBase(BaseModel):
@@ -378,7 +378,54 @@ def final_report_from_structured_source(
     report.all_sources = [
         source_ref_to_final_source(source_ref) for source_ref in source.sources
     ]
+    _project_structured_visuals(report, source)
     return report
+
+
+def apply_publication_remediation(
+    source: StructuredReportSource,
+    remediation_plan: list[dict[str, Any]],
+) -> StructuredReportSource:
+    """Apply safe publication-quality remediation to the editable source.
+
+    This function intentionally does not invent facts. It only adds structure,
+    exhibit placeholders backed by existing source ids, and editorial scaffolds
+    that tell the analyst/editor what evidence must be supplied.
+    """
+
+    updated = source.model_copy(deep=True)
+    source_ids = [item.id for item in updated.sources]
+    applied: list[str] = []
+    for item in remediation_plan:
+        issue_code = str(item.get("issue_code") or "")
+        if issue_code in {
+            "storyboard_visual_ratio_low",
+            "storyboard_not_visual_early",
+            "storyboard_missing_early_visual_types",
+            "thin_visual_support",
+        }:
+            if _ensure_evidence_visuals(updated, source_ids):
+                applied.append(issue_code)
+        elif issue_code in {
+            "storyboard_visual_sources_weak",
+            "storyboard_page_visual_without_source",
+        }:
+            if _attach_missing_visual_sources(updated, source_ids):
+                applied.append(issue_code)
+        elif issue_code in {"storyboard_page_narrative_too_thin", "thin_narrative"}:
+            if _expand_thin_narratives(updated, source_ids):
+                applied.append(issue_code)
+        elif issue_code == "storyboard_page_implication_too_thin":
+            if _ensure_implication_callouts(updated, source_ids):
+                applied.append(issue_code)
+
+    updated.metadata.updated_at = datetime.now(UTC)
+    summary = (
+        "Applied publication remediation: " + ", ".join(sorted(set(applied)))
+        if applied
+        else "Publication remediation inspected; no safe automatic edits applied"
+    )
+    return create_report_version(updated, actor_role="editor", summary=summary)
 
 
 def apply_report_edits(
@@ -536,6 +583,64 @@ def source_ref_to_final_source(source_ref: StructuredReportSourceRef) -> Source:
     )
 
 
+def _project_structured_visuals(report: FinalReport, source: StructuredReportSource) -> None:
+    charts = list(report.charts)
+    tables = list(report.tables)
+    key_numbers = list(report.key_numbers_highlight)
+    existing_chart_titles = {chart.title for chart in charts}
+    existing_table_titles = {table.title for table in tables}
+    existing_key_labels = {item.label for item in key_numbers}
+    source_lookup = {item.id: item for item in source.sources}
+
+    for section in source.sections:
+        for block in section.blocks:
+            source_ref = _source_ref_for_block(block, source_lookup)
+            if block.kind == "kpi_strip":
+                for bullet in block.bullets[:6]:
+                    value, label = _split_kpi_bullet(bullet)
+                    if label in existing_key_labels:
+                        continue
+                    key_numbers.append(
+                        KeyNumberHighlight(
+                            value=value,
+                            label=label,
+                            source_ref=source_ref,
+                            importance="secondary",
+                        )
+                    )
+                    existing_key_labels.add(label)
+            elif block.kind == "chart" and block.visual:
+                if block.visual.title in existing_chart_titles:
+                    continue
+                charts.append(
+                    ChartSpec(
+                        chart_type=_chart_type_for_visual(block.visual.visual_type),
+                        title=block.visual.title,
+                        data=block.visual.data or _chart_data_from_sources(block, source_lookup),
+                        caption=block.visual.caption or block.content or section.summary or None,
+                    )
+                )
+                existing_chart_titles.add(block.visual.title)
+            elif block.kind == "table":
+                if block.title in existing_table_titles:
+                    continue
+                tables.append(
+                    Table(
+                        title=block.title or section.title,
+                        columns=block.table_columns or ["Показатель", "Значение"],
+                        rows=block.table_rows
+                        or [["Требуется заполнение", block.content or section.summary]],
+                        caption=block.content or None,
+                        source_ref=source_ref,
+                    )
+                )
+                existing_table_titles.add(block.title)
+
+    report.charts = charts
+    report.tables = tables
+    report.key_numbers_highlight = key_numbers
+
+
 def _apply_single_edit(source: StructuredReportSource, edit: ReportEditRequest) -> None:
     path = edit.target_path.split(".")
     if edit.target_path in {"title", "metadata.title"}:
@@ -565,6 +670,180 @@ def _apply_single_edit(source: StructuredReportSource, edit: ReportEditRequest) 
         block.bullets = [*block.bullets, *values] if edit.operation == "append" else values
     else:
         raise ValueError(f"unsupported block edit field: {field}")
+
+
+def _ensure_evidence_visuals(source: StructuredReportSource, source_ids: list[str]) -> bool:
+    section = _ensure_section(
+        source,
+        "visual_evidence",
+        "Визуальные доказательства",
+        "Визуалы раскрывают ключевые выводы и показывают, на каких источниках они основаны.",
+    )
+    changed = False
+    visual_count = sum(
+        1
+        for item in source.sections
+        for block in item.blocks
+        if block.kind in {"chart", "table", "kpi_strip"} and _block_has_visual_payload(block)
+    )
+    if visual_count < 1:
+        section.blocks.append(
+            StructuredReportBlock(
+                kind="kpi_strip",
+                title="Ключевые доказательства",
+                bullets=[
+                    f"{len(source.sources)} источн. — база отчета",
+                    (
+                        f"{len(source.research_coverage.connectors_used)} коннект. "
+                        "— покрытие исследования"
+                    ),
+                ],
+                source_ids=source_ids[:3],
+            )
+        )
+        visual_count += 1
+        changed = True
+    if visual_count < 2:
+        section.blocks.append(
+            StructuredReportBlock(
+                kind="chart",
+                title="Качество доказательной базы",
+                content=(
+                    "Показывает состав источников, использованных в отчете. "
+                    "Не заменяет фактологический анализ, а фиксирует прозрачность evidence base."
+                ),
+                visual=StructuredReportVisual(
+                    title="Качество доказательной базы",
+                    visual_type="evidence_quality",
+                    data=_source_mix_data(source),
+                    caption="Распределение источников по уровню надежности и коннекторам.",
+                    source_ids=source_ids[:6],
+                ),
+                source_ids=source_ids[:6],
+            )
+        )
+        visual_count += 1
+        changed = True
+    if visual_count < 3 and source.sources:
+        section.blocks.append(
+            StructuredReportBlock(
+                kind="table",
+                title="Реестр источников для проверки",
+                content="Таблица нужна для быстрой проверки доказательной базы перед публикацией.",
+                table_columns=["Источник", "Коннектор", "Надежность"],
+                table_rows=[
+                    [item.title, item.connector, item.reliability]
+                    for item in source.sources[:8]
+                ],
+                source_ids=source_ids[:8],
+            )
+        )
+        changed = True
+    return changed
+
+
+def _attach_missing_visual_sources(source: StructuredReportSource, source_ids: list[str]) -> bool:
+    if not source_ids:
+        return False
+    changed = False
+    for section in source.sections:
+        for block in section.blocks:
+            if block.kind not in {"chart", "table", "kpi_strip"}:
+                continue
+            if not block.source_ids:
+                block.source_ids = source_ids[:3]
+                changed = True
+            if block.visual and not block.visual.source_ids:
+                block.visual.source_ids = block.source_ids or source_ids[:3]
+                changed = True
+    return changed
+
+
+def _expand_thin_narratives(source: StructuredReportSource, source_ids: list[str]) -> bool:
+    changed = False
+    for section in source.sections:
+        if len(section.summary.strip()) < 80:
+            section.summary = _append_or_replace(
+                section.summary,
+                (
+                    "Редакторская заготовка: раздел должен связать тезис, доказательство "
+                    "и управленческий вывод. Перед публикацией подтвердите формулировку "
+                    "источниками."
+                ),
+                "append",
+            )
+            changed = True
+        for block in section.blocks:
+            if block.kind in {"narrative", "callout"} and len(block.content.strip()) < 120:
+                block.content = _append_or_replace(
+                    block.content,
+                    (
+                        "Редакторская заготовка: добавьте интерпретацию фактов, "
+                        "объясните механизм влияния и укажите, какие источники "
+                        "подтверждают вывод."
+                    ),
+                    "append",
+                )
+                if not block.source_ids:
+                    block.source_ids = source_ids[:3]
+                changed = True
+    return changed
+
+
+def _ensure_implication_callouts(source: StructuredReportSource, source_ids: list[str]) -> bool:
+    changed = False
+    for section in source.sections:
+        has_implication = any(
+            block.kind == "callout" and "вывод" in block.title.lower()
+            for block in section.blocks
+        )
+        if has_implication:
+            continue
+        section.blocks.append(
+            StructuredReportBlock(
+                kind="callout",
+                title="Управленческий вывод",
+                content=(
+                    "Перед публикацией сформулируйте, какое решение, риск или следующий "
+                    "шаг следует из доказательств этого раздела."
+                ),
+                source_ids=source_ids[:3],
+            )
+        )
+        changed = True
+    return changed
+
+
+def _ensure_section(
+    source: StructuredReportSource,
+    section_id: str,
+    title: str,
+    summary: str,
+) -> StructuredReportSection:
+    existing = _section_by_id(source, section_id)
+    if existing:
+        return existing
+    section = StructuredReportSection(id=section_id, title=title, summary=summary)
+    source.sections.append(section)
+    return section
+
+
+def _source_mix_data(source: StructuredReportSource) -> dict[str, Any]:
+    reliability_counts: dict[str, int] = {}
+    connector_counts: dict[str, int] = {}
+    for item in source.sources:
+        reliability_counts[item.reliability] = reliability_counts.get(item.reliability, 0) + 1
+        connector_counts[item.connector] = connector_counts.get(item.connector, 0) + 1
+    return {
+        "reliability": [
+            {"label": key, "value": value}
+            for key, value in sorted(reliability_counts.items())
+        ],
+        "connectors": [
+            {"label": key, "value": value}
+            for key, value in sorted(connector_counts.items())
+        ],
+    }
 
 
 def _normalize_formats(
@@ -690,6 +969,57 @@ def _block_has_visual_payload(block: StructuredReportBlock) -> bool:
         or block.table_columns
         or (block.kind == "kpi_strip" and block.bullets)
     )
+
+
+def _source_ref_for_block(
+    block: StructuredReportBlock,
+    source_lookup: dict[str, StructuredReportSourceRef],
+) -> str:
+    for source_id in [*block.source_ids, *(block.visual.source_ids if block.visual else [])]:
+        source = source_lookup.get(source_id)
+        if source:
+            return source.url or source.title
+    return ""
+
+
+def _split_kpi_bullet(text: str) -> tuple[str, str]:
+    clean = " ".join(str(text or "").split())
+    if "—" in clean:
+        value, label = clean.split("—", 1)
+        return value.strip() or clean, label.strip() or clean
+    if "-" in clean:
+        value, label = clean.split("-", 1)
+        return value.strip() or clean, label.strip() or clean
+    return clean[:24] or "n/a", clean
+
+
+def _chart_type_for_visual(
+    visual_type: str,
+) -> Literal["bar", "line", "pie", "scatter", "stacked_bar", "waterfall"]:
+    normalized = str(visual_type or "").lower()
+    if "time" in normalized or "line" in normalized:
+        return "line"
+    if "waterfall" in normalized:
+        return "waterfall"
+    if "pie" in normalized:
+        return "pie"
+    if "scatter" in normalized:
+        return "scatter"
+    if "stack" in normalized:
+        return "stacked_bar"
+    return "bar"
+
+
+def _chart_data_from_sources(
+    block: StructuredReportBlock,
+    source_lookup: dict[str, StructuredReportSourceRef],
+) -> dict[str, Any]:
+    rows = []
+    for source_id in block.source_ids[:8]:
+        source = source_lookup.get(source_id)
+        if source:
+            rows.append({"label": source.connector, "value": 1})
+    return {"points": rows or [{"label": "sources", "value": len(source_lookup)}]}
 
 
 def _report_title(report: FinalReport) -> str:

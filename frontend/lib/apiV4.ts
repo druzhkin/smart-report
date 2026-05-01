@@ -823,6 +823,24 @@ export async function regenerateStructuredReportPackage(
   return res.blob();
 }
 
+export async function applyStructuredReportRemediation(
+  id: string,
+  remediationPlan?: NonNullable<PublicationQualityGate>["remediation_plan"],
+): Promise<StructuredReportSourceOut> {
+  if (STUB) {
+    const current = await getStructuredReportSource(id);
+    return structuredSourceEnvelope(current.source);
+  }
+  return jv4<StructuredReportSourceOut>(
+    `/api/v4/sessions/${encodeURIComponent(id)}/apply-remediation`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ remediation_plan: remediationPlan }),
+    },
+  );
+}
+
 function stubStructuredSource(final: FinalReport): StructuredReportSource {
   return {
     metadata: {

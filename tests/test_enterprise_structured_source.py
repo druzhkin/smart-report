@@ -4,6 +4,7 @@ import pytest
 
 from smart_report.exporters.premium import (
     ReportEditRequest,
+    apply_publication_remediation,
     apply_report_edits,
     build_regeneration_plan,
     final_report_from_structured_source,
@@ -135,6 +136,38 @@ def test_quality_gate_blocks_thin_visual_support():
 
     assert not gate.passed
     assert "thin_visual_support" in {issue.code for issue in gate.issues}
+
+
+def test_publication_remediation_adds_safe_source_backed_visuals():
+    source = structured_source_from_final_report(_report())
+    source.sections = [section for section in source.sections if section.id != "visual_evidence"]
+    for section in source.sections:
+        section.blocks = [block for block in section.blocks if block.kind != "kpi_strip"]
+
+    updated = apply_publication_remediation(
+        source,
+        [
+            {
+                "issue_code": "thin_visual_support",
+                "severity": "major",
+                "priority": 20,
+                "action": "Add source-backed visuals.",
+            }
+        ],
+    )
+
+    visual_blocks = [
+        block
+        for section in updated.sections
+        for block in section.blocks
+        if block.kind in {"chart", "table", "kpi_strip"}
+    ]
+    assert len(visual_blocks) >= 2
+    assert all(block.source_ids for block in visual_blocks)
+    assert len(updated.versions) == len(source.versions) + 1
+
+    projected = final_report_from_structured_source(_report(), updated)
+    assert projected.charts or projected.tables or projected.key_numbers_highlight
 
 
 def test_structured_source_tracks_scientific_connectors_explicitly():

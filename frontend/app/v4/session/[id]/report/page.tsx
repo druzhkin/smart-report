@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
+  applyStructuredReportRemediation,
   getSession,
   getStructuredReportSource,
   patchStructuredReportSource,
@@ -435,6 +436,7 @@ function StructuredReportEditor({
   const publication = current.publication_quality;
   const publicationReady = publication?.ready ?? true;
   const canRegenerate = gate.passed && publicationReady;
+  const hasRemediation = Boolean(publication?.remediation_plan?.length);
 
   async function saveEdits() {
     if (!firstSection || !firstBlock) return;
@@ -484,6 +486,27 @@ function StructuredReportEditor({
       setMessage("Пакет пересобран. Внутри есть DOCX, PDF и PPTX.");
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "Не удалось пересобрать пакет");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function applyRemediation() {
+    if (!hasRemediation) {
+      setMessage("Нет безопасных автоматических исправлений для текущего состояния.");
+      return;
+    }
+    setBusy(true);
+    setMessage(null);
+    try {
+      const next = await applyStructuredReportRemediation(
+        sessionId,
+        publication?.remediation_plan,
+      );
+      onStructuredChange(next);
+      setMessage("Автоматические исправления применены. Проверки качества пересчитаны.");
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "Не удалось применить автоматические исправления");
     } finally {
       setBusy(false);
     }
@@ -592,6 +615,14 @@ function StructuredReportEditor({
           <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
             <button className="v4-btn v4-btn-secondary" onClick={saveEdits} disabled={busy}>
               Сохранить
+            </button>
+            <button
+              className="v4-btn v4-btn-secondary"
+              onClick={applyRemediation}
+              disabled={busy || !hasRemediation}
+              title={hasRemediation ? "Применить безопасные исправления качества" : "Нет автоматических исправлений"}
+            >
+              Исправить
             </button>
             <button
               className="v4-btn v4-btn-primary"
