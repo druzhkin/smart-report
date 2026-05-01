@@ -406,6 +406,22 @@ def test_v4_full_cycle(monkeypatch, tmp_path):
     assert remediated["publication_quality"] is not None
     assert "remediation_plan" in remediated["publication_quality"]
 
+    r = client.post(
+        f"/api/v4/sessions/{sid}/auto-improve",
+        json={"max_iterations": 2},
+    )
+    assert r.status_code == 200, r.text
+    auto_improved = r.json()
+    assert auto_improved["iterations"]
+    assert auto_improved["stopped_reason"] in {
+        "ready",
+        "no_safe_remediation",
+        "no_structural_change",
+        "max_iterations_reached",
+    }
+    assert len(auto_improved["source"]["versions"]) >= 3
+    assert auto_improved["regeneration_plan"]["requested_formats"][:3] == ["docx", "pdf", "pptx"]
+
     r = client.get(f"/api/v4/sessions/{sid}/quality-gate")
     assert r.status_code == 200
     assert r.json()["passed"] is True

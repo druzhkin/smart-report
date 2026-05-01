@@ -225,6 +225,25 @@ export type StructuredReportSourceOut = {
   publication_quality?: PublicationQualityGate;
 };
 
+export type StructuredReportAutoImproveOut = StructuredReportSourceOut & {
+  iterations: {
+    iteration: number;
+    quality_gate_passed: boolean;
+    quality_gate_score: number;
+    publication_ready: boolean;
+    publication_score?: number;
+    remediation_count?: number;
+    applied: boolean;
+    version_count?: number;
+    stop?: "ready" | "no_safe_remediation";
+  }[];
+  stopped_reason:
+    | "ready"
+    | "no_safe_remediation"
+    | "no_structural_change"
+    | "max_iterations_reached";
+};
+
 export type PendingDRJob = {
   task_id: string;
   service: string;            // "valyu" | "tavily" | "exa" | "openai" | "perplexity"
@@ -837,6 +856,28 @@ export async function applyStructuredReportRemediation(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ remediation_plan: remediationPlan }),
+    },
+  );
+}
+
+export async function autoImproveStructuredReport(
+  id: string,
+  maxIterations = 3,
+): Promise<StructuredReportAutoImproveOut> {
+  if (STUB) {
+    const current = await getStructuredReportSource(id);
+    return {
+      ...current,
+      iterations: [],
+      stopped_reason: "no_safe_remediation",
+    };
+  }
+  return jv4<StructuredReportAutoImproveOut>(
+    `/api/v4/sessions/${encodeURIComponent(id)}/auto-improve`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ max_iterations: maxIterations }),
     },
   );
 }

@@ -55,6 +55,7 @@ from ..exporters import (
     build_regeneration_plan,
     contains_client_leak,
     final_report_from_structured_source,
+    hash_structured_source,
     ReportArtifactFormat,
     ReportEditRequest,
     run_enterprise_quality_gates,
@@ -172,6 +173,10 @@ class StructuredReportRegenerateIn(BaseModel):
 
 class StructuredReportRemediationIn(BaseModel):
     remediation_plan: list[dict[str, Any]] | None = None
+
+
+class StructuredReportAutoImproveIn(BaseModel):
+    max_iterations: int = Field(default=3, ge=1, le=5)
 
 
 # ---- long-running task pattern (analyze / synthesize) ---------------------
@@ -2306,6 +2311,73 @@ async def apply_structured_report_remediation(
         "quality_gate": plan.quality_gate.model_dump(mode="json"),
         "regeneration_plan": plan.model_dump(mode="json"),
         "publication_quality": _publication_quality_for_structured_source(session, updated),
+    }
+
+
+@router.post("/sessions/{session_id}/auto-improve")
+async def auto_improve_structured_report(
+    session_id: str,
+    payload: StructuredReportAutoImproveIn,
+    request: Request,
+) -> dict:
+    session = _get_owned(session_id, request)
+    source = _get_or_create_structured_source(session, persist=False)
+    iterations: list[dict[str, Any]] = []
+    stopped_reason = "max_iterations_reached"
+
+    for iteration in range(1, payload.max_iterations + 1):
+        plan = build_regeneration_plan(source)
+        publication_quality = _publication_quality_for_structured_source(session, source)
+        gate_passed = bool(plan.quality_gate.passed)
+        publication_ready = bool(publication_quality and publication_quality.get("ready"))
+        iteration_record: dict[str, Any] = {
+            "iteration": iteration,
+            "quality_gate_passed": gate_passed,
+            "quality_gate_score": plan.quality_gate.score,
+            "publication_ready": publication_ready,
+            "publication_score": (publication_quality or {}).get("score"),
+            "applied": False,
+        }
+        if gate_passed and publication_ready:
+            iteration_record["stop"] = "ready"
+            iterations.append(iteration_record)
+            stopped_reason = "ready"
+            break
+
+        remediation_plan = list((publication_quality or {}).get("remediation_plan") or [])
+        if not remediation_plan:
+            iteration_record["stop"] = "no_safe_remediation"
+            iterations.append(iteration_record)
+            stopped_reason = "no_safe_remediation"
+            break
+
+        before_hash = hash_structured_source(source, include_versions=False)
+        updated = apply_publication_remediation(source, remediation_plan)
+        after_hash = hash_structured_source(updated, include_versions=False)
+        iteration_record["remediation_count"] = len(remediation_plan)
+        iteration_record["applied"] = before_hash != after_hash
+        iteration_record["version_count"] = len(updated.versions)
+        iterations.append(iteration_record)
+        source = updated
+        if before_hash == after_hash:
+            stopped_reason = "no_structural_change"
+            break
+
+    session.structured_report_source = source.model_dump(mode="json")
+    _store.update(session)
+    final_plan = build_regeneration_plan(source)
+    final_publication_quality = _publication_quality_for_structured_source(session, source)
+    if final_plan.quality_gate.passed and bool(
+        final_publication_quality and final_publication_quality.get("ready")
+    ):
+        stopped_reason = "ready"
+    return {
+        "source": source.model_dump(mode="json"),
+        "iterations": iterations,
+        "stopped_reason": stopped_reason,
+        "quality_gate": final_plan.quality_gate.model_dump(mode="json"),
+        "regeneration_plan": final_plan.model_dump(mode="json"),
+        "publication_quality": final_publication_quality,
     }
 
 
