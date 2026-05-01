@@ -6,14 +6,15 @@ import { ChatView } from "./ChatView";
  * the client ChatView. Wrapped in a fresh CostProvider so the v4 chat route
  * doesn't depend on the old V4Shell / AppShell layouts.
  */
-export default function V4ChatSessionPage({
+export default async function V4ChatSessionPage({
   params,
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }) {
+  const { id } = await params;
   return (
     <CostProvider>
-      <ChatView sessionId={params.id} />
+      <ChatView sessionId={id} />
     </CostProvider>
   );
 }

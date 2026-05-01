@@ -9,6 +9,7 @@ import { V4Shell } from "./V4Shell";
 // and break layout). The new chat workspace at /v4/chat owns its own
 // top bar, theme, sidebar, and cost badge.
 const OWN_CHROME = ["/v4/chat"];
+const STUB = process.env.NEXT_PUBLIC_V4_STUB === "1";
 
 /**
  * SaaS auth gate. /v4/* is the user workspace — every route here requires
@@ -26,6 +27,10 @@ function useAuthGate() {
   const [phase, setPhase] = useState<"checking" | "ok">("checking");
 
   useEffect(() => {
+    if (STUB) {
+      setPhase("ok");
+      return;
+    }
     let cancelled = false;
     fetch("/api/auth/me", { cache: "no-store" })
       .then((r) => r.json())

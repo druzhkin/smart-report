@@ -46,9 +46,10 @@ function pickResponseHeaders(headers: Headers): Headers {
 
 async function proxy(
   req: NextRequest,
-  ctx: { params: { path: string[] } }
+  ctx: { params: Promise<{ path: string[] }> }
 ): Promise<Response> {
-  const path = (ctx.params.path || []).join("/");
+  const params = await ctx.params;
+  const path = (params.path || []).join("/");
   const search = req.nextUrl.search || "";
   const target = `${API_BASE}/api/${path}${search}`;
 

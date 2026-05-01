@@ -1,9 +1,10 @@
 import { DocView } from "./DocView";
 
 interface Props {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }
 
-export default function DocPage({ params }: Props) {
-  return <DocView sessionId={params.id} />;
+export default async function DocPage({ params }: Props) {
+  const { id } = await params;
+  return <DocView sessionId={id} />;
 }
