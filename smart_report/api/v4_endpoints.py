@@ -50,6 +50,7 @@ from ..exporters import (
     assess_premium_readiness,
     assess_premium_storyboard_quality,
     apply_report_edits,
+    assemble_premium_report_document,
     build_regeneration_plan,
     contains_client_leak,
     final_report_from_structured_source,
@@ -2234,6 +2235,7 @@ async def get_structured_report_source(session_id: str, request: Request) -> dic
         "source": source.model_dump(mode="json"),
         "quality_gate": plan.quality_gate.model_dump(mode="json"),
         "regeneration_plan": plan.model_dump(mode="json"),
+        "publication_quality": _publication_quality_for_structured_source(session, source),
     }
 
 
@@ -2258,6 +2260,7 @@ async def patch_structured_report_source(
         "source": updated.model_dump(mode="json"),
         "quality_gate": plan.quality_gate.model_dump(mode="json"),
         "regeneration_plan": plan.model_dump(mode="json"),
+        "publication_quality": _publication_quality_for_structured_source(session, updated),
     }
 
 
@@ -2267,6 +2270,17 @@ async def get_structured_report_quality_gate(session_id: str, request: Request) 
     source = _get_or_create_structured_source(session, persist=True)
     gate = run_enterprise_quality_gates(source)
     return gate.model_dump(mode="json")
+
+
+def _publication_quality_for_structured_source(
+    session: V4Session,
+    source: StructuredReportSource,
+) -> dict | None:
+    if session.final_report is None:
+        return None
+    projected = final_report_from_structured_source(session.final_report, source)
+    document = assemble_premium_report_document(projected, analysis=session.analysis)
+    return assess_premium_storyboard_quality(document)
 
 
 @router.post("/sessions/{session_id}/regenerate")

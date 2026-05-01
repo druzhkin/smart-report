@@ -192,6 +192,13 @@ export type ReportQualityGate = {
   checked_at: string;
 };
 
+export type PublicationQualityGate = {
+  ready: boolean;
+  score: number;
+  issues: { code: string; severity: "critical" | "major" | "minor"; message: string; recommendation: string }[];
+  metrics: Record<string, unknown>;
+} | null;
+
 export type ReportRegenerationPlan = {
   source_hash: string;
   requested_formats: ReportArtifactFormat[];
@@ -204,6 +211,7 @@ export type StructuredReportSourceOut = {
   source: StructuredReportSource;
   quality_gate: ReportQualityGate;
   regeneration_plan: ReportRegenerationPlan;
+  publication_quality?: PublicationQualityGate;
 };
 
 export type PendingDRJob = {
@@ -880,6 +888,22 @@ function structuredSourceEnvelope(source: StructuredReportSource): StructuredRep
       default_word_artifact: "docx",
       quality_gate: gate,
       can_regenerate: gate.passed,
+    },
+    publication_quality: {
+      ready: false,
+      score: 76,
+      issues: [
+        {
+          code: "storyboard_visual_ratio_low",
+          severity: "major",
+          message: "Only stub visuals are available in local demo data.",
+          recommendation: "Add charts, KPI blocks, and source-backed exhibits before export.",
+        },
+      ],
+      metrics: {
+        page_count: 8,
+        visual_ratio: hasVisual ? 0.7 : 0.2,
+      },
     },
   };
 }

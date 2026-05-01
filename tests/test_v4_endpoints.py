@@ -366,6 +366,8 @@ def test_v4_full_cycle(monkeypatch, tmp_path):
     structured = r.json()
     assert structured["source"]["metadata"]["title"]
     assert structured["regeneration_plan"]["requested_formats"][:3] == ["docx", "pdf", "pptx"]
+    assert structured["publication_quality"] is not None
+    assert "metrics" in structured["publication_quality"]
     assert structured["quality_gate"]["passed"] is False
     assert "thin_visual_support" in {
         issue["code"] for issue in structured["quality_gate"]["issues"]
@@ -394,6 +396,7 @@ def test_v4_full_cycle(monkeypatch, tmp_path):
     assert r.status_code == 200, r.text
     edited = r.json()
     assert edited["source"]["metadata"]["title"] == "Client edited report title"
+    assert edited["publication_quality"] is not None
     assert len(edited["source"]["versions"]) == 2
 
     r = client.get(f"/api/v4/sessions/{sid}/quality-gate")

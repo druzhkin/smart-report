@@ -3,17 +3,15 @@
 Wraps the existing `ValyuClient` (Day 2 work) and re-shapes its `list[ValyuResult]`
 output to the shared `SearchResult` shape from `smart_report.sources.base`.
 
+Current production behavior routes by declared domain: scientific, medical, and
+technical research requests use proprietary Valyu datasets and disable fast mode
+so paper sources are not silently replaced by generic web search. Financial and
+general requests keep the broader `all` search path unless the orchestrator
+provides a more specific included-source policy.
+
 Per v3 §0 architectural invariant + `tests/test_routing_invariants.py`:
 `is_primary_capable = True` — Valyu is the ONLY backend allowed to be primary
 on covered domains.
-
-Per two-week brief §3 B1.2 v0: `fast_mode=True` hardcoded for this minimum
-viable production version. M2 may refine per-domain `included_sources` filters
-once the financial_us live smoke validates the basic path. Day 5 capability
-map enumerated 36 datasets — financial_us specifically benefits from
-`valyu/valyu-sec-filings`, `valyu/valyu-fred`, `valyu/valyu-bls` filters,
-but `("all", fast_mode=True)` already surfaces sec.gov/fred.stlouisfed.org via
-web search (sufficient for v0 substance proof).
 
 Path note: per BLOCKERS.md A8, lives at `smart_report/sources/` not the
 brief's `backend/v2/sources/` to avoid mid-pivot refactor risk. Path naming

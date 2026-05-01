@@ -431,6 +431,8 @@ function StructuredReportEditor({
   const firstSection = current.source.sections[0];
   const firstBlock = firstSection?.blocks[0];
   const gate = current.quality_gate;
+  const coverage = current.source.research_coverage;
+  const publication = current.publication_quality;
 
   async function saveEdits() {
     if (!firstSection || !firstBlock) return;
@@ -533,9 +535,33 @@ function StructuredReportEditor({
             {gate.passed ? "ГОТОВО К ВЫДАЧЕ" : "БЛОКЕРЫ ЧЕРНОВИКА"} · {gate.score}/100
           </div>
           <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
+            <div style={{ fontSize: 12, lineHeight: 1.4, color: "var(--v4-ink-2)" }}>
+              <strong>Покрытие источников</strong>: {coverage.declared_domain || "general"} ·{" "}
+              {coverage.connectors_used.length ? coverage.connectors_used.join(", ") : "не зафиксировано"}
+            </div>
+            {coverage.scientific_or_primary_connectors.length > 0 && (
+              <div style={{ fontSize: 12, lineHeight: 1.4, color: "var(--v4-ink-2)" }}>
+                <strong>Первичные источники</strong>: {coverage.scientific_or_primary_connectors.join(", ")}
+              </div>
+            )}
+            {coverage.known_coverage_gaps.map((gap) => (
+              <div key={gap} style={{ fontSize: 12, lineHeight: 1.4, color: "#9a3412" }}>
+                <strong>Пробел доказательной базы</strong>: {gap}
+              </div>
+            ))}
+            {publication && (
+              <div style={{ fontSize: 12, lineHeight: 1.4, color: publication.ready ? "#166534" : "#9a3412" }}>
+                <strong>Публикационная структура</strong>: {publication.ready ? "готово" : "блокирует"} · {publication.score}/100
+              </div>
+            )}
+            {publication?.issues.slice(0, 3).map((issue) => (
+              <div key={issue.code} style={{ fontSize: 12, lineHeight: 1.4, color: "var(--v4-ink-2)" }}>
+                <strong>{qualityIssueLabel(issue.code)}</strong>: {issue.message}
+              </div>
+            ))}
             {gate.issues.slice(0, 4).map((issue) => (
               <div key={issue.code} style={{ fontSize: 12, lineHeight: 1.4, color: "var(--v4-ink-2)" }}>
-                <strong>{issue.code}</strong>: {issue.message}
+                <strong>{qualityIssueLabel(issue.code)}</strong>: {issue.message}
               </div>
             ))}
             {gate.issues.length === 0 && (
@@ -763,6 +789,19 @@ function ExportDropdown({
 }
 
 // Uses the real FinalSource shape from apiV4 — origin is the tool key string
+function qualityIssueLabel(code: string): string {
+  const labels: Record<string, string> = {
+    source_count_low: "Глубина источников",
+    thin_visual_support: "Визуальная поддержка",
+    weak_editable_structure: "Редактируемая структура",
+    storyboard_visual_ratio_low: "Визуальный ритм",
+    storyboard_page_count_low: "Глубина отчета",
+    storyboard_text_density_low: "Глубина текста",
+    storyboard_exhibit_balance_low: "Баланс визуалов",
+  };
+  return labels[code] ?? code.replaceAll("_", " ");
+}
+
 type LocalFinalSource = { title: string; url: string; origin: string };
 
 function groupSourcesByTool(sources: LocalFinalSource[]) {
