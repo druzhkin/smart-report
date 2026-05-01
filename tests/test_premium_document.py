@@ -52,11 +52,12 @@ def test_render_premium_pdf_opens_and_meets_publication_shape(tmp_path):
     assert "Publication-grade PDF" in first_page_text
     publication_text = "\n".join(page.extract_text() or "" for page in reader.pages[:8])
     assert "EXHIBIT" in publication_text
-    assert (
-        "Indexed numeric signal" in publication_text
-        or "Индексированный числовой сигнал" in publication_text
-    )
-    assert "Source reliability mix" in publication_text or "Надежность источников" in publication_text
+    assert "Индексированный числовой сигнал" in publication_text
+    assert "Надежность источников" in publication_text
+    assert "Interpretation" not in publication_text
+    assert "What it means" not in publication_text
+    assert "RANKING BAR" not in publication_text
+    assert "Source reliability mix" not in publication_text
     assert "Source:" in publication_text
 
 
@@ -221,6 +222,7 @@ def test_assemble_premium_document_uses_existing_analysis_layers():
     assert len(document.appendices) == 3
     assert len(document.deck_slides) >= 10
     assert len(document.pages) >= 8
+    assert all("Позиция автора" not in page.thesis for page in document.pages)
 
     visual_pages = [page for page in document.pages if page.visual and page.visual.visual_type != "none"]
     visual_types = {page.visual.visual_type for page in visual_pages if page.visual}

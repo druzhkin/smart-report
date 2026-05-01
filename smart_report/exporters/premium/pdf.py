@@ -328,6 +328,7 @@ def _story_page(
 ) -> int:
     page_no += 1
     _header(c, document, page_no)
+    russian = _has_cyrillic(f"{document.title} {document.subtitle}")
     is_exhibit = page.page_type in {"exhibit", "appendix"} or (
         page.visual is not None and page.visual.visual_type not in {"none", "narrative_text"}
     )
@@ -353,7 +354,11 @@ def _story_page(
         y = visual_y - 24
 
     narrative = page.narrative or _visual_body(page.visual) or page.thesis
-    implication = page.implication or "This page converts the evidence base into a decision-useful conclusion."
+    implication = page.implication or (
+        "Эта страница переводит доказательную базу в управленческий вывод."
+        if russian
+        else "This page converts the evidence base into a decision-useful conclusion."
+    )
     source_note = _source_note_for_page(document, page)
     text_w = (PAGE_W - 2 * MARGIN_X - 22) * 0.62
     callout_x = MARGIN_X + text_w + 22
@@ -361,7 +366,7 @@ def _story_page(
 
     c.setFillColor(INK)
     c.setFont(FONT_BOLD, 10)
-    c.drawString(MARGIN_X, y, "Interpretation")
+    c.drawString(MARGIN_X, y, "Интерпретация" if russian else "Interpretation")
     c.setFillColor(MUTED)
     used = _draw_wrapped(c, narrative, MARGIN_X, y - 18, text_w, 12, FONT_REGULAR, 9.2, max_lines=9)
 
@@ -370,7 +375,7 @@ def _story_page(
     c.rect(callout_x, y - callout_h + 4, callout_w, callout_h, fill=1, stroke=0)
     c.setFillColor(DARK_GREEN)
     c.setFont(FONT_BOLD, 8)
-    c.drawString(callout_x + 12, y - 16, "What it means")
+    c.drawString(callout_x + 12, y - 16, "Что это означает" if russian else "What it means")
     c.setFillColor(INK)
     _draw_wrapped(c, implication, callout_x + 12, y - 34, callout_w - 24, 11, FONT_REGULAR, 8.4, max_lines=6)
 
@@ -391,16 +396,27 @@ def _draw_page_visual(
     w: float,
     h: float,
 ) -> None:
+    russian = _has_cyrillic(f"{document.title} {document.subtitle}")
     c.setFillColor(colors.HexColor("#F4F8F6"))
     c.rect(x, y, w, h, fill=1, stroke=0)
     c.setStrokeColor(LINE)
     c.rect(x, y, w, h, fill=0, stroke=1)
     c.setFillColor(GREEN)
     c.setFont(FONT_BOLD, 8)
-    c.drawString(x + 18, y + h - 24, str(visual.visual_type).replace("_", " ").upper())
+    c.drawString(x + 18, y + h - 24, _visual_type_label(visual.visual_type, russian=russian))
     c.setFillColor(INK)
     c.setFont(FONT_BOLD, 13)
-    _draw_wrapped(c, visual.title, x + 18, y + h - 44, w - 36, 15, FONT_BOLD, 12, max_lines=2)
+    _draw_wrapped(
+        c,
+        _visual_title(visual, russian=russian),
+        x + 18,
+        y + h - 44,
+        w - 36,
+        15,
+        FONT_BOLD,
+        12,
+        max_lines=2,
+    )
 
     inner_x, inner_y, inner_w, inner_h = x + 18, y + 24, w - 36, h - 88
     if visual.visual_type == "hero_kpi_strip":
@@ -410,16 +426,47 @@ def _draw_page_visual(
         _draw_visual_table(c, visual, inner_x, inner_y + inner_h, inner_w, inner_h)
         return
     if visual.visual_type == "evidence_quality":
-        _draw_visual_evidence_quality(c, visual, inner_x, inner_y, inner_w, inner_h)
+        _draw_visual_evidence_quality(c, visual, inner_x, inner_y, inner_w, inner_h, russian=russian)
         return
     if visual.visual_type == "narrative_text":
         _draw_visual_narrative(c, visual, inner_x, inner_y + inner_h, inner_w, inner_h)
         return
     points = _points_from_visual(visual)
     if points:
-        _draw_bar_line_chart(c, [(label, value) for label, value in points], inner_x, inner_y, inner_w, inner_h, russian=False)
+        _draw_bar_line_chart(c, [(label, value) for label, value in points], inner_x, inner_y, inner_w, inner_h, russian=russian)
         return
     _draw_exhibit_placeholder(c, inner_x, inner_y, inner_w, inner_h, visual.visual_type)
+
+
+def _visual_type_label(visual_type: str, *, russian: bool) -> str:
+    if not russian:
+        return str(visual_type).replace("_", " ").upper()
+    labels = {
+        "hero_kpi_strip": "КЛЮЧЕВЫЕ ПОКАЗАТЕЛИ",
+        "ranking_bar": "РЕЙТИНГОВАЯ ДИАГРАММА",
+        "time_series": "ДИНАМИКА",
+        "distribution": "СТРУКТУРА",
+        "scenario_matrix": "СЦЕНАРНАЯ МАТРИЦА",
+        "risk_heatmap": "КАРТА РИСКОВ",
+        "evidence_quality": "КАЧЕСТВО ИСТОЧНИКОВ",
+        "waterfall": "ФАКТОРНЫЙ ВКЛАД",
+        "market_map": "КАРТА РЫНКА",
+        "source_table": "ТАБЛИЦА ИСТОЧНИКОВ",
+        "narrative_text": "АНАЛИТИЧЕСКИЙ ТЕКСТ",
+    }
+    return labels.get(str(visual_type), str(visual_type).replace("_", " ").upper())
+
+
+def _visual_title(visual: PremiumPageVisual, *, russian: bool) -> str:
+    if not russian:
+        return visual.title
+    titles = {
+        "Executive KPI strip": "Ключевые показатели решения",
+        "Source reliability mix": "Надежность источников",
+        "Comparable numeric signal": "Сопоставимый числовой сигнал",
+        "Conflict and uncertainty heatmap": "Карта противоречий и неопределенности",
+    }
+    return titles.get(visual.title, visual.title)
 
 
 def _draw_visual_kpis(
@@ -494,6 +541,8 @@ def _draw_visual_evidence_quality(
     y: float,
     w: float,
     h: float,
+    *,
+    russian: bool,
 ) -> None:
     points = visual.data.get("points", [])
     buckets = {"high": 0.0, "medium": 0.0, "low": 0.0}
@@ -522,11 +571,16 @@ def _draw_visual_evidence_quality(
         start += extent
     c.setFillColor(INK)
     c.setFont(FONT_BOLD, 7)
-    c.drawString(x + 20, y + h - 22, "Source reliability mix")
+    c.drawString(x + 20, y + h - 22, "Надежность источников" if russian else "Source reliability mix")
     c.setFillColor(MUTED)
     c.setFont(FONT_REGULAR, 8)
+    labels = (
+        {"high": "высокая", "medium": "средняя", "low": "низкая"}
+        if russian
+        else {"high": "high", "medium": "medium", "low": "low"}
+    )
     for idx, key in enumerate(("high", "medium", "low")):
-        c.drawString(x + w * 0.65, y + h * 0.62 - idx * 18, f"{key}: {int(buckets[key])}")
+        c.drawString(x + w * 0.65, y + h * 0.62 - idx * 18, f"{labels[key]}: {int(buckets[key])}")
 
 
 def _draw_visual_narrative(

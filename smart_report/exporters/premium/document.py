@@ -159,7 +159,7 @@ def _main_synthesis_chapters(markdown: str) -> list[tuple[str, str]]:
             title = first[3:].strip()
             body = "\n".join(lines[1:]).strip()
         else:
-            title = "Позиция автора"
+            title = "Ключевая логика вывода"
             body = clean
         if body:
             chapters.append((_compact_text(title, 120), body))
