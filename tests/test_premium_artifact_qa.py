@@ -152,6 +152,36 @@ def test_premium_artifact_qa_checks_publication_pdf(tmp_path):
     assert pdf_result["metrics"]["has_publication_marker"] is True
     assert pdf_result["metrics"]["has_exhibit_pages"] is True
     assert pdf_result["metrics"]["has_source_notes"] is True
+    assert pdf_result["metrics"]["landscape_pages"] == []
+    assert pdf_result["metrics"]["thin_pages_after_cover"] == []
+
+
+def test_premium_artifact_qa_rejects_landscape_pdf(tmp_path):
+    pytest.importorskip("reportlab")
+    pytest.importorskip("pypdf")
+
+    from reportlab.lib.pagesizes import landscape, letter
+    from reportlab.pdfgen import canvas
+
+    pdf_path = tmp_path / "landscape_report.pdf"
+    c = canvas.Canvas(str(pdf_path), pagesize=landscape(letter))
+    for page in range(20):
+        c.drawString(48, 540, "SMART REPORT | Publication-grade PDF")
+        c.drawString(48, 512, f"EXHIBIT {page + 1}: Source: internal QA fixture.")
+        c.drawString(
+            48,
+            484,
+            "This page has enough text to avoid thin-page failure while keeping orientation invalid.",
+        )
+        c.showPage()
+    c.save()
+
+    report = run_qa(pdf_path=pdf_path, out_dir=tmp_path, render=False)
+
+    assert report["status"] == "failed"
+    pdf_result = next(item for item in report["results"] if item["kind"] == "pdf")
+    assert pdf_result["metrics"]["landscape_pages"]
+    assert any("landscape" in issue for issue in pdf_result["issues"])
 
 
 def test_premium_artifact_qa_reports_missing_render_tools(monkeypatch, premium_artifacts, tmp_path):

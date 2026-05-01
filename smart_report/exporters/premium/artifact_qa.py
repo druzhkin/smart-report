@@ -211,12 +211,36 @@ def _inspect_pdf(path: Path) -> ArtifactQaResult:
 
         reader = PdfReader(str(path))
         page_count = len(reader.pages)
+        page_texts = [(page.extract_text() or "") for page in reader.pages]
         sample_text = "\n".join(
-            (page.extract_text() or "") for page in reader.pages[: min(page_count, 6)]
+            page_texts[: min(page_count, 6)]
         )
+        page_char_counts = [len(text.strip()) for text in page_texts]
+        landscape_pages = []
+        thin_pages = []
+        max_text_only_streak = 0
+        current_text_only_streak = 0
+        for idx, page in enumerate(reader.pages, start=1):
+            width = float(page.mediabox.width)
+            height = float(page.mediabox.height)
+            if width > height:
+                landscape_pages.append(idx)
+            # Skip the cover for density checks: a publication cover can be sparse.
+            if idx > 1 and page_char_counts[idx - 1] < 120:
+                thin_pages.append(idx)
+            if idx > 1 and page_char_counts[idx - 1] > 900:
+                current_text_only_streak += 1
+                max_text_only_streak = max(max_text_only_streak, current_text_only_streak)
+            else:
+                current_text_only_streak = 0
         result.metrics = {
             "pages": page_count,
             "text_chars_sample": len(sample_text),
+            "page_text_chars_min": min(page_char_counts) if page_char_counts else 0,
+            "page_text_chars_avg": round(sum(page_char_counts) / page_count) if page_count else 0,
+            "landscape_pages": landscape_pages,
+            "thin_pages_after_cover": thin_pages,
+            "max_dense_text_streak_after_cover": max_text_only_streak,
             "has_cover_brand": "SMART REPORT" in sample_text,
             "has_publication_marker": "Publication-grade PDF" in sample_text,
             "has_exhibit_pages": "EXHIBIT" in sample_text,
@@ -233,6 +257,21 @@ def _inspect_pdf(path: Path) -> ArtifactQaResult:
         }.items():
             if not result.metrics.get(key):
                 result.issues.append(message)
+        if landscape_pages:
+            result.issues.append(
+                "PDF contains landscape page(s); publication report must be portrait: "
+                + ", ".join(str(page) for page in landscape_pages[:10])
+            )
+        if thin_pages:
+            result.issues.append(
+                "PDF contains empty or underwritten page(s) after the cover: "
+                + ", ".join(str(page) for page in thin_pages[:10])
+            )
+        if max_text_only_streak >= 4:
+            result.issues.append(
+                "PDF has too many consecutive dense narrative pages without exhibit pacing; "
+                f"observed streak {max_text_only_streak}, expected below 4."
+            )
         result.structural_status = "passed" if not result.issues else "failed"
     except Exception as exc:  # pragma: no cover - defensive CLI path
         result.structural_status = "failed"
