@@ -159,7 +159,12 @@ def _inspect_docx(path: Path) -> ArtifactQaResult:
             "has_readiness_gate": (
                 "Premium Readiness Gate" in text or "Гейт готовности к платной выдаче" in text
             ),
-            "has_report_structure": "Report Structure" in text or "Структура отчёта" in text,
+            "has_report_structure": (
+                "Report Structure" in text
+                or "How to Read" in text
+                or "Структура отчёта" in text
+                or "Как читать отчёт" in text
+            ),
         }
         _add_common_content_issues(result, text)
         _require_metric(result, "paragraphs", 25, "DOCX has too few paragraphs for a long-form report.")

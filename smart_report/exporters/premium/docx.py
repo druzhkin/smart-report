@@ -52,6 +52,8 @@ def render_premium_docx(
     _render_toc_placeholder(doc, document)
     for section in document.sections:
         _render_section(doc, section)
+    if document.appendices:
+        _render_appendix_divider(doc, document)
     for appendix in document.appendices:
         _render_section(doc, appendix, appendix=True)
     doc.save(path)
@@ -311,13 +313,43 @@ def _render_readiness_gate(doc: Document, report: PremiumReportDocument) -> None
 
 
 def _render_toc_placeholder(doc: Document, report: PremiumReportDocument) -> None:
-    doc.add_heading("Структура отчёта", level=1)
-    rows = [[str(i), section.title, section.purpose] for i, section in enumerate(report.sections, 1)]
-    rows.extend(
-        [f"A{idx}", section.title, section.purpose]
-        for idx, section in enumerate(report.appendices, 1)
+    doc.add_heading("Как читать отчёт", level=1)
+    lead = doc.add_paragraph(
+        "Отчёт устроен как управленческий документ: сначала вывод и логика решения, "
+        "затем доказательства, сценарии, риски и приложения. Сырые реестры не должны "
+        "перебивать чтение - они вынесены в приложения и пакет данных."
     )
-    _render_table(doc, ["#", "Раздел", "Зачем нужен"], rows)
+    _set_run(lead.runs[0], size=10.5, color=INK)
+    rows = [
+        ["1", "Вывод", "Короткий ответ, уровень доверия, практическое следствие."],
+        ["2", "Доказательства", "Ключевые числа, согласия, противоречия и ограничения."],
+        ["3", "Сценарии", "Базовый, позитивный и негативный исходы с триггерами."],
+        ["4", "Действия", "Риски, условия входа/отказа и что мониторить дальше."],
+        ["A-C", "Приложения", "Источники, факты и ограничения для проверки."],
+    ]
+    _render_table(doc, ["Блок", "Что внутри", "Как использовать"], rows, max_rows=8)
+
+
+def _render_appendix_divider(doc: Document, report: PremiumReportDocument) -> None:
+    doc.add_section(WD_SECTION_START.NEW_PAGE)
+    _add_rule(doc, GOLD, 12)
+    doc.add_heading("Приложения и пакет данных", level=1)
+    lead = doc.add_paragraph(
+        "Приложения нужны не для линейного чтения, а для проверки: откуда взялись "
+        "ключевые числа, какие источники использованы и какие ограничения остаются. "
+        "Основной вывод уже дан выше; ниже сохранён аудиторский след."
+    )
+    _set_run(lead.runs[0], size=10.5, color=INK)
+    rows = [
+        [f"A{idx}", appendix.title, appendix.purpose]
+        for idx, appendix in enumerate(report.appendices, 1)
+    ]
+    _render_table(doc, ["Блок", "Приложение", "Что проверять"], rows, max_rows=8, max_text=130)
+    note = doc.add_paragraph(
+        "Полные источники и расширенные CSV-реестры остаются в пакете данных; "
+        "в DOCX оставлены только строки, полезные для чтения и проверки позиции."
+    )
+    _set_run(note.runs[0], size=9, color=MUTED, italic=True)
 
 
 def _render_section(doc: Document, section: PremiumPreparedSection, *, appendix: bool = False) -> None:
@@ -327,15 +359,32 @@ def _render_section(doc: Document, section: PremiumPreparedSection, *, appendix:
     purpose = doc.add_paragraph(section.purpose)
     _set_run(purpose.runs[0], size=9.5, color=MUTED, italic=True)
     for block in section.blocks:
-        _render_block(doc, block)
+        _render_block(doc, block, appendix=appendix)
 
 
-def _render_block(doc: Document, block: PremiumPreparedBlock) -> None:
+def _render_block(doc: Document, block: PremiumPreparedBlock, *, appendix: bool = False) -> None:
     doc.add_heading(block.title, level=2)
     if block.body:
         _render_markdown_like_body(doc, block.body)
     if block.rows:
-        _render_table(doc, block.columns, block.rows)
+        if block.kind == "kpi_grid":
+            _render_metric_exhibit(doc, block)
+        elif block.kind == "scenario_matrix":
+            _render_scenario_exhibit(doc, block)
+        elif block.kind == "risk_register":
+            _render_risk_exhibit(doc, block, appendix=appendix)
+        elif block.kind == "evidence_table" and len(block.columns) >= 6:
+            _render_evidence_exhibit(doc, block, appendix=appendix)
+        elif block.kind == "source_quality_table":
+            _render_source_exhibit(doc, block, appendix=appendix)
+        else:
+            _render_table(
+                doc,
+                block.columns,
+                block.rows,
+                max_rows=12 if appendix else 7,
+                max_text=160 if appendix else 120,
+            )
     if block.notes:
         _render_notes(doc, block.notes)
 
@@ -348,6 +397,139 @@ def _render_notes(doc: Document, notes: list[str]) -> None:
     p = cell.paragraphs[0]
     p.add_run("Заметка аналитика: ").bold = True
     p.add_run(" ".join(notes))
+
+
+def _render_metric_exhibit(doc: Document, block: PremiumPreparedBlock) -> None:
+    rows = block.rows[:8]
+    cards = rows[:4]
+    if cards:
+        table = doc.add_table(rows=1, cols=len(cards))
+        table.alignment = WD_TABLE_ALIGNMENT.CENTER
+        _style_table(table, header=False)
+        for idx, row in enumerate(cards):
+            cell = table.rows[0].cells[idx]
+            _shade(cell, PAPER)
+            metric = _short(row[0] if len(row) > 0 else "", 34)
+            value = _short(row[1] if len(row) > 1 else "", 28)
+            subject = _short(row[2] if len(row) > 2 else "", 44)
+            p = cell.paragraphs[0]
+            label = p.add_run(metric + "\n")
+            _set_run(label, size=7.5, color=MUTED, bold=True, all_caps=True)
+            val = p.add_run(value + "\n")
+            _set_run(val, size=15, color=NAVY, bold=True)
+            sub = p.add_run(subject)
+            _set_run(sub, size=8, color=INK)
+    remaining = rows[4:8]
+    if remaining:
+        compact = [
+            [
+                _short(row[0] if len(row) > 0 else "", 42),
+                _short(row[1] if len(row) > 1 else "", 32),
+                _short(row[2] if len(row) > 2 else "", 58),
+            ]
+            for row in remaining
+        ]
+        _render_table(doc, ["Метрика", "Значение", "Контекст"], compact, max_rows=4)
+
+
+def _render_evidence_exhibit(
+    doc: Document,
+    block: PremiumPreparedBlock,
+    *,
+    appendix: bool = False,
+) -> None:
+    rows = block.rows[: 12 if appendix else 6]
+    compact = []
+    for row in rows:
+        if len(row) >= 7:
+            compact.append(
+                [
+                    _short(row[2], 42),
+                    _short(row[1], 34),
+                    _short(row[3], 62),
+                    _source_label(row[6]),
+                ]
+            )
+        else:
+            compact.append([_short(value, 70) for value in row[:4]])
+    _render_table(
+        doc,
+        ["Метрика", "Значение", "Объект", "Источник"],
+        compact,
+        max_rows=12 if appendix else 6,
+        max_text=120,
+    )
+    _data_pack_note(doc, len(block.rows), len(rows))
+
+
+def _render_source_exhibit(
+    doc: Document,
+    block: PremiumPreparedBlock,
+    *,
+    appendix: bool = False,
+) -> None:
+    rows = block.rows[: 12 if appendix else 6]
+    compact = [
+        [
+            _short(row[0] if len(row) > 0 else "", 58),
+            _source_label(row[1] if len(row) > 1 else ""),
+            _short(row[3] if len(row) > 3 else "", 24),
+        ]
+        for row in rows
+    ]
+    _render_table(
+        doc,
+        ["Источник", "Домен", "Надёжность"],
+        compact,
+        max_rows=12 if appendix else 6,
+        max_text=120,
+    )
+    _data_pack_note(doc, len(block.rows), len(rows))
+
+
+def _render_scenario_exhibit(doc: Document, block: PremiumPreparedBlock) -> None:
+    for row in block.rows[:3]:
+        title = _short(row[0] if len(row) > 0 else "", 40)
+        definition = _short(row[1] if len(row) > 1 else "", 140)
+        implication = _short(row[2] if len(row) > 2 else "", 420)
+        table = doc.add_table(rows=1, cols=1)
+        _style_table(table, header=False)
+        cell = table.rows[0].cells[0]
+        _shade(cell, "FFFFFF")
+        _cell_border(cell, GOLD if "Баз" in title else LINE)
+        p = cell.paragraphs[0]
+        t = p.add_run(title + "\n")
+        _set_run(t, size=10.5, color=NAVY, bold=True)
+        d = p.add_run(definition + "\n")
+        _set_run(d, size=8.8, color=MUTED, italic=True)
+        body = p.add_run(implication)
+        _set_run(body, size=9.2, color=INK)
+
+
+def _render_risk_exhibit(
+    doc: Document,
+    block: PremiumPreparedBlock,
+    *,
+    appendix: bool = False,
+) -> None:
+    rows = [
+        [
+            _short(row[0] if len(row) > 0 else "", 54),
+            _short(row[1] if len(row) > 1 else "", 42),
+            _short(row[3] if len(row) > 3 else row[2] if len(row) > 2 else "", 160),
+        ]
+        for row in block.rows[: 10 if appendix else 5]
+    ]
+    _render_table(doc, ["Риск / тема", "Тип", "Что делать"], rows, max_rows=len(rows), max_text=150)
+
+
+def _data_pack_note(doc: Document, total: int, shown: int) -> None:
+    if total <= shown:
+        return
+    note = doc.add_paragraph(
+        f"Показаны {shown} наиболее полезных строк из {total}; полный реестр сохранён в пакете данных."
+    )
+    _set_run(note.runs[0], size=8.5, color=MUTED, italic=True)
 
 
 def _render_key_value_table(doc: Document, rows: list[list[str]]) -> None:
@@ -365,10 +547,18 @@ def _render_key_value_table(doc: Document, rows: list[list[str]]) -> None:
                 cell.paragraphs[0].add_run(value)
 
 
-def _render_table(doc: Document, headers: list[str], rows: list[list[str]]) -> None:
+def _render_table(
+    doc: Document,
+    headers: list[str],
+    rows: list[list[str]],
+    *,
+    max_rows: int = 10,
+    max_text: int = 140,
+) -> None:
     if not headers:
         headers = [f"Колонка {idx + 1}" for idx in range(max((len(row) for row in rows), default=1))]
-    visible_rows = rows[:40]
+    headers = headers[:5]
+    visible_rows = rows[:max_rows]
     table = doc.add_table(rows=len(visible_rows) + 1, cols=len(headers))
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
     _style_table(table)
@@ -382,9 +572,12 @@ def _render_table(doc: Document, headers: list[str], rows: list[list[str]]) -> N
             cell = table.rows[row_idx].cells[col_idx]
             if row_idx % 2 == 0:
                 _shade(cell, "FAFBFC")
-            cell.paragraphs[0].add_run(str(value or ""))
+            cell.paragraphs[0].add_run(_table_cell_text(value, max_text))
     if len(rows) > len(visible_rows):
-        doc.add_paragraph(f"Таблица сокращена для читаемости: ещё {len(rows) - len(visible_rows)} строк остаются в data pack.")
+        note = doc.add_paragraph(
+            f"Таблица сокращена для читаемости: ещё {len(rows) - len(visible_rows)} строк доступны в пакете данных."
+        )
+        _set_run(note.runs[0], size=8.5, color=MUTED, italic=True)
 
 
 def _style_table(table, *, header: bool = True) -> None:
@@ -587,3 +780,37 @@ def _clip(text: str, limit: int) -> str:
     if len(cleaned) <= limit:
         return cleaned
     return cleaned[: max(0, limit - 1)].rstrip() + "..."
+
+
+def _short(value: object, limit: int) -> str:
+    text = _clean_inline(value)
+    if len(text) <= limit:
+        return text
+    clipped = text[:limit].rsplit(" ", 1)[0].rstrip(" ,.;:")
+    return clipped + "..."
+
+
+def _table_cell_text(value: object, limit: int) -> str:
+    text = _clean_inline(value)
+    if text.startswith(("https://", "http://")):
+        return _source_label(text)
+    return _short(text, limit)
+
+
+def _clean_inline(value: object) -> str:
+    text = " ".join(str(value or "").split())
+    for token in ("**", "__"):
+        text = text.replace(token, "")
+    return text
+
+
+def _source_label(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    for prefix in ("https://", "http://"):
+        if text.startswith(prefix):
+            text = text[len(prefix) :]
+            break
+    domain = text.split("/", 1)[0]
+    return _short(domain or text, 48)

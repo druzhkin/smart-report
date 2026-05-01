@@ -148,7 +148,7 @@ def test_render_premium_docx_opens_and_contains_report_structure(tmp_path):
     assert "Короткий ответ" in text
     assert "Карта доказательств" in text
     assert "НЕ ГОТОВ К ПЛАТНОЙ ВЫДАЧЕ КЛИЕНТУ" not in text
-    assert "Структура отчёта" in text
+    assert "Как читать отчёт" in text
     assert "Реестр числовых доказательств" in text
     assert len(loaded.tables) >= 4
 
