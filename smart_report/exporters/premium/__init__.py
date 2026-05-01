@@ -5,9 +5,9 @@ opt-in contract for high-value client deliverables: a deep report, a separate
 presentation deck, evidence appendices, and QA gates.
 """
 
+from .carbone import CarboneRenderError, render_premium_carbone_pdf, to_carbone_data
 from .document import assemble_premium_report_document
 from .docx import render_premium_docx
-from .pptx import render_premium_pptx
 from .models import (
     PremiumAppendixSpec,
     PremiumAudience,
@@ -15,16 +15,47 @@ from .models import (
     PremiumDeckSlideSpec,
     PremiumDeliverableSpec,
     PremiumEvidenceRequirement,
+    PremiumPage,
+    PremiumPageType,
+    PremiumPageVisual,
     PremiumPreparedBlock,
     PremiumPreparedSection,
+    PremiumPublicationSpec,
     PremiumReportDocument,
     PremiumReportPlan,
     PremiumReportType,
     PremiumSectionSpec,
     PremiumVisualSpec,
+    PremiumVisualType,
 )
+from .pdf import render_premium_pdf
 from .planner import build_premium_report_plan
+from .pptx import render_premium_pptx
 from .readiness import PremiumReadiness, PremiumReadinessIssue, assess_premium_readiness
+from .structured_source import (
+    DEFAULT_REGENERATION_FORMATS,
+    ReportActorRole,
+    ReportArtifactFormat,
+    ReportEditRequest,
+    ReportQualityGateIssue,
+    ReportQualityGateResult,
+    ReportRegenerationPlan,
+    ReportSourceMetadata,
+    ReportVersionEntry,
+    ResearchConnector,
+    ResearchCoverage,
+    StructuredReportBlock,
+    StructuredReportSection,
+    StructuredReportSource,
+    StructuredReportSourceRef,
+    StructuredReportVisual,
+    apply_report_edits,
+    build_regeneration_plan,
+    create_report_version,
+    hash_structured_source,
+    run_enterprise_quality_gates,
+    structured_source_from_final_report,
+)
 
 __all__ = [
     "PremiumAppendixSpec",
@@ -35,6 +66,11 @@ __all__ = [
     "PremiumEvidenceRequirement",
     "PremiumPreparedBlock",
     "PremiumPreparedSection",
+    "PremiumPublicationSpec",
+    "PremiumPage",
+    "PremiumPageType",
+    "PremiumPageVisual",
+    "PremiumVisualType",
     "PremiumReportDocument",
     "PremiumReportPlan",
     "PremiumReportType",
@@ -42,9 +78,35 @@ __all__ = [
     "PremiumVisualSpec",
     "assemble_premium_report_document",
     "render_premium_docx",
+    "render_premium_carbone_pdf",
+    "render_premium_pdf",
     "render_premium_pptx",
+    "to_carbone_data",
+    "CarboneRenderError",
     "PremiumReadiness",
     "PremiumReadinessIssue",
     "assess_premium_readiness",
     "build_premium_report_plan",
+    "DEFAULT_REGENERATION_FORMATS",
+    "ReportActorRole",
+    "ReportArtifactFormat",
+    "ReportEditRequest",
+    "ReportQualityGateIssue",
+    "ReportQualityGateResult",
+    "ReportRegenerationPlan",
+    "ReportSourceMetadata",
+    "ReportVersionEntry",
+    "ResearchConnector",
+    "ResearchCoverage",
+    "StructuredReportBlock",
+    "StructuredReportSection",
+    "StructuredReportSource",
+    "StructuredReportSourceRef",
+    "StructuredReportVisual",
+    "apply_report_edits",
+    "build_regeneration_plan",
+    "create_report_version",
+    "hash_structured_source",
+    "run_enterprise_quality_gates",
+    "structured_source_from_final_report",
 ]
