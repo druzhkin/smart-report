@@ -433,6 +433,8 @@ function StructuredReportEditor({
   const gate = current.quality_gate;
   const coverage = current.source.research_coverage;
   const publication = current.publication_quality;
+  const publicationReady = publication?.ready ?? true;
+  const canRegenerate = gate.passed && publicationReady;
 
   async function saveEdits() {
     if (!firstSection || !firstBlock) return;
@@ -463,12 +465,15 @@ function StructuredReportEditor({
   }
 
   async function regenerate() {
+    if (!canRegenerate) {
+      setMessage("Пересборка заблокирована: сначала закройте замечания качества в правой панели.");
+      return;
+    }
     setBusy(true);
     setMessage(null);
     try {
       const blob = await regenerateStructuredReportPackage(sessionId, {
         requested_formats: ["docx", "pdf", "pptx"],
-        allow_draft: true,
       });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -574,7 +579,12 @@ function StructuredReportEditor({
             <button className="v4-btn v4-btn-secondary" onClick={saveEdits} disabled={busy}>
               Сохранить
             </button>
-            <button className="v4-btn v4-btn-primary" onClick={regenerate} disabled={busy}>
+            <button
+              className="v4-btn v4-btn-primary"
+              onClick={regenerate}
+              disabled={busy || !canRegenerate}
+              title={canRegenerate ? "Пересобрать DOCX, PDF и PPTX" : "Пересборка доступна после прохождения quality gates"}
+            >
               Пересобрать
             </button>
           </div>

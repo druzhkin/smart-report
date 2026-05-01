@@ -405,6 +405,13 @@ def test_v4_full_cycle(monkeypatch, tmp_path):
 
     r = client.post(
         f"/api/v4/sessions/{sid}/regenerate",
+        json={"requested_formats": ["pdf"]},
+    )
+    assert r.status_code == 409, r.text
+    assert r.json()["detail"]["publication_quality"] is not None
+
+    r = client.post(
+        f"/api/v4/sessions/{sid}/regenerate",
         json={"requested_formats": ["pdf"], "allow_draft": True},
     )
     assert r.status_code == 200, r.text

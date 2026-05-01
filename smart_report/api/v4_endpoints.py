@@ -2297,6 +2297,7 @@ async def regenerate_structured_report_package(
         )
     source = _get_or_create_structured_source(session, persist=True)
     plan = build_regeneration_plan(source, requested_formats=payload.requested_formats)
+    publication_quality = _publication_quality_for_structured_source(session, source)
     if not plan.quality_gate.passed and not payload.allow_draft:
         raise HTTPException(
             status_code=409,
@@ -2304,6 +2305,17 @@ async def regenerate_structured_report_package(
                 "message": "Structured report source did not pass enterprise quality gates.",
                 "gate": plan.quality_gate.model_dump(mode="json"),
                 "regeneration_plan": plan.model_dump(mode="json"),
+                "publication_quality": publication_quality,
+            },
+        )
+    if publication_quality and not publication_quality.get("ready") and not payload.allow_draft:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "Report publication structure is not ready for client regeneration.",
+                "gate": plan.quality_gate.model_dump(mode="json"),
+                "regeneration_plan": plan.model_dump(mode="json"),
+                "publication_quality": publication_quality,
             },
         )
 

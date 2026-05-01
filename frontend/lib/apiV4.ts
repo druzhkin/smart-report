@@ -803,7 +803,7 @@ export async function regenerateStructuredReportPackage(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       requested_formats: opts.requested_formats ?? ["docx", "pdf", "pptx"],
-      allow_draft: opts.allow_draft ?? true,
+      allow_draft: opts.allow_draft ?? false,
     }),
   });
   if (!res.ok) {
