@@ -51,6 +51,9 @@ test("client can edit structured report source and regenerate package", async ({
   await page.getByRole("button", { name: "Сохранить" }).click();
   await expect(page.getByText("Правки сохранены. Проверки качества пересчитаны.")).toBeVisible();
 
+  await page.getByRole("button", { name: "Довести" }).click();
+  await expect(page.getByText(/Авто-доводка остановлена/)).toBeVisible();
+
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Пересобрать" }).click();
   const download = await downloadPromise;

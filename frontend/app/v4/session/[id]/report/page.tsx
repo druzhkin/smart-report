@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   applyStructuredReportRemediation,
+  autoImproveStructuredReport,
   getSession,
   getStructuredReportSource,
   patchStructuredReportSource,
@@ -417,6 +418,9 @@ function StructuredReportEditor({
   const [mainAnswer, setMainAnswer] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [autoIterations, setAutoIterations] = useState<
+    { iteration: number; applied: boolean; publication_score?: number; stop?: string }[]
+  >([]);
 
   useEffect(() => {
     if (!structured) return;
@@ -458,6 +462,7 @@ function StructuredReportEditor({
         },
       ]);
       onStructuredChange(next);
+      setAutoIterations([]);
       setMessage("Правки сохранены. Проверки качества пересчитаны.");
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "Не удалось сохранить правки");
@@ -504,9 +509,25 @@ function StructuredReportEditor({
         publication?.remediation_plan,
       );
       onStructuredChange(next);
+      setAutoIterations([]);
       setMessage("Автоматические исправления применены. Проверки качества пересчитаны.");
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "Не удалось применить автоматические исправления");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function autoImprove() {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const next = await autoImproveStructuredReport(sessionId, 3);
+      onStructuredChange(next);
+      setAutoIterations(next.iterations);
+      setMessage(`Авто-доводка остановлена: ${autoStopLabel(next.stopped_reason)}.`);
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "Не удалось выполнить авто-доводку отчета");
     } finally {
       setBusy(false);
     }
@@ -612,9 +633,9 @@ function StructuredReportEditor({
               </div>
             )}
           </div>
-          <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 18 }}>
             <button className="v4-btn v4-btn-secondary" onClick={saveEdits} disabled={busy}>
-              Сохранить
+              <Icons.check /> Сохранить
             </button>
             <button
               className="v4-btn v4-btn-secondary"
@@ -622,7 +643,15 @@ function StructuredReportEditor({
               disabled={busy || !hasRemediation}
               title={hasRemediation ? "Применить безопасные исправления качества" : "Нет автоматических исправлений"}
             >
-              Исправить
+              <Icons.refresh /> Исправить
+            </button>
+            <button
+              className="v4-btn v4-btn-secondary"
+              onClick={autoImprove}
+              disabled={busy}
+              title="Прогнать безопасные исправления до готовности или явной причины остановки"
+            >
+              <Icons.refresh /> Довести
             </button>
             <button
               className="v4-btn v4-btn-primary"
@@ -630,9 +659,23 @@ function StructuredReportEditor({
               disabled={busy || !canRegenerate}
               title={canRegenerate ? "Пересобрать DOCX, PDF и PPTX" : "Пересборка доступна после прохождения quality gates"}
             >
-              Пересобрать
+              <Icons.download /> Пересобрать
             </button>
           </div>
+          {autoIterations.length > 0 && (
+            <div style={{ marginTop: 12, display: "grid", gap: 4 }}>
+              {autoIterations.slice(-3).map((item) => (
+                <div
+                  key={item.iteration}
+                  style={{ fontSize: 11, lineHeight: 1.4, color: "var(--v4-ink-3)" }}
+                >
+                  Итерация {item.iteration}: {item.applied ? "применены правки" : "без структурных изменений"}
+                  {typeof item.publication_score === "number" ? ` · ${item.publication_score}/100` : ""}
+                  {item.stop ? ` · ${autoStopLabel(item.stop)}` : ""}
+                </div>
+              ))}
+            </div>
+          )}
           {message && (
             <div style={{ marginTop: 12, fontSize: 12, color: "var(--v4-ink-3)", lineHeight: 1.4 }}>
               {message}
@@ -855,6 +898,16 @@ function qualityIssueLabel(code: string): string {
     storyboard_exhibit_balance_low: "Баланс визуалов",
   };
   return labels[code] ?? code.replaceAll("_", " ");
+}
+
+function autoStopLabel(reason: string): string {
+  const labels: Record<string, string> = {
+    ready: "отчет готов",
+    no_safe_remediation: "нет безопасных авто-исправлений",
+    no_structural_change: "дальше нужны ручные данные",
+    max_iterations_reached: "достигнут лимит итераций",
+  };
+  return labels[reason] ?? reason.replaceAll("_", " ");
 }
 
 type LocalFinalSource = { title: string; url: string; origin: string };

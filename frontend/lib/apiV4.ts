@@ -848,7 +848,7 @@ export async function applyStructuredReportRemediation(
 ): Promise<StructuredReportSourceOut> {
   if (STUB) {
     const current = await getStructuredReportSource(id);
-    return structuredSourceEnvelope(current.source);
+    return structuredSourceEnvelope(withStubVisualEvidence(current.source));
   }
   return jv4<StructuredReportSourceOut>(
     `/api/v4/sessions/${encodeURIComponent(id)}/apply-remediation`,
@@ -866,9 +866,29 @@ export async function autoImproveStructuredReport(
 ): Promise<StructuredReportAutoImproveOut> {
   if (STUB) {
     const current = await getStructuredReportSource(id);
+    const source = withStubVisualEvidence(current.source);
     return {
-      ...current,
-      iterations: [],
+      ...structuredSourceEnvelope(source),
+      iterations: [
+        {
+          iteration: 1,
+          quality_gate_passed: current.quality_gate.passed,
+          quality_gate_score: current.quality_gate.score,
+          publication_ready: false,
+          publication_score: current.publication_quality?.score,
+          remediation_count: 1,
+          applied: true,
+        },
+        {
+          iteration: 2,
+          quality_gate_passed: true,
+          quality_gate_score: 100,
+          publication_ready: false,
+          publication_score: 76,
+          applied: false,
+          stop: "no_safe_remediation",
+        },
+      ],
       stopped_reason: "no_safe_remediation",
     };
   }
@@ -880,6 +900,46 @@ export async function autoImproveStructuredReport(
       body: JSON.stringify({ max_iterations: maxIterations }),
     },
   );
+}
+
+function withStubVisualEvidence(source: StructuredReportSource): StructuredReportSource {
+  if (source.sections.some((section) =>
+    section.blocks.some((block) => ["chart", "table", "kpi_strip"].includes(block.kind)),
+  )) {
+    return source;
+  }
+  const next: StructuredReportSource = {
+    ...source,
+    sections: source.sections.map((section, index) =>
+      index === 0
+        ? {
+            ...section,
+            blocks: [
+              ...section.blocks,
+              {
+                id: "block_stub_kpi",
+                kind: "kpi_strip",
+                title: "Stub evidence strip",
+                content: "",
+                bullets: ["1 source — demo evidence", "3 artifacts — DOCX/PDF/PPTX"],
+                source_ids: [],
+              },
+            ],
+          }
+        : section,
+    ),
+    versions: [
+      ...source.versions,
+      {
+        version_id: `v_${Date.now().toString(36)}_auto`,
+        actor_role: "editor",
+        summary: "Stub automatic remediation",
+        source_hash: `${Date.now()}_auto`,
+        created_at: new Date().toISOString(),
+      },
+    ],
+  };
+  return next;
 }
 
 function stubStructuredSource(final: FinalReport): StructuredReportSource {
@@ -960,7 +1020,7 @@ function structuredSourceEnvelope(source: StructuredReportSource): StructuredRep
       can_regenerate: gate.passed,
     },
     publication_quality: {
-      ready: false,
+      ready: hasVisual,
       score: 76,
       issues: [
         {
