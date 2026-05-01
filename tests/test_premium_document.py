@@ -62,7 +62,8 @@ def test_render_premium_pdf_opens_and_meets_publication_shape(tmp_path):
     assert "What it means" not in publication_text
     assert "RANKING BAR" not in publication_text
     assert "Source reliability mix" not in publication_text
-    assert "Source:" in publication_text
+    assert "Источник:" in publication_text
+    assert "Source:" not in publication_text
 
 
 def test_carbone_data_flattens_premium_document_for_template():

@@ -244,7 +244,7 @@ def _inspect_pdf(path: Path) -> ArtifactQaResult:
             "has_cover_brand": "SMART REPORT" in sample_text,
             "has_publication_marker": "Publication-grade PDF" in sample_text,
             "has_exhibit_pages": "EXHIBIT" in sample_text,
-            "has_source_notes": "Source:" in sample_text,
+            "has_source_notes": "Source:" in sample_text or "Источник:" in sample_text,
         }
         _add_common_content_issues(result, sample_text)
         _require_metric(result, "pages", 20, "PDF has too few pages for a publication-grade report.")

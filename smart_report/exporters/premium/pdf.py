@@ -631,8 +631,9 @@ def _visual_body(visual: PremiumPageVisual | None) -> str:
 def _source_note_for_page(document: PremiumReportDocument, page: PremiumPage) -> str:
     notes = page.source_notes or (page.visual.source_notes if page.visual else [])
     cleaned = [_clip(note, 72) for note in notes if str(note or "").strip()]
+    russian = _has_cyrillic(f"{document.title} {document.subtitle}")
     if cleaned:
-        return "Source: " + "; ".join(cleaned[:4])
+        return ("Источник: " if russian else "Source: ") + "; ".join(cleaned[:4])
     return _label(document, "source_note")
 
 
@@ -1221,7 +1222,7 @@ def _label(document: PremiumReportDocument, key: str, number: int | None = None)
             "section": "РАЗДЕЛ / SECTION",
             "appendix": "ПРИЛОЖЕНИЕ / APPENDIX",
             "methodology": "МЕТОДОЛОГИЯ / METHODOLOGY",
-            "source_note": "Источник: реестр доказательств Smart Report и загруженные исходные материалы. Source: Smart Report evidence register.",
+            "source_note": "Источник: реестр доказательств Smart Report и загруженные исходные материалы.",
         }
         if key == "exhibit":
             return f"РИСУНОК {number} / EXHIBIT {number}"
