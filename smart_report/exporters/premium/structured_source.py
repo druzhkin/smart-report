@@ -545,6 +545,36 @@ def run_enterprise_quality_gates(
                 "Report needs multiple charts, tables, or KPI blocks to support the text.",
             )
         )
+    unsupported_visuals = [
+        block.title or block.kind
+        for block in visual_blocks
+        if not _block_source_ids(block)
+    ]
+    if unsupported_visuals:
+        issues.append(
+            _issue(
+                "visual_without_sources",
+                "critical",
+                "Visual evidence blocks must be linked to source ids: "
+                + ", ".join(unsupported_visuals[:3]),
+                "Attach source_ids to every KPI, chart, and table before regeneration.",
+            )
+        )
+    unsupported_text_blocks = [
+        block.title or block.kind
+        for block in narrative_blocks
+        if not _block_source_ids(block)
+    ]
+    if unsupported_text_blocks:
+        issues.append(
+            _issue(
+                "text_without_sources",
+                "major",
+                "Important narrative blocks must be linked to source ids: "
+                + ", ".join(unsupported_text_blocks[:3]),
+                "Attach source_ids to authored claims or mark the section as a limitation.",
+            )
+        )
     if not source.versions:
         issues.append(_issue("missing_version_history", "major", "Report source has no version history."))
 
@@ -1079,6 +1109,13 @@ def _block_has_visual_payload(block: StructuredReportBlock) -> bool:
         or block.table_columns
         or (block.kind == "kpi_strip" and block.bullets)
     )
+
+
+def _block_source_ids(block: StructuredReportBlock) -> list[str]:
+    ids = list(block.source_ids)
+    if block.visual:
+        ids.extend(block.visual.source_ids)
+    return [item for item in ids if item]
 
 
 def _source_ref_for_block(

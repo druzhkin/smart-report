@@ -138,6 +138,34 @@ def test_quality_gate_blocks_thin_visual_support():
     assert "thin_visual_support" in {issue.code for issue in gate.issues}
 
 
+def test_quality_gate_blocks_visuals_without_sources():
+    source = structured_source_from_final_report(_report())
+    for section in source.sections:
+        for block in section.blocks:
+            if block.kind in {"chart", "table", "kpi_strip"}:
+                block.source_ids = []
+                if block.visual:
+                    block.visual.source_ids = []
+
+    gate = run_enterprise_quality_gates(source)
+
+    assert not gate.passed
+    assert "visual_without_sources" in {issue.code for issue in gate.issues}
+
+
+def test_quality_gate_blocks_important_text_without_sources():
+    source = structured_source_from_final_report(_report())
+    for section in source.sections:
+        for block in section.blocks:
+            if block.kind in {"narrative", "bullets", "callout"}:
+                block.source_ids = []
+
+    gate = run_enterprise_quality_gates(source)
+
+    assert not gate.passed
+    assert "text_without_sources" in {issue.code for issue in gate.issues}
+
+
 def test_publication_remediation_adds_safe_source_backed_visuals():
     source = structured_source_from_final_report(_report())
     source.sections = [section for section in source.sections if section.id != "visual_evidence"]
