@@ -197,6 +197,17 @@ export type PublicationQualityGate = {
   score: number;
   issues: { code: string; severity: "critical" | "major" | "minor"; message: string; recommendation: string }[];
   metrics: Record<string, unknown>;
+  remediation_plan?: {
+    issue_code: string;
+    severity: "critical" | "major" | "minor";
+    priority: number;
+    action: string;
+    target: string;
+    artifact: string;
+    acceptance_criteria: string[];
+    current_value?: unknown;
+    target_value?: unknown;
+  }[];
 } | null;
 
 export type ReportRegenerationPlan = {
@@ -904,6 +915,19 @@ function structuredSourceEnvelope(source: StructuredReportSource): StructuredRep
         page_count: 8,
         visual_ratio: hasVisual ? 0.7 : 0.2,
       },
+      remediation_plan: [
+        {
+          issue_code: "storyboard_visual_ratio_low",
+          severity: "major",
+          priority: 20,
+          action: "Добавить или объединить страницы так, чтобы минимум 65% страниц содержали содержательные визуалы.",
+          target: "visual_storyboard",
+          artifact: "charts_or_kpi_blocks",
+          acceptance_criteria: ["visual_ratio >= 0.65"],
+          current_value: hasVisual ? 0.7 : 0.2,
+          target_value: 0.65,
+        },
+      ],
     },
   };
 }

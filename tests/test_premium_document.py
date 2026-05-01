@@ -270,6 +270,13 @@ def test_premium_storyboard_quality_blocks_thin_or_unsourced_pages():
         "storyboard_page_narrative_too_thin",
         "storyboard_page_visual_without_source",
     }
+    plan = broken_quality["remediation_plan"]
+    assert plan
+    assert {item["issue_code"] for item in plan} >= {
+        "storyboard_page_narrative_too_thin",
+        "storyboard_page_visual_without_source",
+    }
+    assert all(item["acceptance_criteria"] for item in plan)
 
 
 def test_assemble_premium_document_does_not_mutate_legacy_report():

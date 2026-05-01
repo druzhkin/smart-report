@@ -564,6 +564,20 @@ function StructuredReportEditor({
                 <strong>{qualityIssueLabel(issue.code)}</strong>: {issue.message}
               </div>
             ))}
+            {publication?.remediation_plan?.slice(0, 3).map((item, index) => (
+              <div
+                key={`${item.issue_code}-${index}`}
+                style={{
+                  fontSize: 12,
+                  lineHeight: 1.45,
+                  color: "var(--v4-ink-2)",
+                  paddingTop: index === 0 ? 6 : 0,
+                  borderTop: index === 0 ? "1px solid var(--v4-rule)" : "none",
+                }}
+              >
+                <strong>Следующее действие {index + 1}</strong>: {item.action}
+              </div>
+            ))}
             {gate.issues.slice(0, 4).map((issue) => (
               <div key={issue.code} style={{ fontSize: 12, lineHeight: 1.4, color: "var(--v4-ink-2)" }}>
                 <strong>{qualityIssueLabel(issue.code)}</strong>: {issue.message}

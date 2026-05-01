@@ -115,6 +115,7 @@ def assess_premium_storyboard_quality(document: PremiumReportDocument) -> dict[s
         "score": score,
         "issues": issues,
         "metrics": metrics,
+        "remediation_plan": _remediation_plan(issues, metrics),
     }
 
 
@@ -269,3 +270,131 @@ def _issue(code: str, severity: str, message: str, recommendation: str) -> dict[
         "message": message,
         "recommendation": recommendation,
     }
+
+
+def _remediation_plan(
+    issues: list[dict[str, str]],
+    metrics: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Translate storyboard defects into executable editorial work items."""
+
+    if not issues:
+        return []
+
+    items: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for issue in issues:
+        code = issue["code"]
+        if code in seen:
+            continue
+        seen.add(code)
+        spec = _remediation_for_issue(code, issue, metrics)
+        items.append({**spec, "issue_code": code, "severity": issue["severity"]})
+
+    severity_rank = {"critical": 0, "major": 1, "minor": 2}
+    items.sort(key=lambda item: (severity_rank.get(str(item["severity"]), 3), item["priority"]))
+    return items
+
+
+def _remediation_for_issue(
+    code: str,
+    issue: dict[str, str],
+    metrics: dict[str, Any],
+) -> dict[str, Any]:
+    fallback = {
+        "priority": 90,
+        "action": issue.get("recommendation") or issue["message"],
+        "target": "storyboard",
+        "artifact": "editorial_revision",
+        "acceptance_criteria": [issue["message"]],
+    }
+    plans: dict[str, dict[str, Any]] = {
+        "storyboard_too_short": {
+            "priority": 10,
+            "action": "Добавить авторские страницы, чтобы в отчете было не менее 8 содержательных страниц.",
+            "target": "report_outline",
+            "artifact": "narrative_pages",
+            "acceptance_criteria": [
+                "page_count >= 8",
+                "каждая новая страница содержит тезис, текст, вывод и источники для визуалов",
+            ],
+            "current_value": metrics.get("page_count"),
+            "target_value": 8,
+        },
+        "storyboard_visual_ratio_low": {
+            "priority": 20,
+            "action": "Добавить или объединить страницы так, чтобы минимум 65% страниц содержали содержательные визуалы.",
+            "target": "visual_storyboard",
+            "artifact": "charts_or_kpi_blocks",
+            "acceptance_criteria": ["visual_ratio >= 0.65"],
+            "current_value": metrics.get("visual_ratio"),
+            "target_value": 0.65,
+        },
+        "storyboard_not_visual_early": {
+            "priority": 25,
+            "action": "Перенести KPI, ранжирование, риски и качество источников в первые шесть страниц.",
+            "target": "executive_sequence",
+            "artifact": "front_loaded_exhibits",
+            "acceptance_criteria": ["early_visual_pages >= 4"],
+            "current_value": metrics.get("early_visual_pages"),
+            "target_value": 4,
+        },
+        "storyboard_missing_early_visual_types": {
+            "priority": 30,
+            "action": "Добавить недостающие ранние визуалы: KPI, ранжирование, риск/конфликт и качество источников.",
+            "target": "executive_sequence",
+            "artifact": "required_exhibit_mix",
+            "acceptance_criteria": [
+                "early_visual_types includes hero_kpi_strip",
+                "early_visual_types includes ranking_bar",
+                "early_visual_types includes risk_heatmap",
+                "early_visual_types includes evidence_quality",
+            ],
+            "current_value": metrics.get("early_visual_types"),
+        },
+        "storyboard_visual_sources_weak": {
+            "priority": 35,
+            "action": "Добавить подписи источников ко всем визуалам, которые используются как доказательства.",
+            "target": "visual_source_notes",
+            "artifact": "source_backed_exhibits",
+            "acceptance_criteria": ["source_backed_visual_ratio >= 0.70"],
+            "current_value": metrics.get("source_backed_visual_ratio"),
+            "target_value": 0.70,
+        },
+        "storyboard_page_missing_thesis": {
+            "priority": 40,
+            "action": "Написать клиентский тезис для каждой страницы, где сейчас есть только заголовок.",
+            "target": "page_thesis",
+            "artifact": "client_thesis",
+            "acceptance_criteria": ["each non-appendix page thesis has at least 12 visible characters"],
+        },
+        "storyboard_page_narrative_too_thin": {
+            "priority": 45,
+            "action": "Расширить тонкие текстовые страницы: добавить интерпретацию фактов и объяснение, почему это важно.",
+            "target": "page_narrative",
+            "artifact": "analytical_text",
+            "acceptance_criteria": ["each non-appendix page narrative has at least 60 visible characters"],
+        },
+        "storyboard_page_implication_too_thin": {
+            "priority": 50,
+            "action": "Добавить к тонким страницам управленческий вывод, риск-сигнал или следующий шаг.",
+            "target": "page_implication",
+            "artifact": "decision_implication",
+            "acceptance_criteria": ["each non-appendix page implication has at least 45 visible characters"],
+        },
+        "storyboard_page_visual_without_source": {
+            "priority": 55,
+            "action": "Перенести источники из графика, факта или evidence-блока в подпись визуала.",
+            "target": "page_source_notes",
+            "artifact": "visual_citation_notes",
+            "acceptance_criteria": ["all data visuals have source_notes"],
+        },
+        "storyboard_client_surface_leak": {
+            "priority": 70,
+            "action": "Заменить внутренние технические подписи на аккуратные формулировки для публикации.",
+            "target": "client_language",
+            "artifact": "language_cleanup",
+            "acceptance_criteria": ["no forbidden client-surface terms remain"],
+        },
+    }
+    return plans.get(code, fallback)
