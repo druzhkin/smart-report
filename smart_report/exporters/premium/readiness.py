@@ -257,7 +257,7 @@ def assess_premium_readiness(
     metadata = report.metadata or {}
 
     _check_sources(report, plan, issues, strengths)
-    _check_analysis_depth(analysis, plan, issues, strengths)
+    _check_analysis_depth(analysis, plan, adjudication_audit, issues, strengths)
     _check_existing_quality_gates(report, metadata, issues, strengths)
     _check_evidence_support(report, analysis, evidence_audit, issues, strengths)
     _check_adjudication_quality(report, analysis, adjudication_audit, issues, strengths)
@@ -332,6 +332,7 @@ def _check_sources(
 def _check_analysis_depth(
     analysis: AnalysisOutput | None,
     plan: PremiumReportPlan,
+    adjudication_audit: AdjudicationAuditReport | None,
     issues: list[PremiumReadinessIssue],
     strengths: list[str],
 ) -> None:
@@ -386,15 +387,29 @@ def _check_analysis_depth(
     else:
         strengths.append("Critical comparison layer is present.")
 
-    critical_conflicts = sum(1 for conflict in analysis.conflicts if conflict.importance == "critical")
-    if critical_conflicts:
+    critical_conflicts = sum(
+        1 for conflict in analysis.conflicts if conflict.importance == "critical"
+    )
+    unresolved_critical = (
+        adjudication_audit.critical_unresolved
+        if adjudication_audit is not None
+        else critical_conflicts
+    )
+    if unresolved_critical:
         issues.append(
             PremiumReadinessIssue(
                 code="premium_unresolved_critical_conflicts",
                 severity="critical",
-                message=f"Analysis still contains {critical_conflicts} critical conflict(s).",
+                message=(
+                    f"Analysis still contains {unresolved_critical} unresolved critical "
+                    "conflict(s)."
+                ),
                 recommendation="Resolve or explicitly bracket critical conflicts before premium export.",
             )
+        )
+    elif critical_conflicts:
+        strengths.append(
+            f"Critical conflict(s) are adjudicated or bracketed: {critical_conflicts}."
         )
 
 

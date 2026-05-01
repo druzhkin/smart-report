@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from smart_report.adjudication_audit import AdjudicationAuditReport, ConflictAdjudication
 from smart_report.analytic_closure import AnalyticClosureReport
 from smart_report.analytic_depth import build_analytic_depth_plan
 from smart_report.exporters.premium import (
@@ -202,6 +203,42 @@ def test_premium_readiness_blocks_unresolved_critical_conflict():
     assert "premium_unresolved_critical_conflicts" in {
         issue.code for issue in readiness.issues
     }
+
+
+def test_premium_readiness_allows_adjudicated_critical_conflict():
+    report = _report()
+    analysis = _analysis(critical_conflict=True)
+    adjudication = AdjudicationAuditReport(
+        overall_score=90,
+        conflict_count=1,
+        resolved=1,
+        bracketed=0,
+        unresolved=0,
+        critical_unresolved=0,
+        conflict_audits=[
+            ConflictAdjudication(
+                topic="Methodology",
+                importance="critical",
+                status="resolved",
+                score=90,
+                evidence_signals=["resolution_language", "scope_language"],
+            )
+        ],
+        summary="Critical conflict resolved in the report.",
+    )
+
+    readiness = assess_premium_readiness(
+        report,
+        analysis=analysis,
+        plan=_small_evidence_plan(report, analysis),
+        depth_plan=build_analytic_depth_plan(report.question, analysis=analysis, report=report),
+        closure_report=_closed_closure(),
+        adjudication_audit=adjudication,
+    )
+
+    codes = {issue.code for issue in readiness.issues}
+    assert "premium_unresolved_critical_conflicts" not in codes
+    assert any("Critical conflict" in strength for strength in readiness.strengths)
 
 
 def test_premium_readiness_requires_depth_plan_for_paid_quality():

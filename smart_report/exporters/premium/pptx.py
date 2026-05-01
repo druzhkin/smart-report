@@ -76,22 +76,25 @@ def _executive_answer(prs, layout, document: PremiumReportDocument) -> None:
     slide = prs.slides.add_slide(layout)
     _title(slide, "Короткий ответ")
     answer = _first_block_body(document.sections, "executive_summary", "Короткий ответ")
-    headline = _clean_for_slide(answer or document.plan.decision_context, 180)
-    _textbox(slide, 0.7, 1.18, 11.55, 1.02, headline, 17, INK, bold=True)
+    headline = _headline_for_slide(answer or document.plan.decision_context, 190)
+    _textbox(slide, 0.7, 1.05, 11.55, 1.25, headline, 12.5, INK, bold=True)
+    _metric_card(slide, 0.7, 2.35, "Источники", str(document.source_count), width=2.45)
+    _metric_card(slide, 3.35, 2.35, "Факты", str(document.numeric_fact_count), width=2.25)
+    _metric_card(slide, 5.8, 2.35, "Доверие", _client_confidence_label(document), value_color=GOLD, width=2.55)
+    _metric_card(slide, 8.58, 2.35, "Формат", "отчёт + презентация", width=2.85)
     _table(
         slide,
         0.7,
-        2.65,
+        3.55,
         11.6,
-        2.35,
+        1.45,
         ["Фокус решения", "Следствие"],
         [
-            ["Доказательства", f"{document.source_count} источников / {document.numeric_fact_count} фактов"],
-            ["Уровень доверия", _client_confidence_label(document)],
-            ["Материалы", _deliverables(document)],
+            ["Что решаем", _headline_for_slide(document.plan.decision_context, 130)],
+            ["Как читать", "Презентация даёт позицию; доказательная база и ограничения — в DOCX-отчёте."],
         ],
     )
-    _callout(slide, 0.7, 5.45, 11.6, 0.72, _clean_for_slide(document.plan.decision_context, 170))
+    _callout(slide, 0.7, 5.45, 11.6, 0.72, "Полный доказательный материал и ограничения раскрыты в DOCX-отчёте.")
     _footer(slide, 2)
 
 
@@ -405,6 +408,20 @@ def _clean_for_slide(value: str, limit: int) -> str:
     if len(text) <= limit:
         return text
     return text[: max(0, limit - 1)].rstrip(" ,.;:") + "…"
+
+
+def _headline_for_slide(value: str, limit: int) -> str:
+    text = " ".join(str(value or "").replace("\n", " ").split())
+    for marker in INTERNAL_TEXT_MARKERS:
+        text = text.replace(marker, "").strip()
+    if len(text) <= limit:
+        return text
+    for separator in (". ", "; ", " — ", ": "):
+        first = text.split(separator, 1)[0].strip()
+        if 45 <= len(first) <= limit:
+            return first.rstrip(" ,.;:") + "."
+    clipped = text[:limit].rsplit(" ", 1)[0].rstrip(" ,.;:")
+    return clipped + "."
 
 
 def _deliverables(document: PremiumReportDocument) -> str:

@@ -144,8 +144,16 @@ def _render_cover(doc: Document, report: PremiumReportDocument) -> None:
     cell = callout.rows[0].cells[0]
     _shade(cell, NAVY)
     p = cell.paragraphs[0]
-    run = p.add_run(report.plan.decision_context)
-    _set_run(run, size=11, color="FFFFFF", bold=True)
+    p.paragraph_format.line_spacing = 1.0
+    p.paragraph_format.space_after = Pt(0)
+    cover_note = (
+        f"{_report_type_label(report.plan.report_type)} для аудитории: "
+        f"{_audience_label(report.plan.audience)}. "
+        f"Доказательная база: {report.source_count} источников / "
+        f"{report.numeric_fact_count} фактов."
+    )
+    run = p.add_run(cover_note)
+    _set_run(run, size=9.2, color="FFFFFF", bold=True)
     doc.add_section(WD_SECTION_START.NEW_PAGE)
 
 
