@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Optional
 
 from smart_report.domain_detector import (
     Backend,
@@ -59,7 +58,7 @@ class SearchOutcome:
     results: list[ValyuResult] = field(default_factory=list)
     handoff_required: bool = False
     fallback_used: bool = False
-    primary_error: Optional[str] = None
+    primary_error: str | None = None
 
 
 class SearchOrchestrator:
@@ -84,7 +83,7 @@ class SearchOrchestrator:
     def __init__(
         self,
         *,
-        valyu_client: Optional[ValyuClient] = None,
+        valyu_client: ValyuClient | None = None,
         max_results: int = 10,
     ) -> None:
         self._valyu = valyu_client
@@ -114,7 +113,7 @@ class SearchOrchestrator:
         query: str,
         domain: QueryDomain,
         backend: Backend,
-        valyu_spec: Optional[ValyuCallSpec],
+        valyu_spec: ValyuCallSpec | None,
     ) -> SearchOutcome:
         if backend is Backend.PERPLEXITY_MANUAL:
             return SearchOutcome(
@@ -130,7 +129,7 @@ class SearchOrchestrator:
         self,
         query: str,
         domain: QueryDomain,
-        spec: Optional[ValyuCallSpec],
+        spec: ValyuCallSpec | None,
     ) -> SearchOutcome:
         if self._valyu is None:
             raise RuntimeError(
@@ -143,6 +142,7 @@ class SearchOrchestrator:
                 search_type=spec.search_type,  # type: ignore[arg-type]
                 category=spec.category,
                 fast_mode=spec.fast_mode,
+                included_sources=spec.included_sources,
                 max_results=self._max_results,
                 relevance_threshold=spec.relevance_threshold,
             )

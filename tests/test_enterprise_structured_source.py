@@ -147,6 +147,12 @@ def test_structured_source_tracks_scientific_connectors_explicitly():
             reliability="high",
         ),
         Source(
+            title="Clinical trial",
+            url="https://clinicaltrials.gov/study/NCT00000000",
+            tool="valyu/valyu-clinical-trials",
+            reliability="high",
+        ),
+        Source(
             title="Semantic academic result",
             url="https://example.com/paper",
             tool="exa-semantic-academic",
@@ -157,9 +163,14 @@ def test_structured_source_tracks_scientific_connectors_explicitly():
 
     source = structured_source_from_final_report(report)
 
-    assert source.research_coverage.connectors_used == ["valyu_arxiv", "exa_semantic"]
+    assert source.research_coverage.connectors_used == [
+        "valyu_arxiv",
+        "valyu_clinical_trials",
+        "exa_semantic",
+    ]
     assert source.research_coverage.scientific_or_primary_connectors == [
         "valyu_arxiv",
+        "valyu_clinical_trials",
         "exa_semantic",
     ]
     assert source.research_coverage.known_coverage_gaps == []

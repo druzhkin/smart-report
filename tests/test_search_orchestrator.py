@@ -23,7 +23,6 @@ from smart_report.domain_detector import (
 from smart_report.sources.orchestrator import SearchOrchestrator
 from smart_report.sources.valyu import ValyuResult, ValyuSearchError
 
-
 # ---------------------------------------------------------------------------
 # Routing decisions — domain → BackendPlan
 # ---------------------------------------------------------------------------
@@ -75,16 +74,17 @@ def test_routing_ru_automotive_skips_valyu_entirely():
 
 def test_routing_global_tech_uses_perplexity_primary_valyu_fallback():
     """Vendor blogs / changelogs — Perplexity has better recall.
-    Valyu fallback as cheap arxiv acceleration (search_type='all',
-    fast_mode=True is API-compatible)."""
+    Valyu fallback must explicitly hit arXiv so technical fallback is real
+    paper coverage, not generic web acceleration."""
     plan = backend_plan_for(
         "Comparative observability tooling for LLM applications: langfuse vs helicone"
     )
     assert plan.primary is Backend.PERPLEXITY_MANUAL
     assert plan.fallback is Backend.VALYU
     assert plan.valyu_spec is not None
-    assert plan.valyu_spec.search_type == "all"
-    assert plan.valyu_spec.fast_mode is True
+    assert plan.valyu_spec.search_type == "proprietary"
+    assert plan.valyu_spec.fast_mode is False
+    assert plan.valyu_spec.included_sources == ["valyu/valyu-arxiv"]
 
 
 def test_routing_generic_default_falls_back_to_cheap_valyu():
@@ -152,6 +152,34 @@ async def test_orchestrator_calls_valyu_with_routing_kwargs_for_eu_reg():
     kwargs = valyu.search.call_args.kwargs
     assert kwargs["search_type"] == "proprietary"
     assert kwargs["fast_mode"] is False
+    assert kwargs["included_sources"] is None
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_passes_arxiv_sources_for_technical_fallback():
+    valyu = MagicMock()
+    valyu.search = AsyncMock(return_value=[
+        ValyuResult(
+            url="https://arxiv.org/abs/2401.00001",
+            title="LLM observability paper",
+            content="...",
+            source="valyu/valyu-arxiv",
+            price=0.01,
+        ),
+    ])
+    orch = SearchOrchestrator(valyu_client=valyu)
+
+    outcome = await orch._call_valyu(
+        "LLM observability tracing papers",
+        QueryDomain.GLOBAL_TECH,
+        BACKEND_PLAN_BY_DOMAIN[QueryDomain.GLOBAL_TECH].valyu_spec,
+    )
+
+    assert outcome.backend is Backend.VALYU
+    kwargs = valyu.search.call_args.kwargs
+    assert kwargs["search_type"] == "proprietary"
+    assert kwargs["fast_mode"] is False
+    assert kwargs["included_sources"] == ["valyu/valyu-arxiv"]
 
 
 @pytest.mark.asyncio

@@ -42,6 +42,7 @@ ResearchConnector = Literal[
     "valyu_pubmed",
     "valyu_biorxiv",
     "valyu_medrxiv",
+    "valyu_clinical_trials",
     "exa",
     "exa_semantic",
     "tavily",
@@ -57,6 +58,7 @@ SCIENTIFIC_CONNECTORS: set[ResearchConnector] = {
     "valyu_pubmed",
     "valyu_biorxiv",
     "valyu_medrxiv",
+    "valyu_clinical_trials",
     "exa",
     "exa_semantic",
     "academic_upload",
@@ -709,6 +711,8 @@ def _connector_from_tool(tool: str) -> ResearchConnector:
     normalized = value.replace("-", "_").replace("/", "_")
     if "pubmed" in normalized:
         return "valyu_pubmed"
+    if "clinical_trials" in normalized or "clinicaltrials" in normalized:
+        return "valyu_clinical_trials"
     if "medrxiv" in normalized:
         return "valyu_medrxiv"
     if "biorxiv" in normalized or "bio_rxiv" in normalized:

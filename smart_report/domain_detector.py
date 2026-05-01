@@ -26,7 +26,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
 
 
 class QueryDomain(str, Enum):
@@ -175,7 +174,8 @@ class ValyuCallSpec:
 
     search_type: str = "all"
     fast_mode: bool = True
-    category: Optional[str] = None
+    category: str | None = None
+    included_sources: list[str] | None = None
     relevance_threshold: float = 0.5
 
 
@@ -184,8 +184,8 @@ class BackendPlan:
     """Primary + optional fallback backend selection for a domain."""
 
     primary: Backend
-    fallback: Optional[Backend]
-    valyu_spec: Optional[ValyuCallSpec] = None
+    fallback: Backend | None
+    valyu_spec: ValyuCallSpec | None = None
 
 
 _PROPRIETARY_VALYU = ValyuCallSpec(
@@ -193,6 +193,12 @@ _PROPRIETARY_VALYU = ValyuCallSpec(
 )
 _FAST_WEB_VALYU = ValyuCallSpec(
     search_type="all", fast_mode=True, relevance_threshold=0.5
+)
+_ARXIV_VALYU = ValyuCallSpec(
+    search_type="proprietary",
+    fast_mode=False,
+    included_sources=["valyu/valyu-arxiv"],
+    relevance_threshold=0.5,
 )
 
 
@@ -214,7 +220,7 @@ BACKEND_PLAN_BY_DOMAIN: dict[QueryDomain, BackendPlan] = {
     QueryDomain.GLOBAL_TECH: BackendPlan(
         primary=Backend.PERPLEXITY_MANUAL,
         fallback=Backend.VALYU,
-        valyu_spec=_FAST_WEB_VALYU,
+        valyu_spec=_ARXIV_VALYU,
     ),
     QueryDomain.GENERIC: BackendPlan(
         primary=Backend.PERPLEXITY_MANUAL,

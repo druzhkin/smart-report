@@ -16,7 +16,6 @@ from smart_report.sources.base import SearchBackend, SearchResult
 from smart_report.sources.valyu import ValyuClient, ValyuResult, ValyuSearchError
 from smart_report.sources.valyu_adapter import ValyuAdapter
 
-
 # ---------------------------------------------------------------------------
 # Mock helpers
 # ---------------------------------------------------------------------------
@@ -80,14 +79,57 @@ async def test_adapter_passes_domain_hint_in_raw_metadata():
 
 
 @pytest.mark.asyncio
-async def test_adapter_calls_valyu_with_fast_mode_hardcoded():
-    """Per B1.2 v0 — fast_mode=True hardcoded; M2 may refine per-domain."""
+async def test_adapter_calls_valyu_fast_all_for_non_scientific_domain():
     client = _make_mock_client(results=[])
     adapter = ValyuAdapter(valyu_client=client)
     await adapter.search("test", domain_hint="financial_us")
     kwargs = client.search.call_args.kwargs
     assert kwargs["fast_mode"] is True
     assert kwargs["search_type"] == "all"
+    assert kwargs["included_sources"] is None
+
+
+@pytest.mark.asyncio
+async def test_adapter_forces_arxiv_for_technical_research_domain():
+    client = _make_mock_client(results=[])
+    adapter = ValyuAdapter(valyu_client=client)
+    result = await adapter.search(
+        "transformer attention mechanism",
+        domain_hint="technical_research",
+    )
+
+    kwargs = client.search.call_args.kwargs
+    assert kwargs["fast_mode"] is False
+    assert kwargs["search_type"] == "proprietary"
+    assert kwargs["included_sources"] == ["valyu/valyu-arxiv"]
+    assert result.raw_metadata["included_sources"] == ["valyu/valyu-arxiv"]
+
+
+@pytest.mark.asyncio
+async def test_adapter_forces_paper_sources_for_scientific_and_medical_domains():
+    client = _make_mock_client(results=[])
+    adapter = ValyuAdapter(valyu_client=client)
+
+    await adapter.search("direct air capture economics papers", domain_hint="scientific")
+    scientific_kwargs = client.search.call_args.kwargs
+    assert scientific_kwargs["search_type"] == "proprietary"
+    assert scientific_kwargs["fast_mode"] is False
+    assert scientific_kwargs["included_sources"] == [
+        "valyu/valyu-arxiv",
+        "valyu/valyu-pubmed",
+        "valyu/valyu-biorxiv",
+        "valyu/valyu-medrxiv",
+    ]
+
+    await adapter.search("phase 3 oncology trial", domain_hint="medical_clinical")
+    medical_kwargs = client.search.call_args.kwargs
+    assert medical_kwargs["search_type"] == "proprietary"
+    assert medical_kwargs["fast_mode"] is False
+    assert medical_kwargs["included_sources"] == [
+        "valyu/valyu-pubmed",
+        "valyu/valyu-medrxiv",
+        "valyu/valyu-clinical-trials",
+    ]
 
 
 @pytest.mark.asyncio
@@ -183,8 +225,9 @@ async def test_adapter_live_smoke_tesla_10k():
     Run with: pytest -m live tests/sources/test_valyu_adapter.py
     """
     # Load .env explicitly (pytest doesn't pick up dotenv automatically)
-    from dotenv import load_dotenv
     from pathlib import Path
+
+    from dotenv import load_dotenv
     load_dotenv(dotenv_path=Path(__file__).parent.parent.parent / ".env")
     if not os.environ.get("VALYU_API_KEY"):
         pytest.skip("VALYU_API_KEY not set")

@@ -25,12 +25,24 @@ from __future__ import annotations
 import logging
 import os
 import time
-from typing import Optional
 
-from .base import CostEstimate, Finding, SearchBackend, SearchResult, Source
+from .base import CostEstimate, Finding, SearchResult, Source
 from .valyu import ValyuClient, ValyuResult, ValyuSearchError
 
 _logger = logging.getLogger(__name__)
+
+_SCIENTIFIC_VALYU_SOURCES = [
+    "valyu/valyu-arxiv",
+    "valyu/valyu-pubmed",
+    "valyu/valyu-biorxiv",
+    "valyu/valyu-medrxiv",
+]
+_MEDICAL_VALYU_SOURCES = [
+    "valyu/valyu-pubmed",
+    "valyu/valyu-medrxiv",
+    "valyu/valyu-clinical-trials",
+]
+_TECHNICAL_RESEARCH_VALYU_SOURCES = ["valyu/valyu-arxiv"]
 
 
 class ValyuAdapter:
@@ -50,7 +62,7 @@ class ValyuAdapter:
     _COST_NOTE = "Valyu fast tier ~$0.005-0.030/call depending on dataset mix"
     _COST_PER_CALL_USD = 0.015
 
-    def __init__(self, valyu_client: Optional[ValyuClient] = None) -> None:
+    def __init__(self, valyu_client: ValyuClient | None = None) -> None:
         if valyu_client is None:
             api_key = os.environ.get("VALYU_API_KEY")
             if not api_key:
@@ -64,9 +76,9 @@ class ValyuAdapter:
         self,
         query: str,
         *,
-        domain_hint: Optional[str] = None,
+        domain_hint: str | None = None,
         max_results: int = 10,
-        cost_budget_usd: Optional[float] = None,
+        cost_budget_usd: float | None = None,
     ) -> SearchResult:
         """Call Valyu DeepSearch and re-shape the response.
 
@@ -83,11 +95,13 @@ class ValyuAdapter:
                 "valyu_max_results": max_results,
             },
         )
+        policy = _policy_for_domain(domain_hint)
         try:
             raw = await self._client.search(
                 query,
-                search_type="all",
-                fast_mode=True,
+                search_type=policy["search_type"],  # type: ignore[arg-type]
+                fast_mode=bool(policy["fast_mode"]),
+                included_sources=policy["included_sources"],  # type: ignore[arg-type]
                 max_results=max_results,
             )
         except ValyuSearchError as e:
@@ -133,6 +147,9 @@ class ValyuAdapter:
                 "domain_hint": domain_hint,
                 "max_results": max_results,
                 "raw_count": len(raw),
+                "search_type": policy["search_type"],
+                "fast_mode": policy["fast_mode"],
+                "included_sources": policy["included_sources"],
             },
             cost_usd=cost_usd,
             latency_ms=latency_ms,
@@ -199,3 +216,29 @@ class ValyuAdapter:
                 )
 
         return (sources, findings)
+
+
+def _policy_for_domain(domain_hint: str | None) -> dict[str, object]:
+    """Return Valyu DeepSearch settings for the resolved research domain.
+
+    Scientific and clinical routes must explicitly hit Valyu's paper datasets.
+    Otherwise the product can claim that Valyu ran while still missing arXiv,
+    PubMed, bioRxiv, or medRxiv coverage.
+    """
+
+    domain = str(domain_hint or "").lower().replace("-", "_").replace(" ", "_")
+    included_sources: list[str] | None = None
+    if "medical" in domain or "clinical" in domain or "biomedical" in domain:
+        included_sources = _MEDICAL_VALYU_SOURCES
+    elif "technical_research" in domain:
+        included_sources = _TECHNICAL_RESEARCH_VALYU_SOURCES
+    elif "scientific" in domain or "academic" in domain:
+        included_sources = _SCIENTIFIC_VALYU_SOURCES
+
+    if included_sources:
+        return {
+            "search_type": "proprietary",
+            "fast_mode": False,
+            "included_sources": included_sources,
+        }
+    return {"search_type": "all", "fast_mode": True, "included_sources": None}
