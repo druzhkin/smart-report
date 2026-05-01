@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import pytest
 
-from scripts.premium_artifact_qa import run_qa
 from smart_report.exporters.premium import (
     assemble_premium_report_document,
     render_premium_docx,
     render_premium_pdf,
     render_premium_pptx,
 )
+from smart_report.exporters.premium.artifact_qa import run_qa
 from smart_report.models import (
     AnalysisOutput,
     Conflict,
@@ -120,12 +120,52 @@ def test_premium_artifact_qa_structural_checks_pass_without_render(premium_artif
     pptx_result = next(item for item in report["results"] if item["kind"] == "pptx")
     assert docx_result["metrics"]["tables"] >= 4
     assert docx_result["metrics"]["estimated_pages"] >= 1
+    assert docx_result["metrics"]["narrative_chars"] >= 1800
+    assert docx_result["metrics"]["source_reference_count"] >= 2
+    assert docx_result["metrics"]["overlong_paragraphs"] == []
     assert docx_result["metrics"]["has_decision_dashboard"] is True
     assert docx_result["metrics"]["has_scorecard"] is True
     assert docx_result["metrics"]["has_readiness_gate"] is False
     assert pptx_result["metrics"]["slides"] >= 10
     assert pptx_result["metrics"]["has_client_position"] is True
     assert pptx_result["metrics"]["has_readiness"] is False
+
+
+def test_premium_artifact_qa_rejects_untraceable_docx_text_dump(tmp_path):
+    pytest.importorskip("docx")
+    from docx import Document
+
+    docx_path = tmp_path / "bad_report.docx"
+    doc = Document()
+    doc.add_paragraph("SMART REPORT | PREMIUM ANALYTICAL REPORT")
+    doc.add_heading("Client Decision Dashboard", level=1)
+    doc.add_heading("Executive Evidence Scorecard", level=1)
+    doc.add_heading("Report Structure", level=1)
+    for idx in range(26):
+        doc.add_heading(f"Section {idx + 1}", level=2)
+        body = (
+            "This paragraph is intentionally long and undifferentiated. " * 18
+            if idx == 0
+            else "A short analytical paragraph with a business implication and no traceable source. "
+            * 4
+        )
+        doc.add_paragraph(body)
+    for table_idx in range(4):
+        table = doc.add_table(rows=2, cols=2)
+        table.cell(0, 0).text = "Metric"
+        table.cell(0, 1).text = "Value"
+        table.cell(1, 0).text = f"Table {table_idx + 1}"
+        table.cell(1, 1).text = "Unreferenced"
+    doc.save(docx_path)
+
+    report = run_qa(docx_path=docx_path, out_dir=tmp_path, render=False)
+
+    assert report["status"] == "failed"
+    docx_result = next(item for item in report["results"] if item["kind"] == "docx")
+    assert docx_result["metrics"]["source_reference_count"] == 0
+    assert docx_result["metrics"]["overlong_paragraphs"]
+    assert any("source references" in issue for issue in docx_result["issues"])
+    assert any("overlong paragraph" in issue for issue in docx_result["issues"])
 
 
 def test_premium_artifact_qa_checks_publication_pdf(tmp_path):
@@ -187,7 +227,10 @@ def test_premium_artifact_qa_rejects_landscape_pdf(tmp_path):
 def test_premium_artifact_qa_reports_missing_render_tools(monkeypatch, premium_artifacts, tmp_path):
     docx_path, pptx_path = premium_artifacts
 
-    monkeypatch.setattr("scripts.premium_artifact_qa._find_tool", lambda _name, _candidates: None)
+    monkeypatch.setattr(
+        "smart_report.exporters.premium.artifact_qa._find_tool",
+        lambda _name, _candidates: None,
+    )
     report = run_qa(docx_path=docx_path, pptx_path=pptx_path, out_dir=tmp_path, render=True)
 
     assert report["status"] == "blocked"
@@ -213,8 +256,8 @@ def test_premium_artifact_qa_records_rendered_docx_page_count(
             for idx in range(1, 4):
                 (out_dir / f"{docx_path.stem}-{idx:02d}.png").write_bytes(b"png")
 
-    monkeypatch.setattr("scripts.premium_artifact_qa._find_tool", _fake_find_tool)
-    monkeypatch.setattr("scripts.premium_artifact_qa.subprocess.run", _fake_run)
+    monkeypatch.setattr("smart_report.exporters.premium.artifact_qa._find_tool", _fake_find_tool)
+    monkeypatch.setattr("smart_report.exporters.premium.artifact_qa.subprocess.run", _fake_run)
 
     report = run_qa(docx_path=docx_path, out_dir=tmp_path, render=True)
 

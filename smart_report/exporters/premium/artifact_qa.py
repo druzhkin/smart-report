@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -29,6 +30,13 @@ INTERNAL_MARKERS = (
     "gaps_filled_section",
     "source_reports",
     "followup_reports",
+)
+
+DOCX_NARRATIVE_MIN_CHARS = 1800
+DOCX_MAX_PARAGRAPH_CHARS = 650
+SOURCE_REFERENCE_RE = re.compile(
+    r"https?://|www\.|(?:^|[^A-Za-z])doi[:/ ]|\b[\w.-]+\.(?:com|ru|org|net|io|gov|edu|рф)\b",
+    re.IGNORECASE,
 )
 
 VISUAL_REVIEW_RUBRIC = (
@@ -138,12 +146,28 @@ def _inspect_docx(path: Path) -> ArtifactQaResult:
             for p in doc.paragraphs
             if p.style and p.style.name.startswith("Heading") and p.text.strip()
         ]
+        narrative_paragraphs = [
+            p.text.strip()
+            for p in doc.paragraphs
+            if p.text.strip()
+            and not (p.style and p.style.name.startswith(("Heading", "Title")))
+        ]
+        overlong_paragraphs = [
+            {"index": idx, "chars": len(paragraph)}
+            for idx, paragraph in enumerate(narrative_paragraphs, start=1)
+            if len(paragraph) > DOCX_MAX_PARAGRAPH_CHARS
+        ]
+        source_reference_count = len(SOURCE_REFERENCE_RE.findall(text))
         result.metrics = {
             "paragraphs": len(paragraphs),
+            "narrative_paragraphs": len(narrative_paragraphs),
             "tables": len(doc.tables),
             "sections": len(doc.sections),
             "headings": len(headings),
             "text_chars": len(text),
+            "narrative_chars": sum(len(paragraph) for paragraph in narrative_paragraphs),
+            "source_reference_count": source_reference_count,
+            "overlong_paragraphs": overlong_paragraphs,
             "estimated_pages": _estimate_docx_pages(text, len(doc.tables)),
             "has_cover_brand": (
                 "SMART REPORT | PREMIUM ANALYTICAL REPORT" in text
@@ -171,8 +195,28 @@ def _inspect_docx(path: Path) -> ArtifactQaResult:
         }
         _add_common_content_issues(result, text)
         _require_metric(result, "paragraphs", 25, "DOCX has too few paragraphs for a long-form report.")
+        _require_metric(
+            result,
+            "narrative_chars",
+            DOCX_NARRATIVE_MIN_CHARS,
+            "DOCX has too little narrative prose outside headings and tables.",
+        )
         _require_metric(result, "tables", 4, "DOCX has too few visual tables.")
         _require_metric(result, "text_chars", 5000, "DOCX text volume is below structural QA minimum.")
+        _require_metric(
+            result,
+            "source_reference_count",
+            1,
+            "DOCX has no traceable source references.",
+        )
+        if overlong_paragraphs:
+            sample = ", ".join(
+                f"#{item['index']}={item['chars']} chars" for item in overlong_paragraphs[:5]
+            )
+            result.issues.append(
+                "DOCX contains overlong paragraph(s); split text with bullets, callouts, "
+                f"or exhibits: {sample}."
+            )
         for key, message in {
             "has_cover_brand": "DOCX cover brand marker is missing.",
             "has_decision_dashboard": "DOCX decision summary is missing.",

@@ -595,10 +595,10 @@ def test_v4_full_cycle(monkeypatch, tmp_path):
         "analytic_closure_open_leads",
         "evidence_audit_unsupported_conclusions",
         "adjudication_audit_critical_unresolved",
+        "artifact_qa_not_passed",
         "storyboard_quality_not_ready",
         "visual_review_not_approved",
     } <= blockers
-    assert "artifact_qa_not_passed" not in blockers
     # Export gamma-pdf stub.
     r = client.get(f"/api/v4/sessions/{sid}/export", params={"format": "gamma-pdf", "allow_draft": "true"})
     assert r.status_code == 200
