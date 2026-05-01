@@ -617,6 +617,11 @@ class V4Session(_V4Base):
     # so reads survive container restarts.
     pending_long_tasks: list[dict] = Field(default_factory=list)
 
+    # Enterprise editable report source. Kept as a plain JSON-compatible dict
+    # to avoid coupling core session models to exporter-specific Pydantic
+    # classes. Endpoints validate it as StructuredReportSource on access.
+    structured_report_source: dict | None = None
+
 
 V4Session.model_rebuild()
 FinalReport.model_rebuild()

@@ -2,7 +2,15 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { getSession, type V4Session, type FinalReport } from "@/lib/apiV4";
+import {
+  getSession,
+  getStructuredReportSource,
+  patchStructuredReportSource,
+  regenerateStructuredReportPackage,
+  type StructuredReportSourceOut,
+  type V4Session,
+  type FinalReport,
+} from "@/lib/apiV4";
 import { useCost } from "@/lib/costContext";
 import { SectionKicker } from "@/components/v4/SectionKicker";
 import { ToolMark } from "@/components/v4/ToolMark";
@@ -15,6 +23,7 @@ export default function V4ReportPage() {
   const { setCost } = useCost();
 
   const [session, setSession] = useState<V4Session | null>(null);
+  const [structured, setStructured] = useState<StructuredReportSourceOut | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
@@ -22,6 +31,9 @@ export default function V4ReportPage() {
     getSession(id)
       .then((s) => { setSession(s); setCost(s.total_cost_rub); })
       .catch((e) => setErr(e instanceof Error ? e.message : "Не удалось загрузить"));
+    getStructuredReportSource(id)
+      .then(setStructured)
+      .catch(() => setStructured(null));
   }, [id]);
 
   if (err) {
@@ -52,6 +64,12 @@ export default function V4ReportPage() {
         totalCost={session.total_cost_rub}
         onReset={() => router.push("/v4/new")}
         sessionId={id}
+      />
+
+      <StructuredReportEditor
+        sessionId={id}
+        structured={structured}
+        onStructuredChange={setStructured}
       />
 
       {/* Executive Summary — 2-col */}
@@ -384,6 +402,176 @@ export default function V4ReportPage() {
     </div>
   );
 }
+
+function StructuredReportEditor({
+  sessionId,
+  structured,
+  onStructuredChange,
+}: {
+  sessionId: string;
+  structured: StructuredReportSourceOut | null;
+  onStructuredChange: (next: StructuredReportSourceOut) => void;
+}) {
+  const [title, setTitle] = useState("");
+  const [mainAnswer, setMainAnswer] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!structured) return;
+    setTitle(structured.source.metadata.title || "");
+    setMainAnswer(structured.source.sections[0]?.blocks[0]?.content || "");
+  }, [structured]);
+
+  if (!structured) {
+    return null;
+  }
+
+  const current = structured;
+  const firstSection = current.source.sections[0];
+  const firstBlock = firstSection?.blocks[0];
+  const gate = current.quality_gate;
+
+  async function saveEdits() {
+    if (!firstSection || !firstBlock) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const next = await patchStructuredReportSource(sessionId, [
+        {
+          actor_role: "client_reviewer",
+          target_path: "metadata.title",
+          value: title,
+          reason: "Client edited report title",
+        },
+        {
+          actor_role: "editor",
+          target_path: `sections.${firstSection.id}.blocks.${firstBlock.id}.content`,
+          value: mainAnswer,
+          reason: "Editor updated executive answer",
+        },
+      ]);
+      onStructuredChange(next);
+      setMessage("Правки сохранены. Проверки качества пересчитаны.");
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "Не удалось сохранить правки");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function regenerate() {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const blob = await regenerateStructuredReportPackage(sessionId, {
+        requested_formats: ["docx", "pdf", "pptx"],
+        allow_draft: true,
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "structured_regenerated_package.zip";
+      a.click();
+      URL.revokeObjectURL(url);
+      setMessage("Пакет пересобран. Внутри есть DOCX, PDF и PPTX.");
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "Не удалось пересобрать пакет");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section
+      className="v4-container-wide"
+      style={{
+        paddingTop: 28,
+        paddingBottom: 28,
+        borderBottom: "1px solid var(--v4-rule-emphatic)",
+      }}
+    >
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "minmax(0, 1fr) 320px",
+          gap: 28,
+          alignItems: "start",
+        }}
+      >
+        <div>
+          <SectionKicker>Структурированные данные</SectionKicker>
+          <div style={{ display: "grid", gap: 14, marginTop: 14 }}>
+            <label style={{ display: "grid", gap: 6, fontSize: 12, color: "var(--v4-ink-3)" }}>
+              Название отчета
+              <input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                style={editorInputStyle}
+              />
+            </label>
+            <label style={{ display: "grid", gap: 6, fontSize: 12, color: "var(--v4-ink-3)" }}>
+              Главный вывод
+              <textarea
+                value={mainAnswer}
+                onChange={(e) => setMainAnswer(e.target.value)}
+                rows={5}
+                style={{ ...editorInputStyle, resize: "vertical", lineHeight: 1.5 }}
+              />
+            </label>
+          </div>
+        </div>
+
+        <aside
+          style={{
+            border: "1px solid var(--v4-rule-emphatic)",
+            background: gate.passed ? "#f4fbf6" : "#fff8f0",
+            padding: 18,
+          }}
+        >
+          <div className="v4-mono" style={{ color: gate.passed ? "#166534" : "#9a3412" }}>
+            {gate.passed ? "ГОТОВО К ВЫДАЧЕ" : "БЛОКЕРЫ ЧЕРНОВИКА"} · {gate.score}/100
+          </div>
+          <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
+            {gate.issues.slice(0, 4).map((issue) => (
+              <div key={issue.code} style={{ fontSize: 12, lineHeight: 1.4, color: "var(--v4-ink-2)" }}>
+                <strong>{issue.code}</strong>: {issue.message}
+              </div>
+            ))}
+            {gate.issues.length === 0 && (
+              <div style={{ fontSize: 12, color: "var(--v4-ink-3)" }}>
+                Блокеров enterprise-проверки нет.
+              </div>
+            )}
+          </div>
+          <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
+            <button className="v4-btn v4-btn-secondary" onClick={saveEdits} disabled={busy}>
+              Сохранить
+            </button>
+            <button className="v4-btn v4-btn-primary" onClick={regenerate} disabled={busy}>
+              Пересобрать
+            </button>
+          </div>
+          {message && (
+            <div style={{ marginTop: 12, fontSize: 12, color: "var(--v4-ink-3)", lineHeight: 1.4 }}>
+              {message}
+            </div>
+          )}
+        </aside>
+      </div>
+    </section>
+  );
+}
+
+const editorInputStyle = {
+  width: "100%",
+  border: "1px solid var(--v4-rule-emphatic)",
+  background: "var(--v4-paper)",
+  color: "var(--v4-ink)",
+  padding: "10px 12px",
+  fontFamily: "var(--v4-f-body)",
+  fontSize: 14,
+} as const;
 
 function ReportMasthead({
   title,

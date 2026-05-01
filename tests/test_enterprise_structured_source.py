@@ -6,6 +6,7 @@ from smart_report.exporters.premium import (
     ReportEditRequest,
     apply_report_edits,
     build_regeneration_plan,
+    final_report_from_structured_source,
     hash_structured_source,
     run_enterprise_quality_gates,
     structured_source_from_final_report,
@@ -57,6 +58,35 @@ def test_client_edit_changes_structured_source_and_creates_version():
     assert hash_structured_source(updated) != before_hash
     assert len(updated.versions) == len(source.versions) + 1
     assert updated.versions[-1].actor_role == "client_reviewer"
+
+
+def test_structured_source_projects_back_to_renderer_report():
+    base = _report()
+    source = structured_source_from_final_report(base)
+    updated = apply_report_edits(
+        source,
+        [
+            ReportEditRequest(
+                actor_role="editor",
+                target_path="metadata.title",
+                value="Редакционный заголовок",
+            ),
+            ReportEditRequest(
+                actor_role="editor",
+                target_path=(
+                    f"sections.executive_summary.blocks."
+                    f"{source.sections[0].blocks[0].id}.content"
+                ),
+                value="Новый главный вывод для клиента.",
+            ),
+        ],
+    )
+
+    projected = final_report_from_structured_source(base, updated)
+
+    assert projected.question == "Редакционный заголовок"
+    assert projected.executive_summary.main_answer == "Новый главный вывод для клиента."
+    assert projected.metadata["structured_source_hash"] == hash_structured_source(updated)
 
 
 def test_quality_reviewer_cannot_edit_content():

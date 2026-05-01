@@ -48,8 +48,16 @@ from ..events import ALLOWED_PHASES, EventEmitter
 from ..exporters import (
     assess_client_readiness,
     assess_premium_readiness,
+    apply_report_edits,
+    build_regeneration_plan,
     contains_client_leak,
+    final_report_from_structured_source,
+    ReportArtifactFormat,
+    ReportEditRequest,
+    run_enterprise_quality_gates,
     sanitize_final_report,
+    StructuredReportSource,
+    structured_source_from_final_report,
     v4_to_report_dict,
     write_docx,
     write_gamma_pdf_stub,
@@ -147,6 +155,16 @@ class CreateSessionOut(BaseModel):
 
 class ModelPreferenceIn(BaseModel):
     model_preference: Literal["sonnet", "opus"] | None = None
+
+
+class StructuredReportEditIn(BaseModel):
+    edits: list[ReportEditRequest] = Field(default_factory=list)
+
+
+class StructuredReportRegenerateIn(BaseModel):
+    requested_formats: list[ReportArtifactFormat] | None = None
+    allow_draft: bool = False
+    visual_review_approved: bool = False
 
 
 # ---- long-running task pattern (analyze / synthesize) ---------------------
@@ -2207,6 +2225,94 @@ async def get_final_report(session_id: str, request: Request) -> dict:
     }
 
 
+@router.get("/sessions/{session_id}/structured-source")
+async def get_structured_report_source(session_id: str, request: Request) -> dict:
+    session = _get_owned(session_id, request)
+    source = _get_or_create_structured_source(session, persist=True)
+    plan = build_regeneration_plan(source)
+    return {
+        "source": source.model_dump(mode="json"),
+        "quality_gate": plan.quality_gate.model_dump(mode="json"),
+        "regeneration_plan": plan.model_dump(mode="json"),
+    }
+
+
+@router.patch("/sessions/{session_id}/structured-source")
+async def patch_structured_report_source(
+    session_id: str,
+    payload: StructuredReportEditIn,
+    request: Request,
+) -> dict:
+    session = _get_owned(session_id, request)
+    source = _get_or_create_structured_source(session, persist=False)
+    if not payload.edits:
+        raise HTTPException(status_code=400, detail="edits must contain at least one edit")
+    try:
+        updated = apply_report_edits(source, payload.edits)
+    except (PermissionError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    session.structured_report_source = updated.model_dump(mode="json")
+    _store.update(session)
+    plan = build_regeneration_plan(updated)
+    return {
+        "source": updated.model_dump(mode="json"),
+        "quality_gate": plan.quality_gate.model_dump(mode="json"),
+        "regeneration_plan": plan.model_dump(mode="json"),
+    }
+
+
+@router.get("/sessions/{session_id}/quality-gate")
+async def get_structured_report_quality_gate(session_id: str, request: Request) -> dict:
+    session = _get_owned(session_id, request)
+    source = _get_or_create_structured_source(session, persist=True)
+    gate = run_enterprise_quality_gates(source)
+    return gate.model_dump(mode="json")
+
+
+@router.post("/sessions/{session_id}/regenerate")
+async def regenerate_structured_report_package(
+    session_id: str,
+    payload: StructuredReportRegenerateIn,
+    request: Request,
+) -> FileResponse:
+    session = _get_owned(session_id, request)
+    if session.final_report is None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"session {session_id} has no final_report yet; call /synthesize first",
+        )
+    source = _get_or_create_structured_source(session, persist=True)
+    plan = build_regeneration_plan(source, requested_formats=payload.requested_formats)
+    if not plan.quality_gate.passed and not payload.allow_draft:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "Structured report source did not pass enterprise quality gates.",
+                "gate": plan.quality_gate.model_dump(mode="json"),
+                "regeneration_plan": plan.model_dump(mode="json"),
+            },
+        )
+
+    out_dir = _session_artefact_dir(session_id)
+    render_report = final_report_from_structured_source(
+        sanitize_final_report(session.final_report),
+        source,
+    )
+    session_for_render = session.model_copy(deep=True)
+    session_for_render.final_report = render_report
+    out_path = _write_premium_package(
+        out_dir / "structured_regenerated_package.zip",
+        session_for_render,
+        render_report,
+        visual_review_approved=payload.visual_review_approved,
+    )
+    return FileResponse(
+        str(out_path),
+        media_type="application/zip",
+        filename="structured_regenerated_package.zip",
+    )
+
+
 @router.get("/sessions/{session_id}")
 async def get_session(session_id: str, request: Request) -> dict:
     s = _get_owned(session_id, request)
@@ -2237,7 +2343,7 @@ async def get_events(session_id: str, request: Request, since: int = 0, timeout:
 
 
 _EXPORT_FORMATS = {
-    "md", "json", "docx", "premium-docx", "premium-pptx", "pptx", "onepager",
+    "md", "json", "docx", "premium-docx", "premium-pdf", "premium-carbone-pdf", "premium-pptx", "pptx", "onepager",
     "premium-package", "premium-client-package",
     "next-research-brief",
     "data-pack", "sources-csv", "facts-csv", "audit-json",
@@ -2432,6 +2538,74 @@ async def export_session(
             premium_readiness=premium_readiness,
         )
         out_path = _render_premium_pptx(premium_document, out_dir / filename)
+    elif format == "premium-pdf":
+        from smart_report.exporters import (
+            assemble_premium_report_document as _assemble_premium_report_document,
+            render_premium_pdf as _render_premium_pdf,
+        )
+        depth_plan = (
+            build_analytic_depth_plan(
+                session.raw_question,
+                analysis=session.analysis,
+                report=client_report,
+            )
+            if session.analysis is not None
+            else None
+        )
+        premium_readiness = assess_premium_readiness(
+            client_report,
+            analysis=session.analysis,
+            depth_plan=depth_plan,
+            closure_report=(
+                assess_analytic_closure(depth_plan, list(session.followup_reports or []))
+                if depth_plan is not None
+                else None
+            ),
+            evidence_audit=assess_evidence_support(client_report, session.analysis),
+            adjudication_audit=assess_adjudication_quality(client_report, session.analysis),
+        ).model_dump()
+        premium_document = _assemble_premium_report_document(
+            client_report,
+            analysis=session.analysis,
+            premium_readiness=premium_readiness,
+        )
+        out_path = _render_premium_pdf(premium_document, out_dir / filename)
+    elif format == "premium-carbone-pdf":
+        from smart_report.exporters import (
+            CarboneRenderError as _CarboneRenderError,
+            assemble_premium_report_document as _assemble_premium_report_document,
+            render_premium_carbone_pdf as _render_premium_carbone_pdf,
+        )
+        depth_plan = (
+            build_analytic_depth_plan(
+                session.raw_question,
+                analysis=session.analysis,
+                report=client_report,
+            )
+            if session.analysis is not None
+            else None
+        )
+        premium_readiness = assess_premium_readiness(
+            client_report,
+            analysis=session.analysis,
+            depth_plan=depth_plan,
+            closure_report=(
+                assess_analytic_closure(depth_plan, list(session.followup_reports or []))
+                if depth_plan is not None
+                else None
+            ),
+            evidence_audit=assess_evidence_support(client_report, session.analysis),
+            adjudication_audit=assess_adjudication_quality(client_report, session.analysis),
+        ).model_dump()
+        premium_document = _assemble_premium_report_document(
+            client_report,
+            analysis=session.analysis,
+            premium_readiness=premium_readiness,
+        )
+        try:
+            out_path = _render_premium_carbone_pdf(premium_document, out_dir / filename)
+        except _CarboneRenderError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
     else:
         report_dict = v4_to_report_dict(client_report)
         out_path = writer(out_dir / filename, report_dict)
@@ -2629,6 +2803,7 @@ def _write_premium_package(
     from smart_report.exporters import (
         assemble_premium_report_document as _assemble_premium_report_document,
         render_premium_docx as _render_premium_docx,
+        render_premium_pdf as _render_premium_pdf,
         render_premium_pptx as _render_premium_pptx,
     )
 
@@ -2667,10 +2842,11 @@ def _write_premium_package(
         analysis=session.analysis,
         premium_readiness=premium_readiness,
     )
+    pdf_path = _render_premium_pdf(premium_document, path.parent / "premium_report.pdf")
     report_path = _render_premium_docx(premium_document, path.parent / "premium_report.docx")
     deck_path = _render_premium_pptx(premium_document, path.parent / "premium_deck.pptx")
     data_pack_path = _write_data_pack(path.parent / "data_pack.zip", session, client_report)
-    artifact_qa = _premium_artifact_qa(report_path, deck_path, path.parent / "artifact_qa")
+    artifact_qa = _premium_artifact_qa(report_path, pdf_path, deck_path, path.parent / "artifact_qa")
     visual_review = build_visual_review_gate(artifact_qa, approved=visual_review_approved)
     audit_path = _write_audit_json(path.parent / "audit.json", session, visual_review=visual_review)
     artifact_summary = _artifact_qa_manifest_summary(artifact_qa)
@@ -2685,6 +2861,7 @@ def _write_premium_package(
         "artifact_qa_status": artifact_qa.get("status"),
         "docx_pages": artifact_summary.get("docx_pages"),
         "docx_pages_source": artifact_summary.get("docx_pages_source"),
+        "pdf_pages": artifact_summary.get("pdf_pages"),
         "deck_slides": artifact_summary.get("deck_slides"),
         "visual_review_status": visual_review.status,
         "analytic_closure_score": (
@@ -2699,6 +2876,7 @@ def _write_premium_package(
         "unresolved_conflicts": int(adjudication_audit.unresolved or 0),
         "critical_unresolved_conflicts": int(adjudication_audit.critical_unresolved or 0),
         "files": [
+            "01_premium_report.pdf",
             "01_premium_report.docx",
             "02_premium_deck.pptx",
             "03_premium_readiness.json",
@@ -2718,6 +2896,7 @@ def _write_premium_package(
     }
     with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("00_manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2, default=str))
+        zf.write(pdf_path, "01_premium_report.pdf")
         zf.write(report_path, "01_premium_report.docx")
         zf.write(deck_path, "02_premium_deck.pptx")
         zf.writestr(
@@ -2857,6 +3036,7 @@ def _artifact_qa_manifest_summary(artifact_qa: dict) -> dict[str, Any]:
     summary: dict[str, Any] = {
         "docx_pages": None,
         "docx_pages_source": None,
+        "pdf_pages": None,
         "deck_slides": None,
     }
     for result in artifact_qa.get("results") or []:
@@ -2872,15 +3052,18 @@ def _artifact_qa_manifest_summary(artifact_qa: dict) -> dict[str, Any]:
                 summary["docx_pages_source"] = "estimated_pages"
         elif result.get("kind") == "pptx":
             summary["deck_slides"] = metrics.get("rendered_slides") or metrics.get("slides")
+        elif result.get("kind") == "pdf":
+            summary["pdf_pages"] = metrics.get("rendered_pages") or metrics.get("pages")
     return summary
 
 
-def _premium_artifact_qa(report_path: Path, deck_path: Path, out_dir: Path) -> dict:
+def _premium_artifact_qa(report_path: Path, pdf_path: Path, deck_path: Path, out_dir: Path) -> dict:
     try:
         from smart_report.exporters.premium.artifact_qa import run_qa
 
         return run_qa(
             docx_path=report_path,
+            pdf_path=pdf_path,
             pptx_path=deck_path,
             out_dir=out_dir,
             render=True,
@@ -2888,7 +3071,7 @@ def _premium_artifact_qa(report_path: Path, deck_path: Path, out_dir: Path) -> d
     except Exception as exc:  # pragma: no cover - defensive export path
         return {
             "status": "failed",
-            "summary": {"artifacts": 2, "issues": 1},
+            "summary": {"artifacts": 3, "issues": 1},
             "results": [],
             "error": f"Premium artifact QA failed to run: {exc}",
         }
@@ -3197,6 +3380,25 @@ def _session_artefact_dir(session_id: str) -> Path:
     return d
 
 
+def _get_or_create_structured_source(
+    session: V4Session,
+    *,
+    persist: bool,
+) -> StructuredReportSource:
+    if session.structured_report_source:
+        return StructuredReportSource.model_validate(session.structured_report_source)
+    if session.final_report is None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"session {session.session_id} has no final_report yet; call /synthesize first",
+        )
+    source = structured_source_from_final_report(sanitize_final_report(session.final_report))
+    session.structured_report_source = source.model_dump(mode="json")
+    if persist:
+        _store.update(session)
+    return source
+
+
 def _export_handler(format: str):
     """Return (filename, writer_fn, media_type) for a given format key."""
     if format == "md":
@@ -3221,6 +3423,10 @@ def _export_handler(format: str):
             write_pptx,
             "application/vnd.openxmlformats-officedocument.presentationml.presentation",
         )
+    if format == "premium-pdf":
+        return ("premium_report.pdf", write_md, "application/pdf")
+    if format == "premium-carbone-pdf":
+        return ("premium_report_carbone.pdf", write_md, "application/pdf")
     if format == "pptx":
         return (
             "report.pptx",

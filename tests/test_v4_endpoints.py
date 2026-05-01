@@ -361,6 +361,56 @@ def test_v4_full_cycle(monkeypatch, tmp_path):
     assert final["executive_summary"]["main_answer"]
     assert final["executive_summary"]["ranking"].startswith("Продукт")
 
+    r = client.get(f"/api/v4/sessions/{sid}/structured-source")
+    assert r.status_code == 200, r.text
+    structured = r.json()
+    assert structured["source"]["metadata"]["title"]
+    assert structured["regeneration_plan"]["requested_formats"][:3] == ["docx", "pdf", "pptx"]
+    assert structured["quality_gate"]["passed"] is False
+    assert "thin_visual_support" in {
+        issue["code"] for issue in structured["quality_gate"]["issues"]
+    }
+    block_id = structured["source"]["sections"][0]["blocks"][0]["id"]
+
+    r = client.patch(
+        f"/api/v4/sessions/{sid}/structured-source",
+        json={
+            "edits": [
+                {
+                    "actor_role": "client_reviewer",
+                    "target_path": "metadata.title",
+                    "value": "Client edited report title",
+                    "reason": "Client rename",
+                },
+                {
+                    "actor_role": "editor",
+                    "target_path": f"sections.executive_summary.blocks.{block_id}.content",
+                    "value": "Edited executive answer.",
+                    "reason": "Editor tightened main answer",
+                },
+            ]
+        },
+    )
+    assert r.status_code == 200, r.text
+    edited = r.json()
+    assert edited["source"]["metadata"]["title"] == "Client edited report title"
+    assert len(edited["source"]["versions"]) == 2
+
+    r = client.get(f"/api/v4/sessions/{sid}/quality-gate")
+    assert r.status_code == 200
+    assert r.json()["passed"] is False
+
+    r = client.post(
+        f"/api/v4/sessions/{sid}/regenerate",
+        json={"requested_formats": ["pdf"], "allow_draft": True},
+    )
+    assert r.status_code == 200, r.text
+    assert r.headers["content-type"].startswith("application/zip")
+    with zipfile.ZipFile(BytesIO(r.content)) as zf:
+        assert "01_premium_report.docx" in set(zf.namelist())
+        manifest = json.loads(zf.read("00_manifest.json").decode("utf-8"))
+        assert manifest["package_type"] == "smart_report_premium_delivery"
+
     # Client exports are blocked until readiness gates pass.
     r = client.get(f"/api/v4/sessions/{sid}/export", params={"format": "md"})
     assert r.status_code == 409, r.text
@@ -450,6 +500,12 @@ def test_v4_full_cycle(monkeypatch, tmp_path):
     )
     r = client.get(
         f"/api/v4/sessions/{sid}/export",
+        params={"format": "premium-pdf", "allow_draft": "true"},
+    )
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("application/pdf")
+    r = client.get(
+        f"/api/v4/sessions/{sid}/export",
         params={"format": "premium-package", "allow_draft": "true"},
     )
     assert r.status_code == 200
@@ -458,6 +514,7 @@ def test_v4_full_cycle(monkeypatch, tmp_path):
         names = set(zf.namelist())
         assert {
             "00_manifest.json",
+            "01_premium_report.pdf",
             "01_premium_report.docx",
             "02_premium_deck.pptx",
             "03_premium_readiness.json",
@@ -474,7 +531,9 @@ def test_v4_full_cycle(monkeypatch, tmp_path):
             "14_next_research_brief.md",
         } <= names
         artifact_qa = json.loads(zf.read("07_artifact_qa.json").decode("utf-8"))
-        assert artifact_qa["summary"]["artifacts"] == 2
+        assert artifact_qa["summary"]["artifacts"] == 3
+        pdf_qa = next(item for item in artifact_qa["results"] if item["kind"] == "pdf")
+        assert pdf_qa["metrics"]["pages"] >= 20
         docx_qa = next(item for item in artifact_qa["results"] if item["kind"] == "docx")
         assert docx_qa["metrics"]["estimated_pages"] >= 1
         if artifact_qa.get("render_index"):
@@ -485,6 +544,7 @@ def test_v4_full_cycle(monkeypatch, tmp_path):
         assert manifest["artifact_qa_status"] in {"passed", "blocked", "failed"}
         assert manifest["docx_pages"] is None or manifest["docx_pages"] >= 1
         assert manifest["docx_pages_source"] in {None, "rendered_pages", "estimated_pages"}
+        assert manifest["pdf_pages"] is None or manifest["pdf_pages"] >= 20
         assert manifest["deck_slides"] is None or manifest["deck_slides"] >= 10
         assert isinstance(manifest["open_analytic_leads"], int)
         assert isinstance(manifest["unsupported_conclusions"], int)

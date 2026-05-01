@@ -16,7 +16,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from ...models import FinalReport
+from ...models import FinalReport, Source
 
 
 class _EnterpriseBase(BaseModel):
@@ -311,6 +311,48 @@ def structured_source_from_final_report(report: FinalReport) -> StructuredReport
     return create_report_version(source, actor_role="analyst", summary="Initial structured source")
 
 
+def final_report_from_structured_source(
+    base_report: FinalReport,
+    source: StructuredReportSource,
+) -> FinalReport:
+    """Project the editable source back into the legacy renderer contract.
+
+    This keeps current DOCX/PDF/PPTX renderers useful while making the
+    structured source authoritative for client-visible edits.
+    """
+
+    report = base_report.model_copy(deep=True)
+    report.question = source.metadata.title or report.question
+    report.metadata = {
+        **dict(report.metadata or {}),
+        "title": source.metadata.title,
+        "subtitle": source.metadata.subtitle,
+        "structured_source_hash": hash_structured_source(source),
+        "structured_report_id": source.metadata.report_id,
+    }
+
+    executive = _section_by_id(source, "executive_summary")
+    if executive:
+        narrative = _first_block_text(executive, kind="narrative")
+        bullets = _first_block_bullets(executive, kind="bullets")
+        if narrative:
+            report.executive_summary.main_answer = narrative
+        if bullets:
+            report.executive_summary.top_findings = bullets
+
+    report.main_synthesis = _section_text(source, exclude_ids={"executive_summary"})
+    consensus = _section_by_id(source, "consensus_and_tensions")
+    if consensus:
+        report.consensus_section = _block_text_by_title(consensus, "соглас")
+        report.conflicts_section = _block_text_by_title(consensus, "расхожд")
+        report.gaps_filled_section = _block_text_by_title(consensus, "провер")
+
+    report.all_sources = [
+        source_ref_to_final_source(source_ref) for source_ref in source.sources
+    ]
+    return report
+
+
 def apply_report_edits(
     source: StructuredReportSource,
     edits: list[ReportEditRequest],
@@ -448,6 +490,15 @@ def hash_structured_source(source: StructuredReportSource, *, include_versions: 
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
+def source_ref_to_final_source(source_ref: StructuredReportSourceRef) -> Source:
+    return Source(
+        title=source_ref.title,
+        url=source_ref.url,
+        tool=source_ref.connector,
+        reliability=source_ref.reliability if source_ref.reliability else "medium",
+    )
+
+
 def _apply_single_edit(source: StructuredReportSource, edit: ReportEditRequest) -> None:
     path = edit.target_path.split(".")
     if edit.target_path in {"title", "metadata.title"}:
@@ -504,6 +555,60 @@ def _find_block(section: StructuredReportSection, block_id: str) -> StructuredRe
         if block.id == block_id:
             return block
     raise ValueError(f"unknown block id: {block_id}")
+
+
+def _section_by_id(
+    source: StructuredReportSource,
+    section_id: str,
+) -> StructuredReportSection | None:
+    for section in source.sections:
+        if section.id == section_id:
+            return section
+    return None
+
+
+def _first_block_text(section: StructuredReportSection, *, kind: ReportBlockKind) -> str:
+    for block in section.blocks:
+        if block.kind == kind and block.content:
+            return block.content
+    return ""
+
+
+def _first_block_bullets(section: StructuredReportSection, *, kind: ReportBlockKind) -> list[str]:
+    for block in section.blocks:
+        if block.kind == kind and block.bullets:
+            return list(block.bullets)
+    return []
+
+
+def _block_text_by_title(section: StructuredReportSection, title_fragment: str) -> str:
+    needle = title_fragment.lower()
+    for block in section.blocks:
+        if needle in block.title.lower() and block.content:
+            return block.content
+    return ""
+
+
+def _section_text(
+    source: StructuredReportSource,
+    *,
+    exclude_ids: set[str],
+) -> str:
+    chunks: list[str] = []
+    for section in source.sections:
+        if section.id in exclude_ids:
+            continue
+        if section.summary:
+            chunks.append(f"## {section.title}\n\n{section.summary}")
+        for block in section.blocks:
+            body = block.content
+            if block.bullets:
+                bullet_text = "\n".join(f"- {item}" for item in block.bullets)
+                body = f"{body}\n{bullet_text}".strip()
+            if body:
+                heading = block.title or section.title
+                chunks.append(f"### {heading}\n\n{body}")
+    return "\n\n".join(chunks).strip()
 
 
 def _append_or_replace(old: str, new: str, operation: ReportEditOperation) -> str:

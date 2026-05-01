@@ -137,6 +137,75 @@ export type FinalReport = {
   metadata: Record<string, unknown>;
 };
 
+export type ReportActorRole = "analyst" | "editor" | "client_reviewer" | "quality_reviewer";
+export type ReportArtifactFormat = "docx" | "pdf" | "pptx" | "gamma_pptx" | "html" | "data_pack";
+
+export type StructuredReportBlock = {
+  id: string;
+  kind: "narrative" | "bullets" | "callout" | "chart" | "table" | "kpi_strip" | "source_note";
+  title: string;
+  content: string;
+  bullets: string[];
+  source_ids: string[];
+};
+
+export type StructuredReportSection = {
+  id: string;
+  title: string;
+  summary: string;
+  blocks: StructuredReportBlock[];
+};
+
+export type StructuredReportSource = {
+  metadata: {
+    report_id: string;
+    title: string;
+    subtitle: string;
+    client_name: string;
+    language: string;
+    created_at: string;
+    updated_at: string;
+  };
+  sections: StructuredReportSection[];
+  sources: unknown[];
+  research_coverage: {
+    declared_domain: string;
+    connectors_used: string[];
+    scientific_or_primary_connectors: string[];
+    known_coverage_gaps: string[];
+  };
+  versions: { version_id: string; actor_role: ReportActorRole; summary: string; source_hash: string; created_at: string }[];
+};
+
+export type ReportEditRequest = {
+  actor_role: ReportActorRole;
+  operation?: "replace" | "append";
+  target_path: string;
+  value: unknown;
+  reason?: string;
+};
+
+export type ReportQualityGate = {
+  passed: boolean;
+  score: number;
+  issues: { code: string; severity: "critical" | "major" | "minor"; message: string; recommendation: string }[];
+  checked_at: string;
+};
+
+export type ReportRegenerationPlan = {
+  source_hash: string;
+  requested_formats: ReportArtifactFormat[];
+  default_word_artifact: "docx";
+  quality_gate: ReportQualityGate;
+  can_regenerate: boolean;
+};
+
+export type StructuredReportSourceOut = {
+  source: StructuredReportSource;
+  quality_gate: ReportQualityGate;
+  regeneration_plan: ReportRegenerationPlan;
+};
+
 export type PendingDRJob = {
   task_id: string;
   service: string;            // "valyu" | "tavily" | "exa" | "openai" | "perplexity"
@@ -664,6 +733,155 @@ export async function getFinalReport(id: string): Promise<FinalReportOut> {
     };
   }
   return jv4<FinalReportOut>(`/api/v4/sessions/${encodeURIComponent(id)}/final-report`);
+}
+
+export async function getStructuredReportSource(id: string): Promise<StructuredReportSourceOut> {
+  if (STUB) {
+    const session = await getSession(id);
+    const final = session.final_report ?? stubFinalReport(id, session.raw_question || "Stub report");
+    const source = stubStructuredSource(final);
+    return structuredSourceEnvelope(source);
+  }
+  return jv4<StructuredReportSourceOut>(
+    `/api/v4/sessions/${encodeURIComponent(id)}/structured-source`
+  );
+}
+
+export async function patchStructuredReportSource(
+  id: string,
+  edits: ReportEditRequest[],
+): Promise<StructuredReportSourceOut> {
+  if (STUB) {
+    const current = await getStructuredReportSource(id);
+    const source = structuredClone(current.source);
+    for (const edit of edits) {
+      if (edit.target_path === "metadata.title") {
+        source.metadata.title = String(edit.value ?? "");
+      }
+      const match = edit.target_path.match(/^sections\.([^.]+)\.blocks\.([^.]+)\.content$/);
+      if (match) {
+        const section = source.sections.find((item) => item.id === match[1]);
+        const block = section?.blocks.find((item) => item.id === match[2]);
+        if (block) block.content = String(edit.value ?? "");
+      }
+    }
+    source.versions = [
+      ...source.versions,
+      {
+        version_id: `v_${Date.now().toString(36)}`,
+        actor_role: edits.at(-1)?.actor_role ?? "editor",
+        summary: "Stub structured edit",
+        source_hash: `${Date.now()}`,
+        created_at: new Date().toISOString(),
+      },
+    ];
+    return structuredSourceEnvelope(source);
+  }
+  return jv4<StructuredReportSourceOut>(
+    `/api/v4/sessions/${encodeURIComponent(id)}/structured-source`,
+    { method: "PATCH", body: JSON.stringify({ edits }) },
+  );
+}
+
+export async function regenerateStructuredReportPackage(
+  id: string,
+  opts: { requested_formats?: ReportArtifactFormat[]; allow_draft?: boolean } = {},
+): Promise<Blob> {
+  if (STUB) {
+    return new Blob([`stub package for ${id}`], { type: "application/zip" });
+  }
+  const res = await fetch(`${V4_BASE}/api/v4/sessions/${encodeURIComponent(id)}/regenerate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      requested_formats: opts.requested_formats ?? ["docx", "pdf", "pptx"],
+      allow_draft: opts.allow_draft ?? true,
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`${res.status} ${res.statusText}: ${await res.text().catch(() => "")}`);
+  }
+  return res.blob();
+}
+
+function stubStructuredSource(final: FinalReport): StructuredReportSource {
+  return {
+    metadata: {
+      report_id: `report_${final.session_id}`,
+      title: final.question,
+      subtitle: final.executive_summary.main_answer,
+      client_name: "",
+      language: "ru",
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
+    sections: [
+      {
+        id: "executive_summary",
+        title: "Executive summary",
+        summary: final.executive_summary.main_answer,
+        blocks: [
+          {
+            id: "block_main_answer",
+            kind: "narrative",
+            title: "Main answer",
+            content: final.executive_summary.main_answer,
+            bullets: [],
+            source_ids: [],
+          },
+        ],
+      },
+    ],
+    sources: [],
+    research_coverage: {
+      declared_domain: "stub",
+      connectors_used: ["manual_source"],
+      scientific_or_primary_connectors: [],
+      known_coverage_gaps: [],
+    },
+    versions: [
+      {
+        version_id: "v_initial",
+        actor_role: "analyst",
+        summary: "Initial stub source",
+        source_hash: "stub",
+        created_at: new Date().toISOString(),
+      },
+    ],
+  };
+}
+
+function structuredSourceEnvelope(source: StructuredReportSource): StructuredReportSourceOut {
+  const hasVisual = source.sections.some((section) =>
+    section.blocks.some((block) => ["chart", "table", "kpi_strip"].includes(block.kind)),
+  );
+  const issues = hasVisual
+    ? []
+    : [
+        {
+          code: "thin_visual_support",
+          severity: "major" as const,
+          message: "Report needs multiple charts, tables, or KPI blocks to support the text.",
+          recommendation: "",
+        },
+      ];
+  const gate: ReportQualityGate = {
+    passed: issues.length === 0,
+    score: issues.length === 0 ? 100 : 88,
+    issues,
+    checked_at: new Date().toISOString(),
+  };
+  return {
+    source,
+    quality_gate: gate,
+    regeneration_plan: {
+      source_hash: source.versions.at(-1)?.source_hash ?? "stub",
+      requested_formats: ["docx", "pdf", "pptx"],
+      default_word_artifact: "docx",
+      quality_gate: gate,
+      can_regenerate: gate.passed,
+    },
+  };
 }
 
 export async function getAnalyticDepthPlan(id: string): Promise<AnalyticDepthPlan> {
