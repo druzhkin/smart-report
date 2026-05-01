@@ -1032,7 +1032,8 @@ def _draw_bar_line_chart(
     *,
     russian: bool,
 ) -> None:
-    values = [value for _label, value in series[:7]]
+    plotted = series[:7]
+    values = [value for _label, value in plotted]
     max_value = max([abs(value) for value in values] or [1])
     base = y + 34
     chart_h = h - 72
@@ -1044,12 +1045,18 @@ def _draw_bar_line_chart(
     for idx in range(4):
         yy = base + idx * chart_h / 3
         c.line(x + 24, yy, x + w - 20, yy)
-    for idx, value in enumerate(values):
+    for idx, (label, value) in enumerate(plotted):
         bx = x + 28 + idx * (bar_w + gap)
         bh = chart_h * min(abs(value) / max_value, 1)
         c.setFillColor(GREEN if value >= 0 else colors.HexColor("#B75E55"))
         c.rect(bx, base, bar_w, max(3, bh), fill=1, stroke=0)
-        points.append((bx + bar_w / 2, base + max(3, bh)))
+        top_y = base + max(3, bh)
+        points.append((bx + bar_w / 2, top_y))
+        c.setFillColor(INK)
+        c.setFont(FONT_BOLD, 7)
+        c.drawCentredString(bx + bar_w / 2, top_y + 8, _format_chart_value(value))
+        c.setFillColor(MUTED)
+        _draw_wrapped(c, label, bx, base - 12, bar_w, 7.2, FONT_REGULAR, 6.4, max_lines=2)
     c.setStrokeColor(DARK_GREEN)
     c.setLineWidth(2)
     for a, b in zip(points, points[1:], strict=False):
@@ -1064,6 +1071,12 @@ def _draw_bar_line_chart(
         y + h - 22,
         "Индексированный числовой сигнал" if russian else "Indexed numeric signal",
     )
+
+
+def _format_chart_value(value: float) -> str:
+    if abs(value - round(value)) < 0.01:
+        return str(int(round(value)))
+    return f"{value:.1f}".rstrip("0").rstrip(".")
 
 
 def _draw_matrix_mosaic(

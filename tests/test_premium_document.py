@@ -52,6 +52,10 @@ def test_render_premium_pdf_opens_and_meets_publication_shape(tmp_path):
     assert "Publication-grade PDF" in first_page_text
     publication_text = "\n".join(page.extract_text() or "" for page in reader.pages[:8])
     assert "EXHIBIT" in publication_text
+    assert "Demand" in publication_text
+    assert "Supply" in publication_text
+    assert "Rates" in publication_text
+    assert "10" in publication_text
     assert "Индексированный числовой сигнал" in publication_text
     assert "Надежность источников" in publication_text
     assert "Interpretation" not in publication_text
