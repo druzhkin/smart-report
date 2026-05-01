@@ -5,6 +5,7 @@ from smart_report.analytic_closure import AnalyticClosureReport
 from smart_report.analytic_depth import build_analytic_depth_plan
 from smart_report.exporters.premium import (
     PremiumEvidenceRequirement,
+    PremiumPublicationSpec,
     assess_premium_readiness,
     build_premium_report_plan,
 )
@@ -158,6 +159,7 @@ def test_premium_readiness_passes_for_deep_evidence_package():
     assert readiness.issues == []
     assert any("Evidence base" in strength for strength in readiness.strengths)
     assert any("Visual/table plan" in strength for strength in readiness.strengths)
+    assert any("Publication-grade layout" in strength for strength in readiness.strengths)
 
 
 def test_premium_readiness_blocks_missing_analysis_and_thin_sources():
@@ -299,3 +301,34 @@ def test_premium_readiness_blocks_low_closure_score():
     assert readiness.ready is False
     assert "premium_low_analytic_closure_score" in codes
     assert "premium_open_analytic_leads" in codes
+
+
+def test_premium_readiness_blocks_word_like_publication_plan():
+    report = _report()
+    analysis = _analysis()
+    plan = _small_evidence_plan(report, analysis)
+    plan = plan.model_copy(
+        update={
+            "publication": PremiumPublicationSpec(
+                require_full_bleed_cover=False,
+                require_image_led_section_openers=False,
+                require_editorial_grid=False,
+                min_exhibit_pages=1,
+                min_data_dense_exhibits=1,
+            )
+        }
+    )
+
+    readiness = assess_premium_readiness(
+        report,
+        analysis=analysis,
+        plan=plan,
+        depth_plan=build_analytic_depth_plan(report.question, analysis=analysis, report=report),
+        closure_report=_closed_closure(),
+    )
+
+    codes = {issue.code for issue in readiness.issues}
+    assert readiness.ready is False
+    assert "premium_missing_publication_layout" in codes
+    assert "premium_too_few_exhibit_pages" in codes
+    assert "premium_too_few_data_dense_exhibits" in codes

@@ -9,10 +9,14 @@ needing topic-specific logic.
 
 from __future__ import annotations
 
+import re
+
 from ...models import AnalysisOutput, FinalReport, NumericFact
 from .models import (
     PremiumBlockKind,
     PremiumDeckSlideSpec,
+    PremiumPage,
+    PremiumPageVisual,
     PremiumPreparedBlock,
     PremiumPreparedSection,
     PremiumReportDocument,
@@ -45,11 +49,13 @@ def assemble_premium_report_document(
     appendices = _appendix_sections(report, analysis=analysis)
     deck_slides = _deck_slides(plan)
     numeric_facts = _numeric_facts(analysis)
+    pages = _storyboard_pages(report, analysis=analysis, sections=sections, appendices=appendices)
 
     return PremiumReportDocument(
         title=_title_for(report),
         subtitle=_subtitle_for(plan),
         plan=plan,
+        pages=pages,
         sections=sections,
         appendices=appendices,
         deck_slides=deck_slides,
@@ -57,6 +63,429 @@ def assemble_premium_report_document(
         numeric_fact_count=len(numeric_facts),
         premium_readiness=premium_readiness,
     )
+
+
+def _storyboard_pages(
+    report: FinalReport,
+    *,
+    analysis: AnalysisOutput | None,
+    sections: list[PremiumPreparedSection],
+    appendices: list[PremiumPreparedSection],
+) -> list[PremiumPage]:
+    """Build authored pages before any renderer lays them out.
+
+    The block model is still useful as raw material, but consulting-style PDFs
+    need a page thesis and a dominant visual per page.
+    """
+
+    pages: list[PremiumPage] = [
+        PremiumPage(
+            page_type="thesis",
+            thesis=_executive_thesis(report),
+            narrative=_compact_text(report.executive_summary.main_answer, 520),
+            visual=_hero_kpi_visual(report, analysis),
+            implication=_compact_text(report.executive_summary.confidence_note, 260),
+            source_notes=_top_source_notes(report, analysis),
+        )
+    ]
+    pages.extend(_narrative_pages(report))
+    pages.extend(_chart_pages(report))
+    pages.extend(_decision_pages(report, sections))
+    pages.extend(_fact_driven_visual_pages(report, analysis))
+    pages.extend(_appendix_pages(appendices))
+    return _dedupe_pages(pages)
+
+
+def _narrative_pages(report: FinalReport) -> list[PremiumPage]:
+    pages: list[PremiumPage] = []
+    for title, body in _main_synthesis_chapters(report.main_synthesis):
+        pages.append(
+            PremiumPage(
+                page_type="thesis",
+                thesis=title,
+                narrative=_chapter_lead(body),
+                visual=PremiumPageVisual(
+                    visual_type="narrative_text",
+                    title=title,
+                    data={"body": body},
+                ),
+                implication=_chapter_implication(body),
+                source_notes=[],
+            )
+        )
+    for title, body in [
+        ("Консенсус источников", report.consensus_section),
+        ("Противоречия и как они разрешены", report.conflicts_section),
+        ("Что закрыл добор и что осталось неизвестным", report.gaps_filled_section),
+    ]:
+        if body:
+            pages.append(
+                PremiumPage(
+                    page_type="thesis",
+                    thesis=title,
+                    narrative=_chapter_lead(body),
+                    visual=PremiumPageVisual(
+                        visual_type="narrative_text",
+                        title=title,
+                        data={"body": body},
+                    ),
+                    implication=_chapter_implication(body),
+                )
+            )
+    return pages[:7]
+
+
+def _chapter_lead(body: str) -> str:
+    text = " ".join(str(body or "").split())
+    if not text:
+        return ""
+    sentences = re.split(r"(?<=[.!?])\s+", text)
+    return _compact_text(" ".join(sentences[:2]), 360)
+
+
+def _main_synthesis_chapters(markdown: str) -> list[tuple[str, str]]:
+    text = str(markdown or "").strip()
+    if not text:
+        return []
+    parts = re.split(r"\n(?=##\s+)", text)
+    chapters: list[tuple[str, str]] = []
+    for part in parts:
+        clean = part.strip()
+        if not clean:
+            continue
+        lines = clean.splitlines()
+        first = lines[0].strip()
+        if first.startswith("## "):
+            title = first[3:].strip()
+            body = "\n".join(lines[1:]).strip()
+        else:
+            title = "Позиция автора"
+            body = clean
+        if body:
+            chapters.append((_compact_text(title, 120), body))
+    return chapters[:4]
+
+
+def _chapter_implication(body: str) -> str:
+    text = " ".join(str(body or "").split())
+    if not text:
+        return ""
+    sentences = re.split(r"(?<=[.!?])\s+", text)
+    for sentence in sentences:
+        if any(marker in sentence.lower() for marker in ["значит", "вывод", "для инвестора", "для покупателя", "это"]):
+            return _compact_text(sentence, 320)
+    return _compact_text(sentences[0], 320)
+
+
+def _executive_thesis(report: FinalReport) -> str:
+    answer = " ".join((report.executive_summary.main_answer or "").split())
+    if not answer:
+        return "Executive conclusion"
+    sentence = re.split(r"(?<=[.!?])\s+", answer, maxsplit=1)[0]
+    return _compact_text(sentence, 120)
+
+
+def _hero_kpi_visual(report: FinalReport, analysis: AnalysisOutput | None) -> PremiumPageVisual:
+    items = []
+    for number in report.key_numbers_highlight[:6]:
+        items.append(
+            {
+                "value": number.value,
+                "label": number.label,
+                "source": number.source_ref,
+                "importance": number.importance,
+            }
+        )
+    if len(items) < 6:
+        for number in report.executive_summary.key_numbers[: 6 - len(items)]:
+            items.append(
+                {
+                    "value": number.value,
+                    "label": number.metric,
+                    "source": number.source_url,
+                    "importance": "primary",
+                }
+            )
+    if len(items) < 6 and analysis is not None:
+        for fact in _numeric_facts(analysis)[: 6 - len(items)]:
+            items.append(
+                {
+                    "value": fact.value,
+                    "label": f"{fact.metric}: {fact.subject}",
+                    "source": _first_fact_source(fact),
+                    "importance": "primary",
+                }
+            )
+    return PremiumPageVisual(
+        visual_type="hero_kpi_strip",
+        title="Executive KPI strip",
+        data={"items": items},
+        source_notes=[item["source"] for item in items if item.get("source")],
+    )
+
+
+def _chart_pages(report: FinalReport) -> list[PremiumPage]:
+    pages: list[PremiumPage] = []
+    for chart in report.charts[:6]:
+        visual_type = {
+            "bar": "ranking_bar",
+            "line": "time_series",
+            "pie": "distribution",
+            "scatter": "distribution",
+            "stacked_bar": "distribution",
+            "waterfall": "waterfall",
+        }.get(chart.chart_type, "distribution")
+        pages.append(
+            PremiumPage(
+                page_type="exhibit",
+                thesis=chart.title,
+                narrative=chart.caption or "Structured chart generated from the report evidence base.",
+                visual=PremiumPageVisual(
+                    visual_type=visual_type,  # type: ignore[arg-type]
+                    title=chart.title,
+                    data={
+                        "chart_type": chart.chart_type,
+                        "title": chart.title,
+                        "data": chart.data,
+                        "x_label": chart.x_label,
+                        "y_label": chart.y_label,
+                    },
+                    source_notes=[chart.caption] if chart.caption else [],
+                ),
+                implication=chart.caption or "Use this exhibit to compare direction, scale, or relative position.",
+                source_notes=[chart.caption] if chart.caption else [],
+            )
+        )
+    return pages
+
+
+def _fact_driven_visual_pages(
+    report: FinalReport,
+    analysis: AnalysisOutput | None,
+) -> list[PremiumPage]:
+    facts = _numeric_facts(analysis)
+    pages: list[PremiumPage] = []
+    series = _numeric_series_from_facts(facts)
+    if len(series) >= 2:
+        pages.append(
+            PremiumPage(
+                page_type="exhibit",
+                thesis="Числовые факты показывают, где рыночный сигнал сильнее всего",
+                narrative="Связанные числовые факты сгруппированы в сопоставимый рейтинг, а не оставлены сырой таблицей доказательств.",
+                visual=PremiumPageVisual(
+                    visual_type="ranking_bar",
+                    title="Comparable numeric signal",
+                    data={"points": series[:10]},
+                    source_notes=_sources_from_facts(facts[:10]),
+                ),
+                implication="Самые крупные значения должны вести управленческое обсуждение; остальные уходят в приложение, если не меняют решение.",
+                source_notes=_sources_from_facts(facts[:10]),
+            )
+        )
+    if analysis is not None and analysis.conflicts:
+        rows = [
+            {
+                "topic": conflict.topic,
+                "importance": conflict.importance,
+                "source_a": conflict.source_a,
+                "source_b": conflict.source_b,
+                "resolution": conflict.resolution_hint,
+            }
+            for conflict in analysis.conflicts[:6]
+        ]
+        pages.append(
+            PremiumPage(
+                page_type="exhibit",
+                thesis="Решение зависит от нескольких нерешенных противоречий",
+                narrative="Существенные расхождения вынесены в risk-style exhibit, чтобы они не потерялись в прозе.",
+                visual=PremiumPageVisual(
+                    visual_type="risk_heatmap",
+                    title="Conflict and uncertainty heatmap",
+                    data={"rows": rows},
+                ),
+                implication="Клиентская рекомендация должна прямо назвать, какие конфликты важны и какие данные изменят вывод.",
+            )
+        )
+    if report.all_sources:
+        pages.append(
+            PremiumPage(
+                page_type="exhibit",
+                thesis="Качество источников определяет, насколько уверенно можно использовать вывод",
+                narrative="Надежность источников отделена от содержательного вывода, чтобы не смешивать факт и интерпретацию.",
+                visual=PremiumPageVisual(
+                    visual_type="evidence_quality",
+                    title="Source reliability mix",
+                    data={
+                        "points": [
+                            {"label": key, "value": value}
+                            for key, value in _source_reliability_counts(report).items()
+                        ]
+                    },
+                    source_notes=[source.url or source.title for source in report.all_sources[:8]],
+                ),
+                implication="Если доминируют источники низкой надежности, отчет должен оставаться decision memo, а не финальным основанием для инвестиции.",
+                source_notes=[source.url or source.title for source in report.all_sources[:8]],
+            )
+        )
+    return pages
+
+
+def _decision_pages(
+    report: FinalReport,
+    sections: list[PremiumPreparedSection],
+) -> list[PremiumPage]:
+    pages: list[PremiumPage] = []
+    scenario = _scenario_table_from_report(report) or _find_first_block(sections, "scenario_matrix")
+    if scenario is not None:
+        pages.append(
+            PremiumPage(
+                page_type="exhibit",
+                thesis="Сценарии 2026-2027: что должно измениться, чтобы вывод стал другим",
+                narrative="Сценарная страница переводит прогноз из текста в набор условий, триггеров и последствий для решения.",
+                visual=PremiumPageVisual(
+                    visual_type="scenario_matrix",
+                    title=scenario.title,
+                    data={"columns": scenario.columns, "rows": scenario.rows},
+                ),
+                implication="Руководителю нужен не один прогноз, а условия перехода между базовым, позитивным и негативным сценариями.",
+            )
+        )
+    decision = _find_first_block(sections, "decision_matrix")
+    if decision is not None:
+        pages.append(
+            PremiumPage(
+                page_type="exhibit",
+                thesis="Решение: действовать, ждать или пересобрать позицию",
+                narrative="Итоговая управленческая страница отделяет рекомендацию от доказательной базы и показывает, когда позицию надо менять.",
+                visual=PremiumPageVisual(
+                    visual_type="scenario_matrix",
+                    title=decision.title,
+                    data={"columns": decision.columns, "rows": decision.rows},
+                ),
+                implication=_compact_text(report.executive_summary.what_meta_adds, 320)
+                or "Финальный отчет должен завершаться решением, а не реестром фактов.",
+            )
+        )
+    return pages
+
+
+def _scenario_table_from_report(report: FinalReport) -> PremiumPreparedBlock | None:
+    for table in report.tables:
+        title = table.title.lower()
+        if "сценар" not in title:
+            continue
+        return PremiumPreparedBlock(
+            kind="scenario_matrix",
+            title=table.title,
+            columns=table.columns,
+            rows=table.rows,
+            notes=[table.caption] if table.caption else [],
+        )
+    return None
+
+
+def _find_first_block(
+    sections: list[PremiumPreparedSection],
+    kind: PremiumBlockKind,
+) -> PremiumPreparedBlock | None:
+    for section in sections:
+        for block in section.blocks:
+            if block.kind == kind:
+                return block
+    return None
+
+
+def _appendix_pages(appendices: list[PremiumPreparedSection]) -> list[PremiumPage]:
+    pages: list[PremiumPage] = []
+    for appendix in appendices:
+        block = appendix.blocks[0] if appendix.blocks else None
+        pages.append(
+            PremiumPage(
+                page_type="appendix",
+                thesis=appendix.title,
+                narrative=appendix.purpose,
+                visual=PremiumPageVisual(
+                    visual_type="source_table",
+                    title=block.title if block else appendix.title,
+                    data={
+                        "columns": block.columns if block else [],
+                        "rows": block.rows[:30] if block else [],
+                    },
+                    source_notes=[],
+                ),
+                implication="Appendix material supports verification and should not replace the report storyline.",
+            )
+        )
+    return pages
+
+
+def _numeric_series_from_facts(facts: list[NumericFact]) -> list[dict[str, object]]:
+    points: list[dict[str, object]] = []
+    seen: set[str] = set()
+    for fact in facts:
+        value = _number_from_text(fact.value)
+        if value is None:
+            continue
+        label = _compact_text(f"{fact.metric}: {fact.subject}", 64)
+        key = f"{label}:{value}"
+        if key in seen:
+            continue
+        seen.add(key)
+        points.append({"label": label, "value": value, "source": _first_fact_source(fact)})
+    return points
+
+
+def _sources_from_facts(facts: list[NumericFact]) -> list[str]:
+    notes: list[str] = []
+    for fact in facts:
+        source = _first_fact_source(fact)
+        if source and source not in notes:
+            notes.append(source)
+    return notes
+
+
+def _source_reliability_counts(report: FinalReport) -> dict[str, int]:
+    counts = {"high": 0, "medium": 0, "low": 0}
+    for source in report.all_sources:
+        counts[source.reliability] = counts.get(source.reliability, 0) + 1
+    return counts
+
+
+def _top_source_notes(report: FinalReport, analysis: AnalysisOutput | None) -> list[str]:
+    notes = [number.source_ref for number in report.key_numbers_highlight[:4] if number.source_ref]
+    if not notes and analysis is not None:
+        notes = _sources_from_facts(_numeric_facts(analysis)[:4])
+    if not notes:
+        notes = [source.url or source.title for source in report.all_sources[:4]]
+    return notes
+
+
+def _fallback_body_for_section(section: PremiumPreparedSection, report: FinalReport) -> str:
+    for block in section.blocks:
+        if block.body:
+            return block.body
+    return report.main_synthesis
+
+
+def _first_block_signal(section: PremiumPreparedSection) -> str:
+    for block in section.blocks:
+        if block.body:
+            return _compact_text(block.body, 260)
+        if block.rows:
+            return f"{block.title}: {len(block.rows)} rows of supporting evidence."
+    return "Use the following exhibits and appendix detail to validate this section."
+
+
+def _dedupe_pages(pages: list[PremiumPage]) -> list[PremiumPage]:
+    deduped: list[PremiumPage] = []
+    seen: set[str] = set()
+    for page in pages:
+        key = f"{page.page_type}:{page.thesis}:{page.visual.visual_type if page.visual else 'none'}"
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(page)
+    return deduped
 
 
 def _section_from_spec(
@@ -471,3 +900,15 @@ def _first_fact_source(fact: NumericFact) -> str:
         return ""
     ref = fact.sources[0]
     return ref.url or ref.title or ""
+
+
+def _number_from_text(value: object) -> float | None:
+    text = str(value or "").replace("\xa0", " ")
+    match = re.search(r"-?\d+(?:[ ,.]\d+)?", text)
+    if not match:
+        return None
+    normalized = match.group(0).replace(" ", "").replace(",", ".")
+    try:
+        return float(normalized)
+    except ValueError:
+        return None

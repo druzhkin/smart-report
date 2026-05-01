@@ -38,6 +38,10 @@ def test_market_question_gets_market_plan():
     assert plan.report_type == "market"
     assert plan.deliverables.report_min_pages >= 20
     assert plan.deliverables.deck_min_slides >= 10
+    assert plan.publication.require_full_bleed_cover is True
+    assert plan.publication.require_exhibit_pages is True
+    assert plan.publication.min_exhibit_pages >= 4
+    assert plan.publication.min_data_dense_exhibits >= 3
     assert len(plan.sections) >= 8
     assert any(section.id == "market_baseline" for section in plan.sections)
     assert any(visual.kind == "scenario_matrix" for visual in plan.required_visuals)

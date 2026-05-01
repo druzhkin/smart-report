@@ -1,4 +1,4 @@
-"""QA checks for premium Smart Report DOCX and PPTX artifacts.
+"""QA checks for premium Smart Report DOCX, PDF, and PPTX artifacts.
 
 The checker is intentionally additive: it does not change exported files. It
 performs structural inspection everywhere and performs visual rendering only
@@ -61,6 +61,7 @@ class ArtifactQaResult:
 def run_qa(
     *,
     docx_path: Path | None = None,
+    pdf_path: Path | None = None,
     pptx_path: Path | None = None,
     out_dir: Path,
     render: bool = True,
@@ -69,6 +70,8 @@ def run_qa(
     results: list[ArtifactQaResult] = []
     if docx_path:
         results.append(_inspect_docx(docx_path))
+    if pdf_path:
+        results.append(_inspect_pdf(pdf_path))
     if pptx_path:
         results.append(_inspect_pptx(pptx_path))
 
@@ -196,6 +199,47 @@ def _estimate_docx_pages(text: str, table_count: int) -> int:
     return max(1, round(text_pages + table_pages))
 
 
+def _inspect_pdf(path: Path) -> ArtifactQaResult:
+    result = ArtifactQaResult(path=str(path), kind="pdf", exists=path.exists())
+    if not result.exists:
+        result.structural_status = "failed"
+        result.issues.append("PDF file does not exist.")
+        return result
+
+    try:
+        from pypdf import PdfReader
+
+        reader = PdfReader(str(path))
+        page_count = len(reader.pages)
+        sample_text = "\n".join(
+            (page.extract_text() or "") for page in reader.pages[: min(page_count, 6)]
+        )
+        result.metrics = {
+            "pages": page_count,
+            "text_chars_sample": len(sample_text),
+            "has_cover_brand": "SMART REPORT" in sample_text,
+            "has_publication_marker": "Publication-grade PDF" in sample_text,
+            "has_exhibit_pages": "EXHIBIT" in sample_text,
+            "has_source_notes": "Source:" in sample_text,
+        }
+        _add_common_content_issues(result, sample_text)
+        _require_metric(result, "pages", 20, "PDF has too few pages for a publication-grade report.")
+        _require_metric(result, "text_chars_sample", 500, "PDF text extraction sample is too thin.")
+        for key, message in {
+            "has_cover_brand": "PDF cover brand marker is missing.",
+            "has_publication_marker": "PDF publication marker is missing.",
+            "has_exhibit_pages": "PDF exhibit pages are missing.",
+            "has_source_notes": "PDF exhibit source notes are missing.",
+        }.items():
+            if not result.metrics.get(key):
+                result.issues.append(message)
+        result.structural_status = "passed" if not result.issues else "failed"
+    except Exception as exc:  # pragma: no cover - defensive CLI path
+        result.structural_status = "failed"
+        result.issues.append(f"PDF inspection failed: {exc}")
+    return result
+
+
 def _find_tool(name: str, candidates: list[Path]) -> str | None:
     found = shutil.which(name)
     if found:
@@ -272,7 +316,7 @@ def _render_artifact(
         result.render_status = "failed"
         return
     missing = []
-    if not soffice:
+    if result.kind != "pdf" and not soffice:
         missing.append("soffice")
     if not pdftoppm:
         missing.append("pdftoppm")
@@ -287,8 +331,31 @@ def _render_artifact(
         return
 
     artifact = Path(result.path)
-    artifact_out = out_dir / artifact.stem
+    artifact_out = out_dir / f"{artifact.stem}_{result.kind}"
     artifact_out.mkdir(parents=True, exist_ok=True)
+    if result.kind == "pdf":
+        prefix = artifact_out / artifact.stem
+        try:
+            subprocess.run(
+                [pdftoppm, "-png", str(artifact), str(prefix)],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            rendered = sorted(str(item) for item in artifact_out.glob(f"{artifact.stem}-*.png"))
+            result.rendered_files = [str(artifact), *rendered]
+            result.render_status = "passed" if rendered else "failed"
+            if rendered:
+                result.metrics["rendered_pages"] = len(rendered)
+                result.metrics["rendered_total_bytes"] = _total_file_size(rendered)
+            else:
+                result.issues.append("PDF rendering produced no PNG pages.")
+        except subprocess.SubprocessError as exc:
+            result.render_status = "failed"
+            result.issues.append(f"Visual render command failed: {exc}")
+        return
+
     profile = Path(tempfile.mkdtemp(prefix="smart-report-lo-"))
     try:
         subprocess.run(
@@ -324,6 +391,7 @@ def _render_artifact(
         result.rendered_files = [str(pdf_path), *rendered]
         result.render_status = "passed" if rendered else "failed"
         if rendered:
+            result.metrics["rendered_total_bytes"] = _total_file_size(rendered)
             if result.kind == "docx":
                 result.metrics["rendered_pages"] = len(rendered)
             elif result.kind == "pptx":
@@ -335,6 +403,16 @@ def _render_artifact(
         result.issues.append(f"Visual render command failed: {exc}")
     finally:
         shutil.rmtree(profile, ignore_errors=True)
+
+
+def _total_file_size(paths: list[str]) -> int:
+    total = 0
+    for path in paths:
+        try:
+            total += Path(path).stat().st_size
+        except OSError:
+            continue
+    return total
 
 
 def _write_render_index(results: list[ArtifactQaResult], out_dir: Path) -> Path | None:
@@ -452,7 +530,7 @@ def _write_render_index(results: list[ArtifactQaResult], out_dir: Path) -> Path 
 <body>
   <header>
     <h1>Smart Report Artifact QA</h1>
-    <p>Rendered DOCX pages and PPTX slides for fast human visual review.</p>
+    <p>Rendered DOCX/PDF pages and PPTX slides for fast human visual review.</p>
     <section class="rubric" aria-label="Manual visual review rubric">
       {"".join(f"<div><b>{idx}.</b><span>{html.escape(item)}</span></div>" for idx, item in enumerate(VISUAL_REVIEW_RUBRIC, start=1))}
     </section>
@@ -495,8 +573,9 @@ def _overall_status(results: list[ArtifactQaResult]) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="QA premium Smart Report DOCX/PPTX artifacts.")
+    parser = argparse.ArgumentParser(description="QA premium Smart Report DOCX/PDF/PPTX artifacts.")
     parser.add_argument("--docx", type=Path, help="Path to premium DOCX report.")
+    parser.add_argument("--pdf", type=Path, help="Path to premium publication PDF report.")
     parser.add_argument("--pptx", type=Path, help="Path to premium PPTX deck.")
     parser.add_argument("--out-dir", type=Path, default=Path("tmp/premium_artifact_qa"))
     parser.add_argument("--json", type=Path, help="Optional JSON output path.")
@@ -506,6 +585,7 @@ def main(argv: list[str] | None = None) -> int:
 
     report = run_qa(
         docx_path=args.docx,
+        pdf_path=args.pdf,
         pptx_path=args.pptx,
         out_dir=args.out_dir,
         render=not args.no_render,

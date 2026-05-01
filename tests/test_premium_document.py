@@ -4,21 +4,130 @@ import pytest
 
 from smart_report.exporters import v4_to_report_dict
 from smart_report.exporters.premium import (
+    CarboneRenderError,
     assemble_premium_report_document,
+    render_premium_carbone_pdf,
     render_premium_docx,
+    render_premium_pdf,
     render_premium_pptx,
+    to_carbone_data,
 )
 from smart_report.models import (
     AnalysisOutput,
+    ChartSpec,
     Conflict,
     ConsensusClaim,
     ExecutiveSummaryV4,
     FinalReport,
     Gap,
+    KeyNumberHighlight,
     NumericFact,
     Source,
     SourceRef,
 )
+
+
+def test_render_premium_pdf_opens_and_meets_publication_shape(tmp_path):
+    pytest.importorskip("reportlab")
+    pypdf = pytest.importorskip("pypdf")
+
+    document = assemble_premium_report_document(
+        _report(),
+        analysis=_analysis(),
+        premium_readiness={
+            "ready": True,
+            "score": 91,
+            "issues": [],
+            "strengths": ["Publication-grade layout requirements are present."],
+        },
+    )
+    out = render_premium_pdf(document, tmp_path / "premium_report.pdf")
+
+    assert out.exists()
+    assert out.stat().st_size > 1000
+    reader = pypdf.PdfReader(str(out))
+    assert len(reader.pages) >= document.plan.deliverables.report_min_pages
+    first_page_text = reader.pages[0].extract_text() or ""
+    assert "SMART REPORT" in first_page_text
+    assert "Publication-grade PDF" in first_page_text
+    publication_text = "\n".join(page.extract_text() or "" for page in reader.pages[:8])
+    assert "EXHIBIT" in publication_text
+    assert (
+        "Indexed numeric signal" in publication_text
+        or "Индексированный числовой сигнал" in publication_text
+    )
+    assert "Source reliability mix" in publication_text or "Надежность источников" in publication_text
+    assert "Source:" in publication_text
+
+
+def test_carbone_data_flattens_premium_document_for_template():
+    document = assemble_premium_report_document(_report(), analysis=_analysis())
+
+    data = to_carbone_data(document)
+
+    assert data["title"] == document.title
+    assert data["sourceCount"] == 2
+    assert data["numericFactCount"] == 1
+    assert len(data["sections"]) == len(document.sections)
+    assert len(data["appendices"]) == len(document.appendices)
+    assert len(data["visualPages"]) == len(document.pages)
+    assert any(page["chartFrameClass"] == "" for page in data["visualPages"])
+    assert any(page["kpiClass"] == "" for page in data["visualPages"])
+    assert len(data["exhibits"]) >= document.plan.publication.min_exhibit_pages
+    assert "<table>" in data["sections"][0]["blocksHtml"] or "<p>" in data["sections"][0]["blocksHtml"]
+
+
+def test_carbone_renderer_requires_env_token(tmp_path, monkeypatch):
+    monkeypatch.delenv("CARBONE_API_KEY", raising=False)
+    monkeypatch.delenv("CARBONE_TOKEN", raising=False)
+    document = assemble_premium_report_document(_report(), analysis=_analysis())
+
+    with pytest.raises(CarboneRenderError, match="CARBONE_API_KEY"):
+        render_premium_carbone_pdf(document, tmp_path / "premium.pdf")
+
+
+def test_carbone_renderer_posts_inline_template_and_writes_pdf(tmp_path, monkeypatch):
+    document = assemble_premium_report_document(_report(), analysis=_analysis())
+    calls = []
+
+    class _FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def post(self, url, *, headers, json):
+            calls.append({"url": url, "headers": headers, "json": json})
+            import httpx
+
+            return httpx.Response(
+                200,
+                content=b"%PDF-1.4\n% mock\n",
+                request=httpx.Request("POST", url),
+                headers={"content-type": "application/pdf"},
+            )
+
+    monkeypatch.setattr("smart_report.exporters.premium.carbone.httpx.Client", _FakeClient)
+
+    out = render_premium_carbone_pdf(
+        document,
+        tmp_path / "premium.pdf",
+        api_token="test-token",
+        api_url="https://api.carbone.test",
+    )
+
+    assert out.read_bytes().startswith(b"%PDF")
+    assert calls[0]["url"] == "https://api.carbone.test/render/template?download=true"
+    assert calls[0]["headers"]["Authorization"] == "Bearer test-token"
+    assert calls[0]["headers"]["carbone-version"] == "5"
+    assert calls[0]["json"]["convertTo"] == "pdf"
+    assert calls[0]["json"]["converter"] == "C"
+    assert calls[0]["json"]["template"]
+    assert calls[0]["json"]["data"]["title"] == document.title
 
 
 def _report() -> FinalReport:
@@ -38,6 +147,28 @@ def _report() -> FinalReport:
         all_sources=[
             Source(title="Official source", url="https://example.com/official", reliability="high"),
             Source(title="Industry source", url="https://example.com/industry", reliability="medium"),
+        ],
+        charts=[
+            ChartSpec(
+                chart_type="bar",
+                title="Market driver ranking",
+                data={
+                    "points": [
+                        {"label": "Demand", "value": 10},
+                        {"label": "Supply", "value": 7},
+                        {"label": "Rates", "value": 4},
+                    ]
+                },
+                caption="Synthetic fixture chart for premium storyboard tests.",
+            )
+        ],
+        key_numbers_highlight=[
+            KeyNumberHighlight(
+                value="10%",
+                label="Market growth signal",
+                source_ref="https://example.com/official",
+                importance="headline",
+            )
         ],
     )
 
@@ -89,6 +220,13 @@ def test_assemble_premium_document_uses_existing_analysis_layers():
     assert len(document.sections) >= 7
     assert len(document.appendices) == 3
     assert len(document.deck_slides) >= 10
+    assert len(document.pages) >= 8
+
+    visual_pages = [page for page in document.pages if page.visual and page.visual.visual_type != "none"]
+    visual_types = {page.visual.visual_type for page in visual_pages if page.visual}
+    assert len(visual_pages) / len(document.pages) >= 0.6
+    assert {"hero_kpi_strip", "ranking_bar", "risk_heatmap", "evidence_quality", "source_table"} <= visual_types
+    assert all(page.thesis for page in document.pages)
 
     block_titles = {
         block.title

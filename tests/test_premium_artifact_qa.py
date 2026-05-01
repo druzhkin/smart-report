@@ -6,6 +6,7 @@ from scripts.premium_artifact_qa import run_qa
 from smart_report.exporters.premium import (
     assemble_premium_report_document,
     render_premium_docx,
+    render_premium_pdf,
     render_premium_pptx,
 )
 from smart_report.models import (
@@ -127,6 +128,32 @@ def test_premium_artifact_qa_structural_checks_pass_without_render(premium_artif
     assert pptx_result["metrics"]["has_readiness"] is False
 
 
+def test_premium_artifact_qa_checks_publication_pdf(tmp_path):
+    pytest.importorskip("reportlab")
+    pytest.importorskip("pypdf")
+    document = assemble_premium_report_document(
+        _report(),
+        analysis=_analysis(),
+        premium_readiness={
+            "ready": True,
+            "score": 91,
+            "issues": [],
+            "strengths": ["Publication-grade layout requirements are present."],
+        },
+    )
+    pdf_path = render_premium_pdf(document, tmp_path / "premium_report.pdf")
+
+    report = run_qa(pdf_path=pdf_path, out_dir=tmp_path, render=False)
+
+    assert report["status"] == "passed"
+    assert report["summary"]["artifacts"] == 1
+    pdf_result = next(item for item in report["results"] if item["kind"] == "pdf")
+    assert pdf_result["metrics"]["pages"] >= 20
+    assert pdf_result["metrics"]["has_publication_marker"] is True
+    assert pdf_result["metrics"]["has_exhibit_pages"] is True
+    assert pdf_result["metrics"]["has_source_notes"] is True
+
+
 def test_premium_artifact_qa_reports_missing_render_tools(monkeypatch, premium_artifacts, tmp_path):
     docx_path, pptx_path = premium_artifacts
 
@@ -148,7 +175,7 @@ def test_premium_artifact_qa_records_rendered_docx_page_count(
         return name
 
     def _fake_run(cmd, **_kwargs):
-        out_dir = tmp_path / docx_path.stem
+        out_dir = tmp_path / f"{docx_path.stem}_docx"
         out_dir.mkdir(parents=True, exist_ok=True)
         if "--convert-to" in cmd:
             (out_dir / f"{docx_path.stem}.pdf").write_bytes(b"%PDF")
@@ -164,3 +191,4 @@ def test_premium_artifact_qa_records_rendered_docx_page_count(
     docx_result = next(item for item in report["results"] if item["kind"] == "docx")
     assert docx_result["render_status"] == "passed"
     assert docx_result["metrics"]["rendered_pages"] == 3
+    assert docx_result["metrics"]["rendered_total_bytes"] == 9

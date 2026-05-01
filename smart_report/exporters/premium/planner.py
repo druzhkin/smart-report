@@ -64,6 +64,8 @@ def build_premium_report_plan(
         appendices=appendices,
         deck_outline=deck_outline,
         non_breaking_notes=[
+            "Report and deck are separate client deliverables.",
+            "Publication-grade PDF quality is required in addition to editable DOCX.",
             "Премиальный слой включается отдельно и не меняет поведение старых экспортов.",
             "Отчёт и презентация являются разными материалами, а не заменяют друг друга.",
             "Факты по теме должны жить в таблицах доказательств, а не в коде рендерера.",
@@ -452,7 +454,7 @@ def _deck_outline_for(report_type: PremiumReportType) -> list[str]:
     ]
     if report_type == "technical_audit":
         base[4] = "Архитектура / карта системы"
-        base[5] = "Находки по критичности"
+        base[5] = "Находки по критичности (severity)"
         base[6] = "Дорожная карта исправлений"
     elif report_type == "competitive":
         base[4] = "Карта рынка"

@@ -198,6 +198,18 @@ _RU_ISSUES = {
         "Премиальная выдача должна включать отдельную презентацию.",
         "Сгенерировать презентацию из плана отчёта после сборки отчёта.",
     ),
+    "premium_missing_publication_layout": (
+        "Премиальный PDF должен быть сверстан как публикация, а не как экспорт Word.",
+        "Добавить editorial grid, полноэкранную обложку, image-led открытия разделов и отдельный visual QA.",
+    ),
+    "premium_too_few_exhibit_pages": (
+        "В плане недостаточно exhibit-страниц для уровня consulting report.",
+        "Добавить страницы с самостоятельными графиками, таблицами и источниками, которые читаются без основного текста.",
+    ),
+    "premium_too_few_data_dense_exhibits": (
+        "В плане недостаточно плотных аналитических exhibit-блоков.",
+        "Добавить data-dense exhibits: карты рынка, scenario/sensitivity матрицы, сравнительные таблицы и графики с source notes.",
+    ),
     "premium_client_surface_leaks": (
         "В клиентском тексте остались внутренние маркеры.",
         "Санитизировать отчёт перед премиальным рендерингом.",
@@ -225,6 +237,7 @@ def _localized_strength(strength: str) -> str:
         "Report target meets premium length": "Целевой объём отчёта соответствует премиальному уровню",
         "Visual/table plan has": "План визуалов и таблиц содержит",
         "required blocks.": "обязательных блоков.",
+        "Publication-grade layout requirements are present.": "Требования к publication-grade вёрстке присутствуют.",
         "No obvious internal client-surface leaks detected.": "Явных внутренних маркеров в клиентском тексте не найдено.",
     }
     out = strength
@@ -757,11 +770,56 @@ def _check_visual_and_delivery_plan(
                 recommendation="Generate a deck from the report plan after the report is assembled.",
             )
         )
+    publication = plan.publication
+    layout_flags = [
+        publication.require_full_bleed_cover,
+        publication.require_image_led_section_openers,
+        publication.require_exhibit_pages,
+        publication.require_source_notes_on_exhibits,
+        publication.require_editorial_grid,
+        publication.require_visual_qa,
+    ]
+    if not all(layout_flags):
+        issues.append(
+            PremiumReadinessIssue(
+                code="premium_missing_publication_layout",
+                severity="major",
+                message="Premium PDF must be laid out as a publication, not a Word-style export.",
+                recommendation=(
+                    "Require editorial grid, full-bleed cover, image-led section openers, "
+                    "source-noted exhibits, and visual QA."
+                ),
+            )
+        )
+    if publication.min_exhibit_pages < 4:
+        issues.append(
+            PremiumReadinessIssue(
+                code="premium_too_few_exhibit_pages",
+                severity="major",
+                message="Premium plan has too few standalone exhibit pages.",
+                recommendation="Plan at least four exhibit pages with source notes and clear chart/table hierarchy.",
+            )
+        )
+    if publication.min_data_dense_exhibits < 3:
+        issues.append(
+            PremiumReadinessIssue(
+                code="premium_too_few_data_dense_exhibits",
+                severity="major",
+                message="Premium plan has too few data-dense analytical exhibits.",
+                recommendation="Plan at least three dense analytical exhibits, not decorative charts.",
+            )
+        )
 
     if not any(issue.code.startswith("premium_report_too_short") for issue in issues):
         strengths.append(f"Report target meets premium length: {plan.deliverables.report_min_pages}+ pages.")
     if len(plan.required_visuals) >= 4:
         strengths.append(f"Visual/table plan has {len(plan.required_visuals)} required blocks.")
+    if (
+        all(layout_flags)
+        and publication.min_exhibit_pages >= 4
+        and publication.min_data_dense_exhibits >= 3
+    ):
+        strengths.append("Publication-grade layout requirements are present.")
 
 
 def _check_client_surface(

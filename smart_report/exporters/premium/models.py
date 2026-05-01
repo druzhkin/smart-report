@@ -7,7 +7,7 @@ such as real estate, finance, technology, or law.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -53,6 +53,23 @@ PremiumBlockKind = Literal[
     "methodology_box",
     "appendix_table",
     "chart",
+]
+
+PremiumPageType = Literal["cover", "section_opener", "thesis", "exhibit", "appendix"]
+
+PremiumVisualType = Literal[
+    "none",
+    "narrative_text",
+    "hero_kpi_strip",
+    "ranking_bar",
+    "time_series",
+    "distribution",
+    "scenario_matrix",
+    "risk_heatmap",
+    "evidence_quality",
+    "waterfall",
+    "market_map",
+    "source_table",
 ]
 
 
@@ -113,6 +130,24 @@ class PremiumDeliverableSpec(_PremiumBase):
     require_data_pack: bool = True
 
 
+class PremiumPublicationSpec(_PremiumBase):
+    """Publication-grade layout bar for consulting-style PDFs.
+
+    This is separate from deliverable formats. A DOCX/PPTX/PDF package can exist
+    and still fail the publication bar if it reads like a plain Word export.
+    """
+
+    reference_style: str = "consulting_publication"
+    require_full_bleed_cover: bool = True
+    require_image_led_section_openers: bool = True
+    require_exhibit_pages: bool = True
+    require_source_notes_on_exhibits: bool = True
+    require_editorial_grid: bool = True
+    require_visual_qa: bool = True
+    min_exhibit_pages: int = Field(default=4, ge=0)
+    min_data_dense_exhibits: int = Field(default=3, ge=0)
+
+
 class PremiumReportPlan(_PremiumBase):
     """Domain-neutral plan for a high-value report package."""
 
@@ -122,6 +157,7 @@ class PremiumReportPlan(_PremiumBase):
     quality_bar: str = "paid_client_10000_rub"
     deliverables: PremiumDeliverableSpec = Field(default_factory=PremiumDeliverableSpec)
     evidence: PremiumEvidenceRequirement = Field(default_factory=PremiumEvidenceRequirement)
+    publication: PremiumPublicationSpec = Field(default_factory=PremiumPublicationSpec)
     sections: list[PremiumSectionSpec]
     required_visuals: list[PremiumVisualSpec]
     appendices: list[PremiumAppendixSpec]
@@ -166,6 +202,26 @@ class PremiumPreparedSection(_PremiumBase):
     blocks: list[PremiumPreparedBlock] = Field(default_factory=list)
 
 
+class PremiumPageVisual(_PremiumBase):
+    """A publication visual planned at page level, before rendering."""
+
+    visual_type: PremiumVisualType
+    title: str
+    data: dict[str, Any] = Field(default_factory=dict)
+    source_notes: list[str] = Field(default_factory=list)
+
+
+class PremiumPage(_PremiumBase):
+    """Storyboard page for publication-grade PDF rendering."""
+
+    page_type: PremiumPageType
+    thesis: str
+    narrative: str = ""
+    visual: PremiumPageVisual | None = None
+    implication: str = ""
+    source_notes: list[str] = Field(default_factory=list)
+
+
 class PremiumDeckSlideSpec(_PremiumBase):
     """Separate presentation slide derived from the report, not a replacement."""
 
@@ -181,6 +237,7 @@ class PremiumReportDocument(_PremiumBase):
     title: str
     subtitle: str
     plan: PremiumReportPlan
+    pages: list[PremiumPage] = Field(default_factory=list)
     sections: list[PremiumPreparedSection]
     appendices: list[PremiumPreparedSection]
     deck_slides: list[PremiumDeckSlideSpec]
