@@ -164,10 +164,35 @@ def test_publication_remediation_adds_safe_source_backed_visuals():
     ]
     assert len(visual_blocks) >= 2
     assert all(block.source_ids for block in visual_blocks)
+    chart_visuals = [block.visual for block in visual_blocks if block.visual]
+    assert all(visual.thesis for visual in chart_visuals)
+    assert all(visual.source_notes for visual in chart_visuals)
+    assert all(visual.why_it_matters for visual in chart_visuals)
     assert len(updated.versions) == len(source.versions) + 1
 
     projected = final_report_from_structured_source(_report(), updated)
     assert projected.charts or projected.tables or projected.key_numbers_highlight
+
+
+def test_publication_remediation_can_add_required_exhibit_mix():
+    source = structured_source_from_final_report(_report())
+    updated = apply_publication_remediation(
+        source,
+        [{"issue_code": "storyboard_missing_early_visual_types", "severity": "major"}],
+    )
+
+    visual_types = {
+        block.visual.visual_type
+        for section in updated.sections
+        for block in section.blocks
+        if block.visual
+    }
+    assert "ranking_bar" in visual_types
+    assert any(
+        block.title == "Карта рисков и пробелов"
+        for section in updated.sections
+        for block in section.blocks
+    )
 
 
 def test_structured_source_tracks_scientific_connectors_explicitly():

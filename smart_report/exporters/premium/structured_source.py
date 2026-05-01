@@ -115,9 +115,12 @@ class StructuredReportVisual(_EnterpriseBase):
     id: str = Field(default_factory=lambda: f"vis_{uuid.uuid4().hex[:10]}")
     title: str
     visual_type: str
+    thesis: str = ""
     data: dict[str, Any] = Field(default_factory=dict)
     caption: str = ""
     source_ids: list[str] = Field(default_factory=list)
+    source_notes: list[str] = Field(default_factory=list)
+    why_it_matters: str = ""
 
 
 class StructuredReportBlock(_EnterpriseBase):
@@ -404,7 +407,7 @@ def apply_publication_remediation(
             "storyboard_missing_early_visual_types",
             "thin_visual_support",
         }:
-            if _ensure_evidence_visuals(updated, source_ids):
+            if _ensure_evidence_visuals(updated, source_ids, issue_code=issue_code):
                 applied.append(issue_code)
         elif issue_code in {
             "storyboard_visual_sources_weak",
@@ -617,7 +620,7 @@ def _project_structured_visuals(report: FinalReport, source: StructuredReportSou
                         chart_type=_chart_type_for_visual(block.visual.visual_type),
                         title=block.visual.title,
                         data=block.visual.data or _chart_data_from_sources(block, source_lookup),
-                        caption=block.visual.caption or block.content or section.summary or None,
+                        caption=_visual_caption(block, section),
                     )
                 )
                 existing_chart_titles.add(block.visual.title)
@@ -672,7 +675,12 @@ def _apply_single_edit(source: StructuredReportSource, edit: ReportEditRequest) 
         raise ValueError(f"unsupported block edit field: {field}")
 
 
-def _ensure_evidence_visuals(source: StructuredReportSource, source_ids: list[str]) -> bool:
+def _ensure_evidence_visuals(
+    source: StructuredReportSource,
+    source_ids: list[str],
+    *,
+    issue_code: str,
+) -> bool:
     section = _ensure_section(
         source,
         "visual_evidence",
@@ -715,9 +723,15 @@ def _ensure_evidence_visuals(source: StructuredReportSource, source_ids: list[st
                 visual=StructuredReportVisual(
                     title="Качество доказательной базы",
                     visual_type="evidence_quality",
+                    thesis="Отчет должен показывать не только выводы, но и качество доказательной базы.",
                     data=_source_mix_data(source),
                     caption="Распределение источников по уровню надежности и коннекторам.",
                     source_ids=source_ids[:6],
+                    source_notes=_source_notes_for_ids(source, source_ids[:6]),
+                    why_it_matters=(
+                        "Читатель видит, насколько выводы опираются на проверяемые источники, "
+                        "а не на неподтвержденный нарратив."
+                    ),
                 ),
                 source_ids=source_ids[:6],
             )
@@ -739,6 +753,55 @@ def _ensure_evidence_visuals(source: StructuredReportSource, source_ids: list[st
             )
         )
         changed = True
+    if issue_code == "storyboard_missing_early_visual_types":
+        changed = _ensure_required_exhibit_mix(source, section, source_ids) or changed
+    return changed
+
+
+def _ensure_required_exhibit_mix(
+    source: StructuredReportSource,
+    section: StructuredReportSection,
+    source_ids: list[str],
+) -> bool:
+    changed = False
+    existing_types = {
+        block.visual.visual_type
+        for item in source.sections
+        for block in item.blocks
+        if block.visual
+    }
+    if "ranking_bar" not in existing_types:
+        section.blocks.append(
+            StructuredReportBlock(
+                kind="chart",
+                title="Ранжирование ключевых факторов",
+                content="Сравнивает факторы, которые поддерживают главный вывод отчета.",
+                visual=StructuredReportVisual(
+                    title="Ранжирование ключевых факторов",
+                    visual_type="ranking_bar",
+                    thesis="Главный вывод должен быть разложен на сравнимые факторы.",
+                    data=_ranking_data_from_source(source),
+                    caption="Ранжирование построено по структуре выводов отчета и требует редакционной проверки весов.",
+                    source_ids=source_ids[:6],
+                    source_notes=_source_notes_for_ids(source, source_ids[:6]),
+                    why_it_matters="Ранжирование помогает читателю понять, что действительно влияет на решение.",
+                ),
+                source_ids=source_ids[:6],
+            )
+        )
+        changed = True
+    if "risk_heatmap" not in existing_types:
+        section.blocks.append(
+            StructuredReportBlock(
+                kind="table",
+                title="Карта рисков и пробелов",
+                content="Фиксирует слабые места доказательной базы, которые нельзя скрывать в публикации.",
+                table_columns=["Риск", "Влияние", "Что проверить"],
+                table_rows=_risk_rows_from_source(source),
+                source_ids=source_ids[:6],
+            )
+        )
+        changed = True
     return changed
 
 
@@ -755,6 +818,9 @@ def _attach_missing_visual_sources(source: StructuredReportSource, source_ids: l
                 changed = True
             if block.visual and not block.visual.source_ids:
                 block.visual.source_ids = block.source_ids or source_ids[:3]
+                changed = True
+            if block.visual and not block.visual.source_notes:
+                block.visual.source_notes = _source_notes_for_ids(source, block.visual.source_ids)
                 changed = True
     return changed
 
@@ -844,6 +910,50 @@ def _source_mix_data(source: StructuredReportSource) -> dict[str, Any]:
             for key, value in sorted(connector_counts.items())
         ],
     }
+
+
+def _source_notes_for_ids(source: StructuredReportSource, source_ids: list[str]) -> list[str]:
+    lookup = {item.id: item for item in source.sources}
+    notes: list[str] = []
+    for source_id in source_ids:
+        source_ref = lookup.get(source_id)
+        if not source_ref:
+            continue
+        label = source_ref.title
+        if source_ref.url:
+            label = f"{label}: {source_ref.url}"
+        notes.append(label)
+    return notes
+
+
+def _ranking_data_from_source(source: StructuredReportSource) -> dict[str, Any]:
+    executive = _section_by_id(source, "executive_summary")
+    bullets: list[str] = []
+    if executive:
+        for block in executive.blocks:
+            bullets.extend(block.bullets)
+    points = [
+        {"label": _compact_label(item), "value": max(1, 6 - index)}
+        for index, item in enumerate(bullets[:5], start=1)
+    ]
+    if not points:
+        points = [{"label": section.title[:48], "value": 1} for section in source.sections[:5]]
+    return {"points": points}
+
+
+def _risk_rows_from_source(source: StructuredReportSource) -> list[list[str]]:
+    gaps = list(source.research_coverage.known_coverage_gaps)
+    if not gaps:
+        gaps = ["Проверить полноту источников и числовых фактов перед публикацией"]
+    return [
+        [gap, "Среднее/высокое", "Закрыть источником или явно оставить как ограничение"]
+        for gap in gaps[:6]
+    ]
+
+
+def _compact_label(text: str) -> str:
+    clean = " ".join(str(text or "").split())
+    return clean[:64] + ("..." if len(clean) > 64 else "")
 
 
 def _normalize_formats(
@@ -980,6 +1090,21 @@ def _source_ref_for_block(
         if source:
             return source.url or source.title
     return ""
+
+
+def _visual_caption(
+    block: StructuredReportBlock,
+    section: StructuredReportSection,
+) -> str | None:
+    if not block.visual:
+        return block.content or section.summary or None
+    parts = [
+        block.visual.caption,
+        block.visual.why_it_matters,
+        block.content,
+        section.summary,
+    ]
+    return " ".join(part.strip() for part in parts if part and part.strip()) or None
 
 
 def _split_kpi_bullet(text: str) -> tuple[str, str]:
