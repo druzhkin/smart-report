@@ -1563,7 +1563,7 @@ export async function runAutoDepthLeads(
   opts?: {
     max_leads?: number;
     include_priority?: "must" | "should" | "could" | "all";
-    service_override?: "valyu" | "tavily" | "exa" | "openai" | "perplexity";
+    service_override?: "valyu" | "tavily" | "exa" | "paper_search" | "openai" | "perplexity";
     mode_override?: string;
   },
 ): Promise<AutoDepthLeadOut[]> {
@@ -1587,7 +1587,7 @@ export async function runPremiumRefine(
   opts?: {
     max_leads?: number;
     include_priority?: "must" | "should" | "could" | "all";
-    service_override?: "valyu" | "tavily" | "exa" | "openai" | "perplexity";
+    service_override?: "valyu" | "tavily" | "exa" | "paper_search" | "openai" | "perplexity";
     mode_override?: string;
     model_preference?: "sonnet" | "opus";
     auto_synthesize?: boolean;
