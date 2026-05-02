@@ -132,6 +132,25 @@ def test_renderer_status_exposes_native_and_carbone_backends_without_secrets(mon
     assert "secret-token" not in r.text
 
 
+def test_cost_guardrail_reports_remaining_budget(monkeypatch):
+    monkeypatch.setattr(v4, "_USER_MONTHLY_CAP_USD", 1.0)
+    client = _authed_client()
+    sid = client.post("/api/v4/sessions", json={"question": "budget check"}).json()["session_id"]
+    session = v4._store.get(sid)
+    session.total_cost_rub = 37.7
+    v4._store.update(session)
+
+    r = client.get(f"/api/v4/sessions/{sid}/cost-guardrail")
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["cap_enabled"] is True
+    assert body["cap_usd"] == 1.0
+    assert body["session_cost_rub"] == 37.7
+    assert body["remaining_usd_30d"] < 1.0
+    assert body["blocked"] is False
+
+
 @pytest.fixture
 def mock_llm(monkeypatch):
     from smart_report import prompt_master as pm_module

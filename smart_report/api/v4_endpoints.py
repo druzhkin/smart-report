@@ -523,6 +523,21 @@ def _enforce_cost_cap(email: str) -> None:
         )
 
 
+def _cost_guardrail_payload(email: str | None, session: V4Session | None = None) -> dict:
+    spent_usd = _user_monthly_spend_usd(email) if email else 0.0
+    cap_usd = _USER_MONTHLY_CAP_USD
+    remaining = None if cap_usd <= 0 else max(0.0, cap_usd - spent_usd)
+    return {
+        "cap_enabled": cap_usd > 0,
+        "cap_usd": cap_usd if cap_usd > 0 else None,
+        "spent_usd_30d": round(spent_usd, 4),
+        "remaining_usd_30d": round(remaining, 4) if remaining is not None else None,
+        "blocked": bool(cap_usd > 0 and spent_usd >= cap_usd),
+        "session_cost_rub": round(float(session.total_cost_rub or 0.0), 4) if session else 0.0,
+        "usd_rub_rate": _USD_RUB_RATE,
+    }
+
+
 def _owned_with_cap(session_id: str, request: Request):
     """Combined ownership check + cost cap enforcement for LLM-spending endpoints.
 
@@ -2398,6 +2413,12 @@ async def get_final_report(session_id: str, request: Request) -> dict:
         "total_cost_rub": session.total_cost_rub,
         "status": session.status,
     }
+
+
+@router.get("/sessions/{session_id}/cost-guardrail")
+async def get_cost_guardrail(session_id: str, request: Request) -> dict:
+    session = _get_owned(session_id, request)
+    return _cost_guardrail_payload(_current_email(request), session)
 
 
 @router.get("/sessions/{session_id}/evidence-graph")
