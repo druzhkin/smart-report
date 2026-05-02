@@ -13,7 +13,10 @@ from ...adjudication_audit import AdjudicationAuditReport, assess_adjudication_q
 from ...analytic_closure import AnalyticClosureReport
 from ...analytic_depth import AnalyticDepthPlan
 from ...evidence_audit import EvidenceAuditReport, assess_evidence_support
+from ...evidence_graph import build_evidence_graph
 from ...models import AnalysisOutput, FinalReport
+from ...page_planner import build_page_plan
+from ...research_policy import assess_research_policy
 from ...source_authority import count_authoritative_sources
 from ..client_view import contains_client_leak
 from .models import PremiumReportPlan
@@ -272,11 +275,14 @@ def assess_premium_readiness(
     _check_sources(report, plan, issues, strengths)
     _check_analysis_depth(analysis, plan, adjudication_audit, issues, strengths)
     _check_existing_quality_gates(report, metadata, issues, strengths)
+    _check_research_policy(report, plan, issues, strengths)
     _check_evidence_support(report, analysis, evidence_audit, issues, strengths)
+    _check_evidence_graph(report, analysis, issues, strengths)
     _check_adjudication_quality(report, analysis, adjudication_audit, issues, strengths)
     _check_analytic_depth(depth_plan, issues, strengths)
     _check_analytic_closure(depth_plan, closure_report, issues, strengths)
     _check_visual_and_delivery_plan(plan, issues, strengths)
+    _check_page_plan(report, analysis, plan, issues, strengths)
     _check_client_surface(report, issues, strengths)
 
     critical = sum(1 for issue in issues if issue.severity == "critical")
@@ -535,6 +541,67 @@ def _check_evidence_support(
         )
     else:
         strengths.append(f"Evidence-support audit passed: {audit.overall_score}/100.")
+
+
+def _check_evidence_graph(
+    report: FinalReport,
+    analysis: AnalysisOutput | None,
+    issues: list[PremiumReadinessIssue],
+    strengths: list[str],
+) -> None:
+    graph = build_evidence_graph(report, analysis)
+    if graph.summary.unsupported:
+        issues.append(
+            PremiumReadinessIssue(
+                code="premium_evidence_graph_unsupported_claims",
+                severity="critical",
+                message=f"Evidence graph found {graph.summary.unsupported} unsupported client-facing claim(s).",
+                recommendation="Open /evidence-graph, add source-backed facts, or remove unsupported claims.",
+            )
+        )
+    elif graph.summary.score < 70:
+        issues.append(
+            PremiumReadinessIssue(
+                code="premium_evidence_graph_weak",
+                severity="major",
+                message=f"Evidence graph score is only {graph.summary.score}/100.",
+                recommendation="Increase claim-to-source links before premium delivery.",
+            )
+        )
+    else:
+        strengths.append(f"Evidence graph is defensible: {graph.summary.score}/100.")
+
+
+def _check_research_policy(
+    report: FinalReport,
+    plan: PremiumReportPlan,
+    issues: list[PremiumReadinessIssue],
+    strengths: list[str],
+) -> None:
+    policy = assess_research_policy(report.question, report)
+    if policy.issues:
+        if (
+            policy.domain == "generic"
+            and len(report.all_sources or []) >= plan.evidence.min_sources
+            and count_authoritative_sources(report) >= plan.evidence.min_authoritative_sources
+        ):
+            strengths.append(
+                "Generic research-policy checklist has advisory gaps, but premium evidence "
+                "thresholds are met."
+            )
+            return
+        issues.append(
+            PremiumReadinessIssue(
+                code="premium_research_policy_failed",
+                severity="major",
+                message="Research policy gaps: " + "; ".join(policy.issues),
+                recommendation="Use the recommended service/source families before premium export.",
+            )
+        )
+    else:
+        strengths.append(
+            f"Research policy passed for {policy.domain}: {policy.tier1_count} tier-1 source(s)."
+        )
 
 
 def _check_adjudication_quality(
@@ -820,6 +887,50 @@ def _check_visual_and_delivery_plan(
         and publication.min_data_dense_exhibits >= 3
     ):
         strengths.append("Publication-grade layout requirements are present.")
+
+
+def _check_page_plan(
+    report: FinalReport,
+    analysis: AnalysisOutput | None,
+    plan: PremiumReportPlan,
+    issues: list[PremiumReadinessIssue],
+    strengths: list[str],
+) -> None:
+    graph = build_evidence_graph(report, analysis)
+    page_plan = build_page_plan(report, analysis=analysis, evidence_graph=graph)
+    if page_plan.summary.status == "blocked":
+        issues.append(
+            PremiumReadinessIssue(
+                code="premium_page_plan_blocked",
+                severity="critical",
+                message="Page plan is blocked: " + "; ".join(page_plan.global_issues[:3]),
+                recommendation="Fix unsupported claims and add source-backed exhibits before rendering.",
+            )
+        )
+    elif page_plan.summary.status == "needs_work":
+        planned_visuals_are_sufficient = (
+            len(plan.required_visuals) >= 4
+            and plan.publication.min_exhibit_pages >= 4
+            and plan.publication.min_data_dense_exhibits >= 3
+        )
+        if planned_visuals_are_sufficient:
+            strengths.append(
+                "Premium visual plan can cover page-plan gaps during artifact assembly."
+            )
+            return
+        issues.append(
+            PremiumReadinessIssue(
+                code="premium_page_plan_needs_work",
+                severity="major",
+                message="Page plan needs work: " + "; ".join(page_plan.global_issues[:3]),
+                recommendation="Add mixed/exhibit pages and resolve page-level issues before final export.",
+            )
+        )
+    else:
+        strengths.append(
+            f"Page plan ready: {page_plan.summary.page_count} pages, "
+            f"{page_plan.summary.exhibit_pages} exhibit pages."
+        )
 
 
 def _check_client_surface(

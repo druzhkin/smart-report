@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .evidence_audit import assess_evidence_support
 from .models import AnalysisOutput, FinalReport, NumericFact, UnverifiedNumber
+from .research_policy import recommended_service_for_policy
 from .source_authority import count_authoritative_sources
 
 
@@ -52,6 +53,7 @@ ResearchService = Literal[
     "claude",
     "exa",
     "tavily",
+    "paper_search",
     "manual",
 ]
 
@@ -473,7 +475,9 @@ def _number_lead(index: int, number: UnverifiedNumber, domain_hint: str) -> Rese
 
 def _service_for(domain_hint: str, candidate_sources: list[str]) -> ResearchService:
     joined_sources = " ".join(candidate_sources).lower()
-    if domain_hint in {"financial_us", "medical_clinical", "scientific"}:
+    if domain_hint in {"scientific", "medical_clinical", "technical_research"}:
+        return "paper_search"
+    if domain_hint == "financial_us":
         return "valyu"
     if domain_hint == "legal_regulatory" and _has(joined_sources, "sec.gov", "fda.gov", "fred"):
         return "valyu"
@@ -481,6 +485,9 @@ def _service_for(domain_hint: str, candidate_sources: list[str]) -> ResearchServ
         return "perplexity"
     if domain_hint == "market_general":
         return "openai"
+    policy_service = recommended_service_for_policy(domain_hint, candidate_sources)
+    if policy_service in {"paper_search", "valyu", "perplexity", "openai", "claude", "exa", "tavily"}:
+        return policy_service  # type: ignore[return-value]
     return "perplexity"
 
 

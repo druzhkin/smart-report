@@ -32,8 +32,11 @@ from .analyzer import analyze_reports
 from .bibliography import generate_bibliography
 from .config import models_for_preference
 from .data_audit import CoverageReport, audit_fact_coverage, build_retry_feedback
+from .evidence_graph import build_evidence_graph
 from .intake import normalize_all_reports
+from .page_planner import build_page_plan
 from .prompt_master import generate_research_prompt
+from .research_policy import assess_research_policy
 from .domain_detector import QueryDomain, detect_query_domain
 from .gap_detector import detect_gaps, gap_count_by_severity
 from .synthesis_critic import ConsistencyReport, validate_consistency
@@ -446,6 +449,12 @@ class V4Orchestrator:
             "warnings_count": len(lint_warnings),
             "warnings": [w.model_dump() for w in lint_warnings[:20]],
         }
+        evidence_graph = build_evidence_graph(final, session.analysis)
+        page_plan = build_page_plan(final, analysis=session.analysis, evidence_graph=evidence_graph)
+        research_policy = assess_research_policy(session.raw_question, final)
+        final.metadata["evidence_graph"] = evidence_graph.model_dump(mode="json")
+        final.metadata["page_plan"] = page_plan.model_dump(mode="json")
+        final.metadata["research_policy"] = research_policy.model_dump(mode="json")
 
         # Step 3g (Phase 2 Step 2.3 — C6 degraded): per-sub-question
         # evidence-adequacy detection. Runs AFTER all retry paths (Coverage,

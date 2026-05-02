@@ -279,6 +279,8 @@ def _inspect_pdf(path: Path) -> ArtifactQaResult:
         )
         landscape_pages = []
         thin_pages = []
+        sparse_pages = []
+        pages_without_source_note = []
         max_text_only_streak = 0
         current_text_only_streak = 0
         for idx, page in enumerate(reader.pages, start=1):
@@ -289,6 +291,11 @@ def _inspect_pdf(path: Path) -> ArtifactQaResult:
             # Skip the cover for density checks: a publication cover can be sparse.
             if idx > 1 and page_char_counts[idx - 1] < PDF_THIN_PAGE_MIN_CHARS:
                 thin_pages.append(idx)
+            page_text = page_texts[idx - 1]
+            if idx > 1 and PDF_THIN_PAGE_MIN_CHARS <= page_char_counts[idx - 1] < 360:
+                sparse_pages.append(idx)
+            if idx > 1 and page_char_counts[idx - 1] > 250 and not _has_source_note(page_text):
+                pages_without_source_note.append(idx)
             if idx > 1 and page_char_counts[idx - 1] > 900:
                 current_text_only_streak += 1
                 max_text_only_streak = max(max_text_only_streak, current_text_only_streak)
@@ -301,6 +308,8 @@ def _inspect_pdf(path: Path) -> ArtifactQaResult:
             "page_text_chars_avg": round(sum(page_char_counts) / page_count) if page_count else 0,
             "landscape_pages": landscape_pages,
             "thin_pages_after_cover": thin_pages,
+            "sparse_pages_after_cover": sparse_pages,
+            "pages_without_source_note": pages_without_source_note,
             "max_dense_text_streak_after_cover": max_text_only_streak,
             "placeholder_content_hits": placeholder_hits,
             "has_cover_brand": "SMART REPORT" in sample_text,
@@ -334,6 +343,16 @@ def _inspect_pdf(path: Path) -> ArtifactQaResult:
                 "PDF contains empty or underwritten page(s) after the cover: "
                 + ", ".join(str(page) for page in thin_pages[:10])
             )
+        if len(sparse_pages) >= 3:
+            result.issues.append(
+                "PDF has multiple sparse pages that may read like weak slides, not a report: "
+                + ", ".join(str(page) for page in sparse_pages[:10])
+            )
+        if len(pages_without_source_note) >= max(3, page_count // 3):
+            result.issues.append(
+                "PDF has too many content pages without visible source notes: "
+                + ", ".join(str(page) for page in pages_without_source_note[:10])
+            )
         if max_text_only_streak >= 4:
             result.issues.append(
                 "PDF has too many consecutive dense narrative pages without exhibit pacing; "
@@ -344,6 +363,11 @@ def _inspect_pdf(path: Path) -> ArtifactQaResult:
         result.structural_status = "failed"
         result.issues.append(f"PDF inspection failed: {exc}")
     return result
+
+
+def _has_source_note(text: str) -> bool:
+    lowered = (text or "").lower()
+    return any(marker in lowered for marker in ("source:", "sources:", "источник:", "источники:"))
 
 
 def _find_tool(name: str, candidates: list[Path]) -> str | None:

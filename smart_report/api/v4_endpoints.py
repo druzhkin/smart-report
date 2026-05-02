@@ -1054,7 +1054,7 @@ def _async_service_for_lead(lead, domain_hint: str, override: str | None) -> str
     if override:
         return override
     service = getattr(lead, "recommended_service", "manual")
-    if service in {"valyu", "tavily", "exa", "openai", "perplexity"}:
+    if service in {"valyu", "tavily", "exa", "paper_search", "openai", "perplexity"}:
         return service
     if domain_hint in {"financial_us", "scientific", "medical_clinical"}:
         return "valyu"
@@ -1107,12 +1107,14 @@ def _async_mode_for_lead(service: str, lead, override: str | None) -> str:
         "valyu": {"standard", "fast", "deep"},
         "exa": {"standard", "fast"},
         "tavily": {"pro", "standard"},
+        "paper_search": {"standard"},
     }
     allowed = allowed_by_service.get(service)
     fallback = {
         "valyu": "standard",
         "tavily": "pro",
         "exa": "standard",
+        "paper_search": "standard",
         "openai": "mini",
         "perplexity": "deep",
     }.get(service, "standard")
@@ -1153,7 +1155,7 @@ async def _submit_analytic_depth_leads(
     plan: AnalyticDepthPlan,
     payload: AutoDepthLeadsIn | PremiumRefineIn,
 ) -> list[AutoDepthLeadOut]:
-    from ..sources.auto_dr import AutoDRError, submit_async_research
+    from ..sources.auto_dr import AutoDRError, run_auto_dr, submit_async_research
 
     leads = [
         lead for lead in plan.research_leads
@@ -1168,6 +1170,57 @@ async def _submit_analytic_depth_leads(
     for lead in leads:
         service = _async_service_for_lead(lead, plan.domain_hint, payload.service_override)
         mode = _async_mode_for_lead(service, lead, payload.mode_override)
+        if service == "paper_search":
+            try:
+                result = await run_auto_dr(
+                    "paper_search",
+                    lead.prompt,
+                    domain_hint=plan.domain_hint,
+                    max_results=10,
+                )
+            except AutoDRError as e:
+                emitter.emit(
+                    "error",
+                    f"Analytic lead {lead.id} submit failed: {e}",
+                    data={"lead_id": lead.id, "service": service, "mode": mode},
+                )
+                raise HTTPException(status_code=502, detail=str(e)) from e
+            updated = _store.get(session_id)
+            upload = result.upload.model_copy(
+                update={
+                    "filename": f"auto_followup_paper_search_{lead.id}.md",
+                    "content": (
+                        f"Smart Report analytic-depth lead: {lead.id}\n"
+                        f"Lead kind: {lead.kind}\n"
+                        f"Lead priority: {lead.priority}\n\n"
+                        + result.upload.content
+                    ),
+                    "word_count": len(result.upload.content.split()),
+                }
+            )
+            updated.followup_reports = list(updated.followup_reports or []) + [upload]
+            updated.total_cost_rub = float(updated.total_cost_rub or 0.0) + result.cost_rub
+            updated.status = "dobor_uploaded"
+            _store.update(updated)
+            out.append(
+                AutoDepthLeadOut(
+                    lead_id=lead.id,
+                    kind=lead.kind,
+                    priority=lead.priority,
+                    rationale=lead.rationale,
+                    candidate_sources=lead.candidate_sources,
+                    linked_to=lead.linked_to,
+                    service=service,
+                    mode=mode,
+                    task_id=f"paper-search-{lead.id}",
+                    cost_usd=result.cost_usd,
+                    cost_rub=result.cost_rub,
+                    eta_min_low=0,
+                    eta_min_high=1,
+                    prompt_preview=_clip_text(lead.prompt, 320),
+                )
+            )
+            continue
         try:
             sub = await submit_async_research(
                 service,
@@ -2248,6 +2301,61 @@ async def get_final_report(session_id: str, request: Request) -> dict:
         "total_cost_rub": session.total_cost_rub,
         "status": session.status,
     }
+
+
+@router.get("/sessions/{session_id}/evidence-graph")
+async def get_evidence_graph(session_id: str, request: Request) -> dict:
+    session = _get_owned(session_id, request)
+    if session.final_report is None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"session {session_id} has no final_report yet",
+        )
+    from ..evidence_graph import build_evidence_graph
+
+    graph = build_evidence_graph(sanitize_final_report(session.final_report), session.analysis)
+    return graph.model_dump(mode="json")
+
+
+@router.get("/sessions/{session_id}/research-policy")
+async def get_research_policy(session_id: str, request: Request) -> dict:
+    session = _get_owned(session_id, request)
+    from ..research_policy import assess_research_policy
+
+    report = sanitize_final_report(session.final_report) if session.final_report else None
+    return assess_research_policy(session.raw_question, report).model_dump(mode="json")
+
+
+@router.get("/sessions/{session_id}/page-plan")
+async def get_page_plan(session_id: str, request: Request) -> dict:
+    session = _get_owned(session_id, request)
+    if session.final_report is None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"session {session_id} has no final_report yet",
+        )
+    from ..evidence_graph import build_evidence_graph
+    from ..page_planner import build_page_plan
+
+    report = sanitize_final_report(session.final_report)
+    graph = build_evidence_graph(report, session.analysis)
+    return build_page_plan(report, analysis=session.analysis, evidence_graph=graph).model_dump(mode="json")
+
+
+@router.get("/sessions/{session_id}/benchmark-eval")
+async def get_benchmark_eval(session_id: str, request: Request) -> dict:
+    session = _get_owned(session_id, request)
+    if session.final_report is None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"session {session_id} has no final_report yet",
+        )
+    from ..benchmark_eval import evaluate_report_quality
+
+    return evaluate_report_quality(
+        sanitize_final_report(session.final_report),
+        analysis=session.analysis,
+    ).model_dump(mode="json")
 
 
 @router.get("/sessions/{session_id}/structured-source")

@@ -106,6 +106,17 @@ def test_depth_plan_routes_valyu_for_financial_us():
     assert any(lead.recommended_service == "valyu" for lead in plan.research_leads)
 
 
+def test_depth_plan_routes_scientific_work_to_paper_search():
+    plan = build_analytic_depth_plan(
+        "Compare arxiv papers and peer-reviewed benchmarks for LLM observability",
+        analysis=_analysis(),
+        report=_report("Compare scientific benchmark papers"),
+    )
+
+    assert plan.domain_hint == "scientific"
+    assert any(lead.recommended_service == "paper_search" for lead in plan.research_leads)
+
+
 def test_infer_domain_hint_keeps_russian_market_off_valyu():
     assert infer_domain_hint("рынок недвижимости Москвы ставки ЦБ ДОМ.РФ ЕРЗ") == "russian_market"
 

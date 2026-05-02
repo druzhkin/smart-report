@@ -5,6 +5,10 @@ import { useParams, useRouter } from "next/navigation";
 import {
   applyStructuredReportRemediation,
   autoImproveStructuredReport,
+  getBenchmarkEval,
+  getEvidenceGraph,
+  getPagePlan,
+  getResearchPolicy,
   getSession,
   getStructuredReportSource,
   patchStructuredReportSource,
@@ -12,6 +16,10 @@ import {
   type StructuredReportSourceOut,
   type V4Session,
   type FinalReport,
+  type BenchmarkEvalOut,
+  type EvidenceGraphOut,
+  type PagePlanOut,
+  type ResearchPolicyOut,
 } from "@/lib/apiV4";
 import { useCost } from "@/lib/costContext";
 import { SectionKicker } from "@/components/v4/SectionKicker";
@@ -26,6 +34,10 @@ export default function V4ReportPage() {
 
   const [session, setSession] = useState<V4Session | null>(null);
   const [structured, setStructured] = useState<StructuredReportSourceOut | null>(null);
+  const [evidenceGraph, setEvidenceGraph] = useState<EvidenceGraphOut | null>(null);
+  const [researchPolicy, setResearchPolicy] = useState<ResearchPolicyOut | null>(null);
+  const [pagePlan, setPagePlan] = useState<PagePlanOut | null>(null);
+  const [benchmarkEval, setBenchmarkEval] = useState<BenchmarkEvalOut | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
@@ -36,6 +48,10 @@ export default function V4ReportPage() {
     getStructuredReportSource(id)
       .then(setStructured)
       .catch(() => setStructured(null));
+    getEvidenceGraph(id).then(setEvidenceGraph).catch(() => setEvidenceGraph(null));
+    getResearchPolicy(id).then(setResearchPolicy).catch(() => setResearchPolicy(null));
+    getPagePlan(id).then(setPagePlan).catch(() => setPagePlan(null));
+    getBenchmarkEval(id).then(setBenchmarkEval).catch(() => setBenchmarkEval(null));
   }, [id]);
 
   if (err) {
@@ -72,6 +88,12 @@ export default function V4ReportPage() {
         sessionId={id}
         structured={structured}
         onStructuredChange={setStructured}
+      />
+      <QualityIntelligencePanel
+        evidenceGraph={evidenceGraph}
+        researchPolicy={researchPolicy}
+        pagePlan={pagePlan}
+        benchmarkEval={benchmarkEval}
       />
 
       {/* Executive Summary — 2-col */}
@@ -886,7 +908,83 @@ function ExportDropdown({
   );
 }
 
-// Uses the real FinalSource shape from apiV4 — origin is the tool key string
+// Uses the real FinalSource shape from apiV4; origin is the tool key string.
+function QualityIntelligencePanel({
+  evidenceGraph,
+  researchPolicy,
+  pagePlan,
+  benchmarkEval,
+}: {
+  evidenceGraph: EvidenceGraphOut | null;
+  researchPolicy: ResearchPolicyOut | null;
+  pagePlan: PagePlanOut | null;
+  benchmarkEval: BenchmarkEvalOut | null;
+}) {
+  if (!evidenceGraph && !researchPolicy && !pagePlan && !benchmarkEval) return null;
+  const cards = [
+    {
+      label: "Evidence",
+      value: evidenceGraph ? `${evidenceGraph.summary.score}/100` : "-",
+      detail: evidenceGraph
+        ? `${evidenceGraph.summary.supported} supported / ${evidenceGraph.summary.unsupported} unsupported`
+        : "claim graph unavailable",
+      bad: !!evidenceGraph?.summary.unsupported,
+    },
+    {
+      label: "Research",
+      value: researchPolicy ? researchPolicy.domain : "-",
+      detail: researchPolicy
+        ? `${researchPolicy.tier1_count} tier-1 | ${researchPolicy.issues.length} issue(s)`
+        : "policy unavailable",
+      bad: !!researchPolicy?.issues.length,
+    },
+    {
+      label: "Pages",
+      value: pagePlan ? pagePlan.summary.status : "-",
+      detail: pagePlan
+        ? `${pagePlan.summary.page_count} pages | ${pagePlan.summary.exhibit_pages} exhibits`
+        : "page plan unavailable",
+      bad: pagePlan?.summary.status === "blocked",
+    },
+    {
+      label: "Benchmark",
+      value: benchmarkEval ? `${benchmarkEval.score}/100` : "-",
+      detail: benchmarkEval
+        ? `${benchmarkEval.issues.length} issue(s) | evidence ${benchmarkEval.evidence_score}`
+        : "eval unavailable",
+      bad: benchmarkEval ? !benchmarkEval.passed : false,
+    },
+  ];
+  return (
+    <section className="v4-container-wide" style={{ paddingTop: 28 }}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+          gap: 12,
+          borderTop: "1px solid var(--v4-rule)",
+          borderBottom: "1px solid var(--v4-rule)",
+          padding: "16px 0",
+        }}
+      >
+        {cards.map((card) => (
+          <div key={card.label} style={{ minWidth: 0 }}>
+            <div className="v4-mono" style={{ color: card.bad ? "#b91c1c" : "var(--v4-ink-3)" }}>
+              {card.label}
+            </div>
+            <div style={{ fontFamily: "var(--v4-f-display)", fontSize: 24, color: "var(--v4-ink)" }}>
+              {card.value}
+            </div>
+            <div style={{ fontSize: 12, color: "var(--v4-ink-3)", lineHeight: 1.35 }}>
+              {card.detail}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function qualityIssueLabel(code: string): string {
   const labels: Record<string, string> = {
     source_count_low: "Глубина источников",

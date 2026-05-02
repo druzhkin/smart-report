@@ -31,7 +31,7 @@ export type ResearchPrompt = {
   tips_for_search: string;
 };
 
-export type DetectedTool = "perplexity" | "openai_dr" | "claude" | "other" | null;
+export type DetectedTool = "perplexity" | "openai_dr" | "claude" | "paper_search_mcp" | "other" | null;
 
 export type UploadedMarkdown = {
   filename: string;
@@ -1218,6 +1218,59 @@ export type PremiumReadiness = {
   strengths: string[];
 };
 
+export type EvidenceGraphOut = {
+  summary: {
+    score: number;
+    claim_count: number;
+    supported: number;
+    partial: number;
+    unsupported: number;
+    linked_source_count: number;
+    numeric_fact_links: number;
+    qualitative_fact_links: number;
+  };
+  nodes: {
+    claim_id: string;
+    origin: string;
+    claim: string;
+    status: "supported" | "partial" | "unsupported";
+    score: number;
+    missing: string[];
+  }[];
+};
+
+export type ResearchPolicyOut = {
+  domain: string;
+  recommended_services: string[];
+  required_source_families: string[];
+  tier1_count: number;
+  tier2_count: number;
+  total_sources: number;
+  missing_source_families: string[];
+  issues: string[];
+};
+
+export type PagePlanOut = {
+  summary: {
+    page_count: number;
+    exhibit_pages: number;
+    mixed_pages: number;
+    text_only_pages: number;
+    pages_with_issues: number;
+    status: "ready" | "needs_work" | "blocked";
+  };
+  global_issues: string[];
+};
+
+export type BenchmarkEvalOut = {
+  score: number;
+  passed: boolean;
+  evidence_score: number;
+  research_policy_passed: boolean;
+  page_plan_status: string;
+  issues: { code: string; severity: string; message: string }[];
+};
+
 export async function getPremiumReadiness(id: string): Promise<PremiumReadiness> {
   if (STUB) {
     return {
@@ -1235,6 +1288,22 @@ export async function getPremiumReadiness(id: string): Promise<PremiumReadiness>
     };
   }
   return jv4<PremiumReadiness>(`/api/v4/sessions/${encodeURIComponent(id)}/premium-readiness`);
+}
+
+export async function getEvidenceGraph(id: string): Promise<EvidenceGraphOut> {
+  return jv4<EvidenceGraphOut>(`/api/v4/sessions/${encodeURIComponent(id)}/evidence-graph`);
+}
+
+export async function getResearchPolicy(id: string): Promise<ResearchPolicyOut> {
+  return jv4<ResearchPolicyOut>(`/api/v4/sessions/${encodeURIComponent(id)}/research-policy`);
+}
+
+export async function getPagePlan(id: string): Promise<PagePlanOut> {
+  return jv4<PagePlanOut>(`/api/v4/sessions/${encodeURIComponent(id)}/page-plan`);
+}
+
+export async function getBenchmarkEval(id: string): Promise<BenchmarkEvalOut> {
+  return jv4<BenchmarkEvalOut>(`/api/v4/sessions/${encodeURIComponent(id)}/benchmark-eval`);
 }
 
 // -- Session list ---------------------------------------------------------
