@@ -140,7 +140,7 @@ def test_carbone_renderer_posts_inline_template_and_writes_pdf(tmp_path, monkeyp
 def _report() -> FinalReport:
     return FinalReport(
         session_id="premium-doc",
-        question="Forecast a market with scenario and risk recommendations",
+        question="Evaluate premium residential demand in Moscow for 2026-2027",
         executive_summary=ExecutiveSummaryV4(
             main_answer="Base case is moderate growth with material downside triggers.",
             top_findings=["Demand is rate-sensitive.", "Supply remains constrained."],
@@ -152,8 +152,8 @@ def _report() -> FinalReport:
         conflicts_section="Sources disagree on timing.",
         gaps_filled_section="Project-level microdata remains unavailable.",
         all_sources=[
-            Source(title="Official source", url="https://example.com/official", reliability="high"),
-            Source(title="Industry source", url="https://example.com/industry", reliability="medium"),
+            Source(title="Official source", url="https://cbr.ru/statistics/", reliability="high"),
+            Source(title="Industry source", url="https://erzrf.ru/analytics/", reliability="medium"),
         ],
         charts=[
             ChartSpec(
@@ -166,14 +166,14 @@ def _report() -> FinalReport:
                         {"label": "Rates", "value": 4},
                     ]
                 },
-                caption="Synthetic fixture chart for premium storyboard tests.",
+                caption="Indexed demand and supply signals show why financing sensitivity remains the key decision variable.",
             )
         ],
         key_numbers_highlight=[
             KeyNumberHighlight(
                 value="10%",
                 label="Market growth signal",
-                source_ref="https://example.com/official",
+                source_ref="https://cbr.ru/statistics/",
                 importance="headline",
             )
         ],
@@ -188,7 +188,7 @@ def _analysis() -> AnalysisOutput:
             metric="growth",
             subject="market",
             relevance_to_question="high",
-            sources=[SourceRef(url="https://example.com/official", title="Official")],
+            sources=[SourceRef(url="https://cbr.ru/statistics/", title="Official")],
         )
     ]
     return AnalysisOutput(
@@ -259,6 +259,7 @@ def test_premium_storyboard_quality_blocks_thin_or_unsourced_pages():
 
     broken = document.model_copy(deep=True)
     broken.pages[0].narrative = "Too thin."
+    broken.pages[0].source_notes = ["https://example.com/demo"]
     broken.pages[1].source_notes = []
     if broken.pages[1].visual:
         broken.pages[1].visual.source_notes = []
@@ -267,12 +268,14 @@ def test_premium_storyboard_quality_blocks_thin_or_unsourced_pages():
 
     assert broken_quality["ready"] is False
     assert {issue["code"] for issue in broken_quality["issues"]} >= {
+        "storyboard_placeholder_content",
         "storyboard_page_narrative_too_thin",
         "storyboard_page_visual_without_source",
     }
     plan = broken_quality["remediation_plan"]
     assert plan
     assert {item["issue_code"] for item in plan} >= {
+        "storyboard_placeholder_content",
         "storyboard_page_narrative_too_thin",
         "storyboard_page_visual_without_source",
     }

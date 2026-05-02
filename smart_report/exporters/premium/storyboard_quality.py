@@ -21,6 +21,16 @@ FORBIDDEN_CLIENT_SURFACE_TERMS = (
     "\u041f\u043e\u0437\u0438\u0446\u0438\u044f \u0430\u0432\u0442\u043e\u0440\u0430",
 )
 
+PLACEHOLDER_CLIENT_CONTENT = (
+    "example.com",
+    "internal QA fixture",
+    "stub source",
+    "demo evidence",
+    "placeholder",
+    "Synthetic fixture",
+    "Forecast a market with scenario and risk recommendations",
+)
+
 DATA_VISUAL_TYPES = {
     "hero_kpi_strip",
     "ranking_bar",
@@ -132,6 +142,11 @@ def _storyboard_metrics(pages: list[PremiumPage]) -> dict[str, Any]:
             if page.visual and str(page.visual.visual_type) in DATA_VISUAL_TYPES
         }
     )
+    placeholder_pages = [
+        index
+        for index, page in enumerate(pages, start=1)
+        if _placeholder_hits("\n".join(_page_text_parts(page)))
+    ]
     return {
         "page_count": len(pages),
         "visual_pages": len(visual_pages),
@@ -144,6 +159,7 @@ def _storyboard_metrics(pages: list[PremiumPage]) -> dict[str, Any]:
             len(source_backed_visual_pages),
             len(data_visual_pages),
         ),
+        "placeholder_pages": placeholder_pages,
     }
 
 
@@ -185,6 +201,17 @@ def _check_page(index: int, page: PremiumPage, issues: list[dict[str, str]]) -> 
             )
         )
     page_text = "\n".join(_page_text_parts(page))
+    placeholder_hits = _placeholder_hits(page_text)
+    if placeholder_hits:
+        issues.append(
+            _issue(
+                "storyboard_placeholder_content",
+                "critical",
+                f"Page {index} contains placeholder/demo content: "
+                + ", ".join(placeholder_hits[:5]),
+                "Replace demo prompts, fake URLs, and synthetic fixture labels with client evidence.",
+            )
+        )
     for term in FORBIDDEN_CLIENT_SURFACE_TERMS:
         if term in page_text:
             issues.append(
@@ -257,6 +284,17 @@ def _plain(value: object) -> str:
     return " ".join(str(value or "").split())
 
 
+def _placeholder_hits(text: str) -> list[str]:
+    lowered = text.lower()
+    return sorted(
+        {
+            pattern
+            for pattern in PLACEHOLDER_CLIENT_CONTENT
+            if pattern.lower() in lowered
+        }
+    )
+
+
 def _ratio(numerator: int, denominator: int) -> float:
     if denominator <= 0:
         return 0.0
@@ -309,6 +347,15 @@ def _remediation_for_issue(
         "acceptance_criteria": [issue["message"]],
     }
     plans: dict[str, dict[str, Any]] = {
+        "storyboard_placeholder_content": {
+            "priority": 5,
+            "action": "Replace demo prompts, fake URLs, and synthetic fixture labels with real client evidence and publication-safe wording.",
+            "target": "source_integrity",
+            "artifact": "client_ready_storyboard",
+            "acceptance_criteria": ["placeholder_pages == []"],
+            "current_value": metrics.get("placeholder_pages"),
+            "target_value": [],
+        },
         "storyboard_too_short": {
             "priority": 10,
             "action": "Добавить авторские страницы, чтобы в отчете было не менее 8 содержательных страниц.",
