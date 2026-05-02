@@ -57,6 +57,15 @@ _RU_RE_MARKERS: tuple[str, ...] = (
     "ипотек", "крт", "элитн", "первичк", "вторичк",
 )
 
+_RU_RE_EN_MARKERS: tuple[str, ...] = (
+    "moscow real estate",
+    "moscow primary real estate",
+    "moscow housing",
+    "moscow new-build",
+    "russian real estate",
+    "russia real estate",
+)
+
 _RU_AUTOMOTIVE_MARKERS: tuple[str, ...] = (
     "электромобил", "автомобил", "автопром", "автоваз", "лада",
     "москвич", "evolute", "ev ", "локализаци",
@@ -106,6 +115,8 @@ def detect_query_domain(query: str) -> QueryDomain:
     q_lower = query.lower()
     has_cyrillic = bool(_RE_CYRILLIC.search(query))
 
+    if _any_marker(q_lower, _RU_RE_EN_MARKERS):
+        return QueryDomain.RU_REAL_ESTATE
     if has_cyrillic and _any_marker(q_lower, _RU_RE_MARKERS):
         return QueryDomain.RU_REAL_ESTATE
     if has_cyrillic and _any_marker(q_lower, _RU_AUTOMOTIVE_MARKERS):

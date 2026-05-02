@@ -144,6 +144,26 @@ def test_depth_plan_adds_authority_source_lead_when_source_base_is_weak():
     assert "cbr.ru" in authority[0].candidate_sources
 
 
+def test_depth_plan_adds_required_source_family_lead_when_policy_fails():
+    report = _report("Forecast Moscow primary real estate prices")
+    report.all_sources = [
+        Source(title="Generic market note", url="https://example.com/market", reliability="medium")
+    ]
+
+    plan = build_analytic_depth_plan(
+        "Forecast Moscow primary real estate prices",
+        analysis=_analysis(),
+        report=report,
+    )
+
+    family = [lead for lead in plan.research_leads if lead.id == "required_source_families"]
+    assert family
+    assert family[0].priority == "must"
+    assert "Missing families" in family[0].prompt
+    assert "source_family:cbr" in family[0].linked_to
+    assert "rosstat.gov.ru" in family[0].candidate_sources
+
+
 def test_depth_plan_skips_authority_source_lead_when_source_base_is_strong():
     report = _report("Forecast Moscow primary real estate prices")
     report.all_sources = [

@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .evidence_audit import assess_evidence_support
 from .models import AnalysisOutput, FinalReport, NumericFact, UnverifiedNumber
-from .research_policy import recommended_service_for_policy
+from .research_policy import assess_research_policy, recommended_service_for_policy
 from .source_authority import count_authoritative_sources
 
 
@@ -354,6 +354,9 @@ def _research_leads(
     authority_lead = _authority_lead(question, domain_hint=domain_hint, report=report)
     if authority_lead is not None:
         leads.append(authority_lead)
+    source_family_lead = _missing_source_family_lead(question, domain_hint=domain_hint, report=report)
+    if source_family_lead is not None:
+        leads.append(source_family_lead)
     leads.extend(_unsupported_claim_leads(domain_hint=domain_hint, analysis=analysis, report=report))
     if analysis is not None:
         for i, gap in enumerate(analysis.gaps, start=1):
@@ -560,6 +563,74 @@ def _authority_candidate_sources(domain_hint: str) -> list[str]:
     if domain_hint == "scientific":
         return ["peer-reviewed journals", "arxiv.org with peer-reviewed follow-up", "official benchmark datasets"]
     return ["official statistics", "regulatory sources", "primary company documents", "top-tier research reports"]
+
+
+def _missing_source_family_lead(
+    question: str,
+    *,
+    domain_hint: str,
+    report: FinalReport | None,
+) -> ResearchLead | None:
+    if report is None:
+        return None
+    policy = assess_research_policy(question, report)
+    if not policy.missing_source_families:
+        return None
+    missing = policy.missing_source_families
+    candidate_sources = _source_family_candidates(missing, domain_hint)
+    return ResearchLead(
+        id="required_source_families",
+        kind="strengthen_source_base",
+        priority="must",
+        prompt=(
+            f"Close required source-family coverage for this report question: {question}. "
+            f"Missing families: {', '.join(missing)}. For each missing family, find at least "
+            "one authoritative source directly relevant to the conclusion, extract the exact "
+            "fact it supports, record publication date/period, URL, and state whether it "
+            "supports, qualifies, or contradicts the current report."
+        ),
+        rationale=(
+            "A report can have many links and still fail if the domain-critical source families "
+            "are absent. This lead prevents generic source padding from passing quality gates."
+        ),
+        target_entities=missing,
+        candidate_sources=candidate_sources,
+        recommended_service=_service_for(domain_hint, candidate_sources),
+        recommended_mode=_mode_for("strengthen_source_base", domain_hint),
+        linked_to=[f"source_family:{family}" for family in missing],
+    )
+
+
+def _source_family_candidates(missing_families: list[str], domain_hint: str) -> list[str]:
+    by_family = {
+        "cbr": ["cbr.ru/statistics", "cbr.ru/press/keypr"],
+        "domrf": ["xn--d1aqf.xn--p1ai", "dom.rf/analytics"],
+        "rosstat": ["rosstat.gov.ru"],
+        "erz": ["erzrf.ru"],
+        "mos": ["mos.ru", "stroi.mos.ru"],
+        "europa": ["europa.eu"],
+        "commission": ["ec.europa.eu"],
+        "parliament": ["europarl.europa.eu"],
+        "legal_text": ["eur-lex.europa.eu"],
+        "minpromtorg": ["minpromtorg.gov.ru"],
+        "autostat": ["autostat.ru"],
+        "aeb": ["aebrus.ru"],
+        "company": ["official company reports", "investor relations"],
+        "market": ["industry association reports", "market research portals"],
+        "regulatory": ["official regulator portals", "government portals"],
+        "academic": ["pubmed.ncbi.nlm.nih.gov", "semanticscholar.org", "arxiv.org"],
+        "vendor_docs": ["official vendor documentation"],
+        "benchmark": ["official benchmark datasets", "peer-reviewed benchmark papers"],
+        "github": ["github.com"],
+        "primary": ["official statistics", "regulatory portals", "company filings"],
+        "industry": ["industry association reports"],
+    }
+    candidates: list[str] = []
+    for family in missing_families:
+        candidates.extend(by_family.get(family, []))
+    if not candidates:
+        candidates.extend(_authority_candidate_sources(domain_hint))
+    return list(dict.fromkeys(candidates))
 
 
 def _unsupported_claim_leads(

@@ -29,3 +29,17 @@ def test_research_policy_routes_academic_queries_to_paper_search():
     )
 
     assert service == "paper_search"
+
+
+def test_research_policy_treats_english_moscow_real_estate_as_ru_domain():
+    report = FinalReport(
+        session_id="rp-en",
+        question="Forecast Moscow primary real estate prices",
+        executive_summary=ExecutiveSummaryV4(main_answer="Answer."),
+        all_sources=[Source(title="Generic source", url="https://example.com")],
+    )
+
+    assessment = assess_research_policy(report.question, report)
+
+    assert assessment.domain == "ru_real_estate"
+    assert "cbr" in assessment.required_source_families
