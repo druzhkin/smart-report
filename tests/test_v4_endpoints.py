@@ -1500,6 +1500,80 @@ def test_premium_refine_resubmits_partial_lead_before_synthesis(monkeypatch):
     assert body["submitted_leads"][0]["lead_id"] == "required_source_families"
 
 
+def test_premium_refine_stops_when_partial_lead_reaches_attempt_limit(monkeypatch):
+    from smart_report.analytic_depth import build_analytic_depth_plan
+    from smart_report.models import AnalysisOutput, ExecutiveSummaryV4, FinalReport, Source, UploadedMarkdown
+    from smart_report.sources import auto_dr as auto_dr_mod
+
+    async def _unexpected_submit(*args, **kwargs):
+        raise AssertionError("partial lead should not be resubmitted after max attempts")
+
+    monkeypatch.setattr(auto_dr_mod, "submit_async_research", _unexpected_submit)
+
+    client = _authed_client()
+    sid = client.post(
+        "/api/v4/sessions",
+        json={"question": "Forecast Moscow primary real estate prices"},
+    ).json()["session_id"]
+    session = v4._store.get(sid)
+    session.analysis = AnalysisOutput()
+    session.final_report = FinalReport(
+        session_id=sid,
+        question=session.raw_question,
+        executive_summary=ExecutiveSummaryV4(main_answer="Answer."),
+        all_sources=[Source(title="Generic", url="https://example.com")],
+    )
+    plan = build_analytic_depth_plan(
+        session.raw_question,
+        analysis=session.analysis,
+        report=session.final_report,
+        max_research_leads=6,
+    )
+    assert any(lead.id == "required_source_families" for lead in plan.research_leads)
+    session.followup_reports = [
+        UploadedMarkdown(
+            filename="auto_followup_openai_authority.md",
+            content=(
+                "Smart Report analytic-depth lead: authority_sources\n\n"
+                "According to source URLs https://cbr.ru/statistics, "
+                "https://xn--d1aqf.xn--p1ai and https://mos.ru, the relevant indicator is 15.5%."
+            ),
+            detected_tool="other",
+            word_count=20,
+        ),
+    ] + [
+        UploadedMarkdown(
+            filename=f"auto_followup_openai_required_{idx}.md",
+            content=(
+                "Smart Report analytic-depth lead: required_source_families\n\n"
+                "CBR https://cbr.ru/statistics gives 15.5%, but other families are not covered."
+            ),
+            detected_tool="other",
+            word_count=16,
+        )
+        for idx in range(3)
+    ]
+    v4._store.update(session)
+
+    status = client.get(f"/api/v4/sessions/{sid}/premium-refinement-status")
+    assert status.status_code == 200, status.text
+    status_body = status.json()
+    lead = next(item for item in status_body["next_research_leads"] if item["lead_id"] == "required_source_families")
+    assert lead["attempt_count"] == 3
+    assert lead["attempts_remaining"] == 0
+    assert lead["stop_reason"] == "max_attempts_reached"
+
+    r = client.post(
+        f"/api/v4/sessions/{sid}/premium-refine",
+        json={"max_leads": 1, "service_override": "openai", "mode_override": "mini"},
+    )
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["action"] == "ready_or_blocked"
+    assert "max_attempts_per_lead" in body["message"]
+
+
 def test_premium_refine_submits_open_analytic_depth_leads(monkeypatch):
     from smart_report.models import AnalysisOutput, Gap
     from smart_report.sources import auto_dr as auto_dr_mod

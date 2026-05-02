@@ -982,6 +982,7 @@ class AutoDepthLeadsIn(BaseModel):
     include_priority: Literal["must", "should", "could", "all"] = "must"
     service_override: Literal["valyu", "tavily", "exa", "paper_search", "openai", "perplexity"] | None = None
     mode_override: str | None = Field(default=None, max_length=64)
+    max_attempts_per_lead: int = Field(default=3, ge=1, le=5)
 
 
 class AutoDepthLeadOut(BaseModel):
@@ -1006,6 +1007,7 @@ class PremiumRefineIn(BaseModel):
     include_priority: Literal["must", "should", "could", "all"] = "must"
     service_override: Literal["valyu", "tavily", "exa", "paper_search", "openai", "perplexity"] | None = None
     mode_override: str | None = Field(default=None, max_length=64)
+    max_attempts_per_lead: int = Field(default=3, ge=1, le=5)
     model_preference: str | None = Field(default=None, max_length=64)
     auto_synthesize: bool = True
 
@@ -1062,7 +1064,17 @@ def _async_service_for_lead(lead, domain_hint: str, override: str | None) -> str
     return "perplexity"
 
 
-def _next_research_leads_preview(plan: AnalyticDepthPlan, closure, *, limit: int = 5) -> list[dict]:
+_DEFAULT_LEAD_MAX_ATTEMPTS = 3
+
+
+def _next_research_leads_preview(
+    plan: AnalyticDepthPlan,
+    closure,
+    *,
+    session: V4Session | None = None,
+    max_attempts_per_lead: int = _DEFAULT_LEAD_MAX_ATTEMPTS,
+    limit: int = 5,
+) -> list[dict]:
     closure_by_id = {
         item.lead_id: item
         for item in getattr(closure, "lead_closures", []) or []
@@ -1075,12 +1087,18 @@ def _next_research_leads_preview(plan: AnalyticDepthPlan, closure, *, limit: int
         status = getattr(lead_closure, "status", "not_started") if lead_closure else "not_started"
         if status == "closed":
             continue
+        attempt_count = _lead_attempt_count(session, lead.id) if session is not None else 0
+        attempts_remaining = max(0, max_attempts_per_lead - attempt_count)
         previews.append(
             {
                 "lead_id": lead.id,
                 "kind": lead.kind,
                 "priority": lead.priority,
                 "status": status,
+                "attempt_count": attempt_count,
+                "max_attempts": max_attempts_per_lead,
+                "attempts_remaining": attempts_remaining,
+                "stop_reason": "max_attempts_reached" if attempts_remaining <= 0 else "",
                 "service": _async_service_for_lead(lead, plan.domain_hint, None),
                 "mode": lead.recommended_mode or "standard",
                 "candidate_sources": list(lead.candidate_sources[:4]),
@@ -1107,6 +1125,23 @@ def _closure_by_lead_id(closure) -> dict[str, str]:
         item.lead_id: item.status
         for item in getattr(closure, "lead_closures", []) or []
     }
+
+
+def _lead_attempt_count(session: V4Session | None, lead_id: str) -> int:
+    if session is None or not lead_id:
+        return 0
+    marker = f"smart report analytic-depth lead: {lead_id.lower()}"
+    count = 0
+    for report in session.followup_reports or []:
+        content = (report.content or "").lower()
+        filename = (report.filename or "").lower()
+        if marker in content or lead_id.lower() in filename:
+            count += 1
+    for job in session.pending_dr_jobs or []:
+        meta = job.get("analytic_depth") or {}
+        if str(meta.get("lead_id") or "") == lead_id:
+            count += 1
+    return count
 
 
 def _clip_text(value: str, limit: int) -> str:
@@ -1180,6 +1215,8 @@ async def _submit_analytic_depth_leads(
         if not _lead_priority_allowed(lead.priority, payload.include_priority):
             continue
         if closure_status.get(lead.id) == "closed":
+            continue
+        if _lead_attempt_count(session, lead.id) >= payload.max_attempts_per_lead:
             continue
         leads.append(lead)
         if len(leads) >= payload.max_leads:
@@ -2122,7 +2159,7 @@ def _build_premium_refinement_status(session: V4Session) -> PremiumRefinementSta
         ).model_dump()
 
     closure_dict = closure.model_dump(mode="json")
-    next_research_leads = _next_research_leads_preview(plan, closure)
+    next_research_leads = _next_research_leads_preview(plan, closure, session=session)
     if pending_followups:
         return PremiumRefinementStatusOut(
             recommended_action="wait_for_followups",
@@ -2146,6 +2183,18 @@ def _build_premium_refinement_status(session: V4Session) -> PremiumRefinementSta
         )
     open_leads = _open_analytic_lead_count(closure)
     if open_leads:
+        if next_research_leads and all(item.get("stop_reason") for item in next_research_leads):
+            return PremiumRefinementStatusOut(
+                recommended_action="inspect_blockers",
+                message=(
+                    "Priority analytic-depth leads remain open, but automatic retry limit "
+                    "has been reached. Inspect blockers or raise max_attempts_per_lead."
+                ),
+                final_report_needs_followup_resynthesis=needs_resynthesis,
+                analytic_closure=closure_dict,
+                premium_readiness=readiness,
+                next_research_leads=next_research_leads,
+            )
         return PremiumRefinementStatusOut(
             recommended_action="submit_followups",
             message=f"{open_leads} priority analytic-depth lead(s) still need follow-up evidence.",
@@ -2260,6 +2309,26 @@ async def premium_refine(
                 submitted_leads=submitted,
                 analytic_closure=closure.model_dump(mode="json"),
             )
+        readiness = None
+        if session.final_report is not None:
+            report_for_readiness = sanitize_final_report(session.final_report)
+            readiness = assess_premium_readiness(
+                report_for_readiness,
+                analysis=session.analysis,
+                depth_plan=plan,
+                closure_report=closure,
+                evidence_audit=assess_evidence_support(report_for_readiness, session.analysis),
+                adjudication_audit=assess_adjudication_quality(report_for_readiness, session.analysis),
+            ).model_dump()
+        return PremiumRefineOut(
+            action="ready_or_blocked",
+            message=(
+                "Open analytic-depth lead(s) remain, but no lead is eligible for automatic "
+                "retry under the current max_attempts_per_lead guardrail."
+            ),
+            analytic_closure=closure.model_dump(mode="json"),
+            premium_readiness=readiness,
+        )
 
     running_synth = _has_running_long_task(session, "synthesize")
     if running_synth:
