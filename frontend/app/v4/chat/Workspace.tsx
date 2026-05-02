@@ -4040,6 +4040,18 @@ export default function Workspace() {
                   </a>
                   <a
                     className="export-item"
+                    href={`/api/v4/sessions/${sessionId}/export?format=premium-carbone-pdf&allow_draft=true`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => setExportOpen(false)}
+                  >
+                    <span className="export-text">
+                      <span className="export-name">Carbone Premium PDF</span>
+                      <span className="export-meta">.pdf</span>
+                    </span>
+                  </a>
+                  <a
+                    className="export-item"
                     href={`/api/v4/sessions/${sessionId}/export?format=premium-pptx&allow_draft=true`}
                     target="_blank"
                     rel="noopener noreferrer"
