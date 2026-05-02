@@ -25,7 +25,7 @@ from smart_report.models import (
 def _report() -> FinalReport:
     return FinalReport(
         session_id="premium-artifact-qa",
-        question="Forecast a market with scenario and risk recommendations",
+        question="Evaluate premium residential demand in Moscow for 2026-2027",
         executive_summary=ExecutiveSummaryV4(
             main_answer="Base case is moderate growth with material downside triggers.",
             top_findings=["Demand is rate-sensitive.", "Supply remains constrained."],
@@ -37,8 +37,8 @@ def _report() -> FinalReport:
         conflicts_section="Sources disagree on timing.",
         gaps_filled_section="Project-level microdata remains unavailable.",
         all_sources=[
-            Source(title="Official source", url="https://example.com/official", reliability="high"),
-            Source(title="Industry source", url="https://example.com/industry", reliability="medium"),
+            Source(title="Official source", url="https://cbr.ru/statistics/", reliability="high"),
+            Source(title="Industry source", url="https://erzrf.ru/analytics/", reliability="medium"),
         ],
     )
 
@@ -51,7 +51,7 @@ def _analysis() -> AnalysisOutput:
             metric="growth",
             subject="market",
             relevance_to_question="high",
-            sources=[SourceRef(url="https://example.com/official", title="Official")],
+            sources=[SourceRef(url="https://cbr.ru/statistics/", title="Official")],
         )
         for idx in range(1, 8)
     ]
@@ -222,6 +222,35 @@ def test_premium_artifact_qa_rejects_landscape_pdf(tmp_path):
     pdf_result = next(item for item in report["results"] if item["kind"] == "pdf")
     assert pdf_result["metrics"]["landscape_pages"]
     assert any("landscape" in issue for issue in pdf_result["issues"])
+
+
+def test_premium_artifact_qa_rejects_placeholder_pdf_content(tmp_path):
+    pytest.importorskip("reportlab")
+    pytest.importorskip("pypdf")
+
+    from reportlab.lib.pagesizes import letter
+    from reportlab.pdfgen import canvas
+
+    pdf_path = tmp_path / "placeholder_report.pdf"
+    c = canvas.Canvas(str(pdf_path), pagesize=letter)
+    body = (
+        "This page has real-looking narrative density, a supporting exhibit, and a source note, "
+        "but the source URL is a placeholder and must block client delivery. "
+    )
+    for page in range(20):
+        c.drawString(48, 740, "SMART REPORT | Publication-grade PDF")
+        c.drawString(48, 712, f"EXHIBIT {page + 1}: Source: https://example.com/source")
+        c.drawString(48, 684, body)
+        c.drawString(48, 664, body)
+        c.showPage()
+    c.save()
+
+    report = run_qa(pdf_path=pdf_path, out_dir=tmp_path, render=False)
+
+    assert report["status"] == "failed"
+    pdf_result = next(item for item in report["results"] if item["kind"] == "pdf")
+    assert "example.com" in pdf_result["metrics"]["placeholder_content_hits"]
+    assert any("placeholder or demo content" in issue for issue in pdf_result["issues"])
 
 
 def test_premium_artifact_qa_reports_missing_render_tools(monkeypatch, premium_artifacts, tmp_path):

@@ -34,6 +34,15 @@ INTERNAL_MARKERS = (
 
 DOCX_NARRATIVE_MIN_CHARS = 1800
 DOCX_MAX_PARAGRAPH_CHARS = 650
+PDF_THIN_PAGE_MIN_CHARS = 180
+PLACEHOLDER_CONTENT_PATTERNS = (
+    "example.com",
+    "internal QA fixture",
+    "stub source",
+    "demo evidence",
+    "placeholder",
+    "Forecast a market with scenario and risk recommendations",
+)
 SOURCE_REFERENCE_RE = re.compile(
     r"https?://|www\.|(?:^|[^A-Za-z])doi[:/ ]|\b[\w.-]+\.(?:com|ru|org|net|io|gov|edu|рф)\b",
     re.IGNORECASE,
@@ -256,10 +265,18 @@ def _inspect_pdf(path: Path) -> ArtifactQaResult:
         reader = PdfReader(str(path))
         page_count = len(reader.pages)
         page_texts = [(page.extract_text() or "") for page in reader.pages]
+        full_text = "\n".join(page_texts)
         sample_text = "\n".join(
             page_texts[: min(page_count, 6)]
         )
         page_char_counts = [len(text.strip()) for text in page_texts]
+        placeholder_hits = sorted(
+            {
+                pattern
+                for pattern in PLACEHOLDER_CONTENT_PATTERNS
+                if pattern.lower() in full_text.lower()
+            }
+        )
         landscape_pages = []
         thin_pages = []
         max_text_only_streak = 0
@@ -270,7 +287,7 @@ def _inspect_pdf(path: Path) -> ArtifactQaResult:
             if width > height:
                 landscape_pages.append(idx)
             # Skip the cover for density checks: a publication cover can be sparse.
-            if idx > 1 and page_char_counts[idx - 1] < 120:
+            if idx > 1 and page_char_counts[idx - 1] < PDF_THIN_PAGE_MIN_CHARS:
                 thin_pages.append(idx)
             if idx > 1 and page_char_counts[idx - 1] > 900:
                 current_text_only_streak += 1
@@ -285,12 +302,13 @@ def _inspect_pdf(path: Path) -> ArtifactQaResult:
             "landscape_pages": landscape_pages,
             "thin_pages_after_cover": thin_pages,
             "max_dense_text_streak_after_cover": max_text_only_streak,
+            "placeholder_content_hits": placeholder_hits,
             "has_cover_brand": "SMART REPORT" in sample_text,
             "has_publication_marker": "Publication-grade PDF" in sample_text,
             "has_exhibit_pages": "EXHIBIT" in sample_text,
             "has_source_notes": "Source:" in sample_text or "Источник:" in sample_text,
         }
-        _add_common_content_issues(result, sample_text)
+        _add_common_content_issues(result, full_text)
         _require_metric(result, "pages", 20, "PDF has too few pages for a publication-grade report.")
         _require_metric(result, "text_chars_sample", 500, "PDF text extraction sample is too thin.")
         for key, message in {
@@ -305,6 +323,11 @@ def _inspect_pdf(path: Path) -> ArtifactQaResult:
             result.issues.append(
                 "PDF contains landscape page(s); publication report must be portrait: "
                 + ", ".join(str(page) for page in landscape_pages[:10])
+            )
+        if placeholder_hits:
+            result.issues.append(
+                "PDF contains placeholder or demo content that cannot be delivered to a client: "
+                + ", ".join(placeholder_hits[:10])
             )
         if thin_pages:
             result.issues.append(
