@@ -3847,6 +3847,18 @@ export default function Workspace() {
                   </a>
                   <a
                     className="export-item"
+                    href={`/api/v4/sessions/${sessionId}/export?format=premium-pdf&allow_draft=true`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => setExportOpen(false)}
+                  >
+                    <span className="export-text">
+                      <span className="export-name">Premium PDF</span>
+                      <span className="export-meta">.pdf</span>
+                    </span>
+                  </a>
+                  <a
+                    className="export-item"
                     href={`/api/v4/sessions/${sessionId}/export?format=premium-pptx&allow_draft=true`}
                     target="_blank"
                     rel="noopener noreferrer"

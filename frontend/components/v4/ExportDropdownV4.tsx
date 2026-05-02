@@ -26,6 +26,7 @@ const ITEMS: Item[] = [
   { fmt: "premium-package", label: "Премиальный черновик ZIP", Icon: Archive, accent: "text-[#B08D57]" },
   { fmt: "next-research-brief", label: "План добора MD", Icon: FileText, accent: "text-[#B08D57]" },
   { fmt: "premium-docx", label: "Премиальный отчёт DOCX", Icon: Sparkles, accent: "text-[#B08D57]" },
+  { fmt: "premium-pdf", label: "Премиальный PDF", Icon: FileDown, accent: "text-[#B08D57]" },
   { fmt: "premium-pptx", label: "Премиальная презентация PPTX", Icon: Presentation, accent: "text-[#B08D57]" },
   { fmt: "docx", label: "Клиентский отчёт DOCX", Icon: FileText, accent: "text-blue-600" },
   { fmt: "pptx", label: "Простая презентация PPTX", Icon: Presentation, accent: "text-orange-600" },
