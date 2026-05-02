@@ -22,6 +22,7 @@ from .events import EventEmitter, NullEmitter
 from .io import extract_json, load_prompt
 from .llm import LLMResult, call_json
 from .source_quality_classifier import classify_source_batch
+from .synthesis_remediator import remediate_final_report
 from .models import (
     AnalysisOutput,
     CalloutBlock,
@@ -105,6 +106,7 @@ async def synthesize_final_report(
         system=system, user=user, log_dir=log_dir, mock=mock, model=model
     )
     final = _coerce_final_report(data, session=session)
+    final = remediate_final_report(final, analysis=session.analysis)
 
     em.emit(
         "synthesizer",

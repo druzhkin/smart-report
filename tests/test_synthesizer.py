@@ -16,7 +16,9 @@ from smart_report.models import (
     FinalReport,
     FollowupPrompt,
     Gap,
+    NumericFact,
     ResearchPrompt,
+    SourceRef,
     UploadedMarkdown,
     V4Session,
 )
@@ -222,3 +224,74 @@ async def test_synthesizer_rejects_empty_sources():
     session.source_reports = []
     with pytest.raises(ValueError):
         await synthesize_final_report(session)  # raises before LLM call
+
+
+@pytest.mark.asyncio
+async def test_synthesizer_remediates_thin_llm_output(monkeypatch):
+    thin = {
+        "session_id": "ignored",
+        "question": "Will the market rise?",
+        "executive_summary": {
+            "main_answer": "The market is likely to rise, but uncertainty remains.",
+            "top_findings": [
+                "Demand is stronger than supply.",
+                "Rates remain the main risk.",
+                "Source quality is mixed.",
+            ],
+            "key_numbers": [
+                {
+                    "value": "12%",
+                    "metric": "price growth",
+                    "subject": "baseline scenario",
+                    "source_url": "https://example.com/source",
+                }
+            ],
+        },
+        "main_synthesis": "Short output.",
+        "all_sources": [
+            {
+                "title": "Primary source",
+                "url": "https://example.com/source",
+                "tool": "paper_search_mcp:arxiv",
+                "reliability": "high",
+            }
+        ],
+        "tables": [],
+        "charts": [],
+        "callouts": [],
+        "key_numbers_highlight": [],
+    }
+
+    async def _stub(*args, **kwargs):
+        return LLMResult(text=json.dumps(thin, ensure_ascii=False), cost_rub=0.0)
+
+    monkeypatch.setattr(synth_module, "call_json", _stub)
+    session = _session_with_analysis()
+    session.analysis.all_numeric_facts = [
+        NumericFact(
+            fact_id="f1",
+            value="12%",
+            metric="price growth",
+            subject="baseline scenario",
+            timeframe="2026",
+            relevance_to_question="high",
+            sources=[
+                SourceRef(
+                    title="Primary source",
+                    url="https://example.com/source",
+                    confidence="primary",
+                )
+            ],
+        )
+    ]
+    session.analysis.high_relevance_facts = list(session.analysis.all_numeric_facts)
+
+    final, _ = await synthesize_final_report(session)
+
+    assert len(final.main_synthesis) >= 1000
+    assert len(final.tables) >= 3
+    assert len(final.charts) >= 3
+    assert len(final.callouts) >= 3
+    assert len(final.key_numbers_highlight) >= 1
+    assert "[REF:https://example.com/source]" in final.executive_summary.main_answer
+    assert final.metadata["synthesis_remediation_applied"] is True
