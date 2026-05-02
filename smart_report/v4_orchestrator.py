@@ -23,7 +23,6 @@ from .events import EventEmitter, NullEmitter
 from .models import (
     AnalysisOutput,
     FinalReport,
-    NormalizedReport,
     ResearchPrompt,
     UploadedMarkdown,
     V4Session,
@@ -39,7 +38,7 @@ from .prompt_master import generate_research_prompt
 from .research_policy import assess_research_policy
 from .domain_detector import QueryDomain, detect_query_domain
 from .gap_detector import detect_gaps, gap_count_by_severity
-from .synthesis_critic import ConsistencyReport, validate_consistency
+from .synthesis_critic import validate_consistency
 from .synthesizer import full_report_text, synthesize_final_report
 from .i18n import lint_output_language
 
@@ -176,7 +175,7 @@ class V4Orchestrator:
 
         print(
             f"[orch-analyze] session={session_id} starting; sources={len(session.source_reports)} "
-            f"(normalize → analyzer LLM → followup_prompt)",
+            f"(normalize -> analyzer LLM -> followup_prompt)",
             flush=True,
         )
         initial_depth = build_analytic_depth_plan(session.raw_question)
@@ -255,7 +254,7 @@ class V4Orchestrator:
         await asyncio.to_thread(self.store.update, session)
         print(
             f"[orch-analyze] session={session_id} store.update OK; "
-            f"accumulating cost ₽{cost_rub:.2f}",
+            f"accumulating cost RUB {cost_rub:.2f}",
             flush=True,
         )
         session = await self._accumulate_cost(session, cost_rub)

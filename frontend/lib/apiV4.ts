@@ -1260,6 +1260,39 @@ export type ResearchPolicyOut = {
   issues: string[];
 };
 
+export type ResearchBriefOut = {
+  score: number;
+  passed: boolean;
+  verdict: "ready_for_synthesis" | "needs_followup" | "blocked";
+  domain: string;
+  recommended_services: string[];
+  source_mix: {
+    total_sources: number;
+    primary_like_sources: number;
+    academic_sources: number;
+    official_sources: number;
+    industry_sources: number;
+    weak_sources: number;
+    domains: Record<string, number>;
+  };
+  freshness: {
+    total_numeric_facts: number;
+    high_relevance_numeric_facts: number;
+    dated_or_unknown_facts: number;
+    recent_or_current_facts: number;
+  };
+  counter_evidence: {
+    conflict_count: number;
+    critical_conflict_count: number;
+    gap_count: number;
+    unverified_number_count: number;
+    counter_evidence_present: boolean;
+  };
+  visual_plan: { kind: string; title: string; reason: string; ready: boolean; required_inputs: string[] }[];
+  evidence_to_claim_map: { target: string; available_evidence_count: number; source_refs: string[]; ready: boolean }[];
+  issues: { code: string; severity: "critical" | "major" | "minor"; message: string; recommendation: string }[];
+};
+
 export type PagePlanOut = {
   summary: {
     page_count: number;
@@ -1370,6 +1403,10 @@ export async function getEvidenceGraph(id: string): Promise<EvidenceGraphOut> {
 
 export async function getResearchPolicy(id: string): Promise<ResearchPolicyOut> {
   return jv4<ResearchPolicyOut>(`/api/v4/sessions/${encodeURIComponent(id)}/research-policy`);
+}
+
+export async function getResearchBrief(id: string): Promise<ResearchBriefOut> {
+  return jv4<ResearchBriefOut>(`/api/v4/sessions/${encodeURIComponent(id)}/research-brief`);
 }
 
 export async function getPagePlan(id: string): Promise<PagePlanOut> {

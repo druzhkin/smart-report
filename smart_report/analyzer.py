@@ -32,6 +32,7 @@ from .models import (
     UnverifiedNumber,
     UploadedMarkdown,
 )
+from .research_brief import evaluate_research_brief
 
 
 # v4.5 bakeoff: Opus 4.7 is the only analyzer model above the 70 floor (scores 90/100).
@@ -87,19 +88,27 @@ async def analyze_reports(
     )
     print(
         f"[analyzer-post] LLM returned dict_keys={list(data.keys())[:6] if isinstance(data, dict) else type(data).__name__} "
-        f"coercing → AnalysisOutput",
+        f"coercing to AnalysisOutput",
         flush=True,
     )
 
     out = _coerce_analysis(data)
     print(
         f"[analyzer-post] coerced: consensus={len(out.consensus)} conflicts={len(out.conflicts)} "
-        f"gaps={len(out.gaps)} unverified={len(out.unverified_numbers)} → aggregating facts",
+        f"gaps={len(out.gaps)} unverified={len(out.unverified_numbers)}; aggregating facts",
         flush=True,
     )
 
     # v4.5: aggregate facts from NormalizedReports (if intake was run)
     out = _aggregate_facts(out, normalized_reports or [])
+    brief = evaluate_research_brief(
+        q,
+        research_prompt=research_prompt,
+        source_reports=source_reports,
+        normalized_reports=normalized_reports or [],
+        analysis=out,
+    )
+    out.quality_notes = _merge_quality_notes(out.quality_notes, brief)
     print(
         f"[analyzer-post] facts aggregated; about to emit 'Анализ готов'",
         flush=True,
@@ -118,10 +127,28 @@ async def analyze_reports(
             "all_numeric_facts": len(out.all_numeric_facts),
             "high_relevance_facts": len(out.high_relevance_facts),
             "fact_coverage_target": out.fact_coverage_target,
+            "research_brief_score": brief.score,
+            "research_brief_verdict": brief.verdict,
             "cost_rub": cost_rub,
         },
     )
     return out, cost_rub
+
+
+def _merge_quality_notes(notes: str, brief) -> str:
+    payload = {
+        "research_brief_score": brief.score,
+        "research_brief_verdict": brief.verdict,
+        "research_brief_issues": [
+            issue.model_dump(mode="json") for issue in brief.issues
+        ],
+        "visual_plan_ready": sum(1 for item in brief.visual_plan if item.ready),
+        "evidence_to_claim_ready": sum(
+            1 for item in brief.evidence_to_claim_map if item.ready
+        ),
+    }
+    prefix = f"RESEARCH_BRIEF={json.dumps(payload, ensure_ascii=False)}"
+    return f"{prefix}\n{notes}".strip() if notes else prefix
 
 
 def _build_user_message(

@@ -90,6 +90,7 @@ from ..models import (
     V4Session,
 )
 from ..quality_contract import build_execution_trace, evaluate_enterprise_quality
+from ..research_brief import evaluate_research_brief
 from ..v4_orchestrator import V4Orchestrator, V4SessionStore
 from ..visual_review import build_visual_review_gate
 
@@ -1782,6 +1783,27 @@ async def synthesize(
             status_code=400,
             detail="analyze must run before synthesize",
         )
+    brief = evaluate_research_brief(
+        session.raw_question,
+        research_prompt=session.research_prompt,
+        source_reports=session.source_reports,
+        normalized_reports=session.normalized_reports,
+        analysis=session.analysis,
+    )
+    _SessionEmitter(session_id).emit(
+        "analyzer",
+        "Research brief gate evaluated before synthesis",
+        data={
+            "score": brief.score,
+            "verdict": brief.verdict,
+            "passed": brief.passed,
+            "issues": [issue.model_dump(mode="json") for issue in brief.issues[:5]],
+            "ready_visuals": sum(1 for item in brief.visual_plan if item.ready),
+            "ready_claim_maps": sum(
+                1 for item in brief.evidence_to_claim_map if item.ready
+            ),
+        },
+    )
     model_preference = payload.model_preference if payload else None
     orch = V4Orchestrator(_store, emitter=_SessionEmitter(session_id))
     return _start_long_task(
@@ -2519,6 +2541,18 @@ async def get_enterprise_quality_contract(session_id: str, request: Request) -> 
 async def get_execution_trace(session_id: str, request: Request) -> dict:
     session = _get_owned(session_id, request)
     return build_execution_trace(session).model_dump(mode="json")
+
+
+@router.get("/sessions/{session_id}/research-brief")
+async def get_research_brief_quality(session_id: str, request: Request) -> dict:
+    session = _get_owned(session_id, request)
+    return evaluate_research_brief(
+        session.raw_question,
+        research_prompt=session.research_prompt,
+        source_reports=session.source_reports,
+        normalized_reports=session.normalized_reports,
+        analysis=session.analysis,
+    ).model_dump(mode="json")
 
 
 @router.get("/renderers")

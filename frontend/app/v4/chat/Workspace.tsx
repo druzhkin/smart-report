@@ -43,6 +43,7 @@ import {
   getBenchmarkEval,
   getConsultingEval,
   getEnterpriseQuality,
+  getResearchBrief,
   getRendererStatus,
   getStructuredReportSource,
   patchStructuredReportSource,
@@ -53,6 +54,7 @@ import {
   type BenchmarkEvalOut,
   type ConsultingEvalOut,
   type EnterpriseQualityOut,
+  type ResearchBriefOut,
   type RendererStatusOut,
   type PremiumRefinementStatusOut,
   type StructuredReportSourceOut,
@@ -192,6 +194,7 @@ export default function Workspace() {
   const [benchmarkEval, setBenchmarkEval] = useState<BenchmarkEvalOut | null>(null);
   const [consultingEval, setConsultingEval] = useState<ConsultingEvalOut | null>(null);
   const [enterpriseQuality, setEnterpriseQuality] = useState<EnterpriseQualityOut | null>(null);
+  const [researchBrief, setResearchBrief] = useState<ResearchBriefOut | null>(null);
   const [rendererStatus, setRendererStatus] = useState<RendererStatusOut | null>(null);
   const [premiumRefinementStatus, setPremiumRefinementStatus] =
     useState<PremiumRefinementStatusOut | null>(null);
@@ -634,6 +637,21 @@ export default function Workspace() {
       9000
     );
   }, [cost]);
+
+  // ===== Research brief =====
+  // Pre-synthesis gate: this grades whether the evidence package is ready
+  // before spending another model/export pass on a weak report.
+  useEffect(() => {
+    if (!sessionId || (!analysisData && !finalData)) {
+      setResearchBrief(null);
+      return;
+    }
+    let cancelled = false;
+    getResearchBrief(sessionId)
+      .then((r) => { if (!cancelled) setResearchBrief(r); })
+      .catch(() => { if (!cancelled) setResearchBrief(null); });
+    return () => { cancelled = true; };
+  }, [sessionId, analysisData, finalData]);
 
   // ===== Quality grade =====
   // Fetch only when we have a final report — pre-synth there's nothing
@@ -3492,6 +3510,41 @@ export default function Workspace() {
                         <span>policy <b>{benchmarkEval.research_policy_passed ? "ok" : "fail"}</b></span>
                         <span>pages <b>{benchmarkEval.page_plan_status}</b></span>
                       </div>
+                    </div>
+                  )}
+                  {researchBrief && (
+                    <div className={`quality-grade ${
+                      researchBrief.verdict === "ready_for_synthesis"
+                        ? "quality-grade--a"
+                        : researchBrief.verdict === "blocked"
+                          ? "quality-grade--c"
+                          : "quality-grade--b"
+                    }`}>
+                      <div className="quality-grade__head">
+                        <span className="quality-grade__label">Research brief</span>
+                        <span className="quality-grade__letter">{researchBrief.verdict}</span>
+                        <span className="quality-grade__score">{researchBrief.score}/100</span>
+                      </div>
+                      <div className="quality-grade__summary">
+                        sources {researchBrief.source_mix.primary_like_sources}/{researchBrief.source_mix.total_sources};
+                        facts {researchBrief.freshness.high_relevance_numeric_facts}/{researchBrief.freshness.total_numeric_facts};
+                        visuals {researchBrief.visual_plan.filter((item) => item.ready).length}/{researchBrief.visual_plan.length}
+                      </div>
+                      <div className="quality-grade__metrics">
+                        <span>domain <b>{researchBrief.domain}</b></span>
+                        <span>conflicts <b>{researchBrief.counter_evidence.conflict_count}</b></span>
+                        <span>gaps <b>{researchBrief.counter_evidence.gap_count}</b></span>
+                        <span>claim map <b>{researchBrief.evidence_to_claim_map.filter((item) => item.ready).length}/{researchBrief.evidence_to_claim_map.length}</b></span>
+                      </div>
+                      {researchBrief.issues.length > 0 && (
+                        <div className="quality-grade__issues">
+                          {researchBrief.issues.slice(0, 3).map((issue) => (
+                            <div key={issue.code}>
+                              <b>{issue.severity}</b> {issue.message}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
                   {enterpriseQuality && (
