@@ -1073,7 +1073,7 @@ def _next_research_leads_preview(plan: AnalyticDepthPlan, closure, *, limit: int
             continue
         lead_closure = closure_by_id.get(lead.id)
         status = getattr(lead_closure, "status", "not_started") if lead_closure else "not_started"
-        if status in {"closed", "partial"}:
+        if status == "closed":
             continue
         previews.append(
             {
@@ -1092,6 +1092,21 @@ def _next_research_leads_preview(plan: AnalyticDepthPlan, closure, *, limit: int
         if len(previews) >= limit:
             break
     return previews
+
+
+def _open_analytic_lead_count(closure) -> int:
+    return (
+        int(getattr(closure, "not_started", 0) or 0)
+        + int(getattr(closure, "not_closed", 0) or 0)
+        + int(getattr(closure, "partial", 0) or 0)
+    )
+
+
+def _closure_by_lead_id(closure) -> dict[str, str]:
+    return {
+        item.lead_id: item.status
+        for item in getattr(closure, "lead_closures", []) or []
+    }
 
 
 def _clip_text(value: str, limit: int) -> str:
@@ -1155,13 +1170,20 @@ async def _submit_analytic_depth_leads(
     session: V4Session,
     plan: AnalyticDepthPlan,
     payload: AutoDepthLeadsIn | PremiumRefineIn,
+    closure=None,
 ) -> list[AutoDepthLeadOut]:
     from ..sources.auto_dr import AutoDRError, run_auto_dr, submit_async_research
 
-    leads = [
-        lead for lead in plan.research_leads
-        if _lead_priority_allowed(lead.priority, payload.include_priority)
-    ][: payload.max_leads]
+    closure_status = _closure_by_lead_id(closure) if closure is not None else {}
+    leads = []
+    for lead in plan.research_leads:
+        if not _lead_priority_allowed(lead.priority, payload.include_priority):
+            continue
+        if closure_status.get(lead.id) == "closed":
+            continue
+        leads.append(lead)
+        if len(leads) >= payload.max_leads:
+            break
     if not leads:
         return []
 
@@ -1322,11 +1344,13 @@ async def auto_depth_leads(
         analysis=session.analysis,
         report=session.final_report,
     )
+    closure = assess_analytic_closure(plan, list(session.followup_reports or []))
     return await _submit_analytic_depth_leads(
         session_id=session_id,
         session=session,
         plan=plan,
         payload=payload,
+        closure=closure,
     )
 
 
@@ -2120,7 +2144,7 @@ def _build_premium_refinement_status(session: V4Session) -> PremiumRefinementSta
             premium_readiness=readiness,
             next_research_leads=next_research_leads,
         )
-    open_leads = int(closure.not_started or 0) + int(closure.not_closed or 0)
+    open_leads = _open_analytic_lead_count(closure)
     if open_leads:
         return PremiumRefinementStatusOut(
             recommended_action="submit_followups",
@@ -2220,13 +2244,14 @@ async def premium_refine(
         report=client_report,
     )
     closure = assess_analytic_closure(plan, list(session.followup_reports or []))
-    open_leads = int(closure.not_started or 0) + int(closure.not_closed or 0)
+    open_leads = _open_analytic_lead_count(closure)
     if open_leads:
         submitted = await _submit_analytic_depth_leads(
             session_id=session_id,
             session=session,
             plan=plan,
             payload=payload,
+            closure=closure,
         )
         if submitted:
             return PremiumRefineOut(

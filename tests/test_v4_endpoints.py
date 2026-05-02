@@ -1372,6 +1372,134 @@ def test_premium_refinement_status_recommends_next_step():
     assert first_lead["service"] in {"valyu", "perplexity", "openai", "exa", "tavily"}
 
 
+def test_premium_refinement_status_keeps_partial_leads_actionable():
+    from smart_report.analytic_depth import build_analytic_depth_plan
+    from smart_report.models import AnalysisOutput, ExecutiveSummaryV4, FinalReport, Source, UploadedMarkdown
+
+    client = _authed_client()
+    sid = client.post(
+        "/api/v4/sessions",
+        json={"question": "Forecast Moscow primary real estate prices"},
+    ).json()["session_id"]
+    session = v4._store.get(sid)
+    session.analysis = AnalysisOutput()
+    session.final_report = FinalReport(
+        session_id=sid,
+        question=session.raw_question,
+        executive_summary=ExecutiveSummaryV4(main_answer="Answer."),
+        all_sources=[Source(title="Generic", url="https://example.com")],
+    )
+    plan = build_analytic_depth_plan(
+        session.raw_question,
+        analysis=session.analysis,
+        report=session.final_report,
+        max_research_leads=6,
+    )
+    assert any(lead.id == "required_source_families" for lead in plan.research_leads)
+    session.followup_reports = [
+        UploadedMarkdown(
+            filename="auto_followup_openai_authority.md",
+            content=(
+                "Smart Report analytic-depth lead: authority_sources\n\n"
+                "According to source URLs https://cbr.ru/statistics, "
+                "https://xn--d1aqf.xn--p1ai and https://mos.ru, the relevant indicator is 15.5%."
+            ),
+            detected_tool="other",
+            word_count=20,
+        ),
+        UploadedMarkdown(
+            filename="auto_followup_openai_required.md",
+            content=(
+                "Smart Report analytic-depth lead: required_source_families\n\n"
+                "CBR https://cbr.ru/statistics gives 15.5%, but other families are not covered."
+            ),
+            detected_tool="other",
+            word_count=16,
+        ),
+    ]
+    v4._store.update(session)
+
+    r = client.get(f"/api/v4/sessions/{sid}/premium-refinement-status")
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["recommended_action"] == "submit_followups"
+    partial = [lead for lead in body["next_research_leads"] if lead["lead_id"] == "required_source_families"]
+    assert partial
+    assert partial[0]["status"] == "partial"
+
+
+def test_premium_refine_resubmits_partial_lead_before_synthesis(monkeypatch):
+    from smart_report.analytic_depth import build_analytic_depth_plan
+    from smart_report.models import AnalysisOutput, ExecutiveSummaryV4, FinalReport, Source, UploadedMarkdown
+    from smart_report.sources import auto_dr as auto_dr_mod
+
+    async def _fake_submit(service, question, *, mode="standard", session_id=None, store=None):
+        return auto_dr_mod.AsyncResearchSubmission(
+            task_id="partial-depth-submit",
+            service=service,
+            mode=mode,
+            cost_usd=0.25,
+            eta_min_low=3,
+            eta_min_high=7,
+        )
+
+    monkeypatch.setattr(auto_dr_mod, "submit_async_research", _fake_submit)
+
+    client = _authed_client()
+    sid = client.post(
+        "/api/v4/sessions",
+        json={"question": "Forecast Moscow primary real estate prices"},
+    ).json()["session_id"]
+    session = v4._store.get(sid)
+    session.analysis = AnalysisOutput()
+    session.final_report = FinalReport(
+        session_id=sid,
+        question=session.raw_question,
+        executive_summary=ExecutiveSummaryV4(main_answer="Answer."),
+        all_sources=[Source(title="Generic", url="https://example.com")],
+    )
+    plan = build_analytic_depth_plan(
+        session.raw_question,
+        analysis=session.analysis,
+        report=session.final_report,
+        max_research_leads=6,
+    )
+    assert any(lead.id == "required_source_families" for lead in plan.research_leads)
+    session.followup_reports = [
+        UploadedMarkdown(
+            filename="auto_followup_openai_authority.md",
+            content=(
+                "Smart Report analytic-depth lead: authority_sources\n\n"
+                "According to source URLs https://cbr.ru/statistics, "
+                "https://xn--d1aqf.xn--p1ai and https://mos.ru, the relevant indicator is 15.5%."
+            ),
+            detected_tool="other",
+            word_count=20,
+        ),
+        UploadedMarkdown(
+            filename="auto_followup_openai_required.md",
+            content=(
+                "Smart Report analytic-depth lead: required_source_families\n\n"
+                "CBR https://cbr.ru/statistics gives 15.5%, but other families are not covered."
+            ),
+            detected_tool="other",
+            word_count=16,
+        ),
+    ]
+    v4._store.update(session)
+
+    r = client.post(
+        f"/api/v4/sessions/{sid}/premium-refine",
+        json={"max_leads": 1, "service_override": "openai", "mode_override": "mini"},
+    )
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["action"] == "submitted_followups"
+    assert body["submitted_leads"][0]["lead_id"] == "required_source_families"
+
+
 def test_premium_refine_submits_open_analytic_depth_leads(monkeypatch):
     from smart_report.models import AnalysisOutput, Gap
     from smart_report.sources import auto_dr as auto_dr_mod
