@@ -40,10 +40,14 @@ import {
   listSessions,
   getQualityGrade,
   getPremiumReadiness,
+  getStructuredReportSource,
+  patchStructuredReportSource,
   type SessionListItem,
   type QualityGrade,
   type PremiumReadiness,
   type PremiumRefinementStatusOut,
+  type StructuredReportSourceOut,
+  type ReportEditRequest,
   type AutoDepthLeadOut,
   type V4Event,
 } from "@/lib/apiV4";
@@ -180,6 +184,12 @@ export default function Workspace() {
     useState<PremiumRefinementStatusOut | null>(null);
   const [recentEvents, setRecentEvents] = useState<V4Event[]>([]);
   const [sourceContent, setSourceContent] = useState<{ filename: string; content: string } | null>(null);
+  const [structuredReport, setStructuredReport] = useState<StructuredReportSourceOut | null>(null);
+  const [structuredEditorOpen, setStructuredEditorOpen] = useState(false);
+  const [structuredEditorBusy, setStructuredEditorBusy] = useState(false);
+  const [structuredEditorTitle, setStructuredEditorTitle] = useState("");
+  const [structuredEditorBlockPath, setStructuredEditorBlockPath] = useState("");
+  const [structuredEditorBlockContent, setStructuredEditorBlockContent] = useState("");
   // Multiple concurrent DR tasks supported — user can fire Valyu, Exa,
   // and OpenAI in parallel and each gets its own poll loop. (Was a Map
   // pattern bug: single-valued state meant launching task #2 stopped
@@ -619,6 +629,7 @@ export default function Workspace() {
     if (!sessionId || !finalData) {
       setQualityGrade(null);
       setPremiumReadiness(null);
+      setStructuredReport(null);
       return;
     }
     let cancelled = false;
@@ -628,6 +639,22 @@ export default function Workspace() {
     getPremiumReadiness(sessionId)
       .then((r) => { if (!cancelled) setPremiumReadiness(r); })
       .catch(() => { if (!cancelled) setPremiumReadiness(null); });
+    getStructuredReportSource(sessionId)
+      .then((out) => {
+        if (cancelled) return;
+        setStructuredReport(out);
+        setStructuredEditorTitle(out.source.metadata.title || "");
+        const firstBlock = out.source.sections
+          .flatMap((section) =>
+            section.blocks.map((block) => ({ sectionId: section.id, blockId: block.id, content: block.content })),
+          )
+          .find((item) => item.content?.trim());
+        if (firstBlock) {
+          setStructuredEditorBlockPath(`sections.${firstBlock.sectionId}.blocks.${firstBlock.blockId}.content`);
+          setStructuredEditorBlockContent(firstBlock.content);
+        }
+      })
+      .catch(() => { if (!cancelled) setStructuredReport(null); });
     return () => { cancelled = true; };
   }, [sessionId, finalData]);
 
@@ -2708,6 +2735,68 @@ export default function Workspace() {
   // ===== Source panel data — not applicable for real API (no numeric bibliography) =====
   const src = null;
 
+  const structuredBlockOptions =
+    structuredReport?.source.sections.flatMap((section) =>
+      section.blocks
+        .filter((block) => block.content?.trim())
+        .map((block) => ({
+          path: `sections.${section.id}.blocks.${block.id}.content`,
+          label: `${section.title} / ${block.title || block.kind}`,
+          content: block.content,
+        })),
+    ) || [];
+
+  const selectStructuredBlock = (path: string) => {
+    const option = structuredBlockOptions.find((item) => item.path === path);
+    setStructuredEditorBlockPath(path);
+    setStructuredEditorBlockContent(option?.content || "");
+  };
+
+  const saveStructuredReportEdits = async () => {
+    if (!sessionId || !structuredReport) return;
+    setStructuredEditorBusy(true);
+    try {
+      const edits: ReportEditRequest[] = [
+        {
+          actor_role: "client_reviewer" as const,
+          target_path: "metadata.title",
+          value: structuredEditorTitle,
+          reason: "Client edited report title in chat workspace",
+        },
+      ];
+      if (structuredEditorBlockPath) {
+        edits.push({
+          actor_role: "editor" as const,
+          target_path: structuredEditorBlockPath,
+          value: structuredEditorBlockContent,
+          reason: "Editor updated report text in chat workspace",
+        });
+      }
+      const next = await patchStructuredReportSource(sessionId, edits);
+      setStructuredReport(next);
+      setStructuredEditorTitle(next.source.metadata.title || "");
+      const selected = next.source.sections
+        .flatMap((section) =>
+          section.blocks.map((block) => ({
+            path: `sections.${section.id}.blocks.${block.id}.content`,
+            content: block.content,
+          })),
+        )
+        .find((item) => item.path === structuredEditorBlockPath);
+      if (selected) setStructuredEditorBlockContent(selected.content);
+      const refreshed = await getSession(sessionId);
+      if (refreshed.final_report) {
+        setFinalData(refreshed.final_report);
+        setArtifact({ kind: "report", data: refreshed.final_report });
+      }
+      showToast("Правки сохранены. Экспорт PDF/DOCX/PPTX будет строиться из обновленных структурированных данных.");
+    } catch (e) {
+      showToast(`Не удалось сохранить правки: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setStructuredEditorBusy(false);
+    }
+  };
+
   // ===== Render =====
   return (
     <div className="ws-root">
@@ -3290,6 +3379,94 @@ export default function Workspace() {
                       </div>
                     </div>
                   )}
+                  <div className="quality-grade quality-grade--b">
+                    <div className="quality-grade__head">
+                      <span className="quality-grade__label">Редактирование</span>
+                      <span className="quality-grade__letter">
+                        {structuredReport ? "ВКЛ" : "НЕТ ДАННЫХ"}
+                      </span>
+                      <button
+                        type="button"
+                        className="icon-btn"
+                        onClick={() => setStructuredEditorOpen((v) => !v)}
+                        disabled={!structuredReport}
+                      >
+                        {structuredEditorOpen ? "скрыть" : "править текст"}
+                      </button>
+                    </div>
+                    <div className="quality-grade__summary">
+                      {structuredReport
+                        ? "Правки сохраняются в структурированный источник отчета; следующий PDF/DOCX/PPTX строится из этих данных."
+                        : "Структурированный источник отчета еще не загружен."}
+                    </div>
+                    {structuredEditorOpen && structuredReport && (
+                      <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
+                        <label style={{ display: "grid", gap: 5, fontSize: 11, color: "var(--ink-3)" }}>
+                          Название отчета
+                          <input
+                            value={structuredEditorTitle}
+                            onChange={(e) => setStructuredEditorTitle(e.target.value)}
+                            style={{
+                              width: "100%",
+                              border: "1px solid var(--rule)",
+                              background: "var(--paper)",
+                              color: "var(--ink)",
+                              padding: "9px 10px",
+                              fontSize: 13,
+                            }}
+                          />
+                        </label>
+                        <label style={{ display: "grid", gap: 5, fontSize: 11, color: "var(--ink-3)" }}>
+                          Блок текста
+                          <select
+                            value={structuredEditorBlockPath}
+                            onChange={(e) => selectStructuredBlock(e.target.value)}
+                            style={{
+                              width: "100%",
+                              border: "1px solid var(--rule)",
+                              background: "var(--paper)",
+                              color: "var(--ink)",
+                              padding: "9px 10px",
+                              fontSize: 13,
+                            }}
+                          >
+                            {structuredBlockOptions.map((option) => (
+                              <option key={option.path} value={option.path}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label style={{ display: "grid", gap: 5, fontSize: 11, color: "var(--ink-3)" }}>
+                          Текст блока
+                          <textarea
+                            value={structuredEditorBlockContent}
+                            onChange={(e) => setStructuredEditorBlockContent(e.target.value)}
+                            rows={8}
+                            style={{
+                              width: "100%",
+                              border: "1px solid var(--rule)",
+                              background: "var(--paper)",
+                              color: "var(--ink)",
+                              padding: "10px",
+                              fontSize: 13,
+                              lineHeight: 1.45,
+                              resize: "vertical",
+                            }}
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          className="icon-btn primary"
+                          onClick={saveStructuredReportEdits}
+                          disabled={structuredEditorBusy}
+                          style={{ justifySelf: "start" }}
+                        >
+                          {structuredEditorBusy ? "сохраняю..." : "сохранить правки"}
+                        </button>
+                      </div>
+                    )}
+                  </div>
                   <ReportArtifact
                     finalReport={finalData}
                     openSource={openSource}
