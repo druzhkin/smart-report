@@ -1224,6 +1224,67 @@ def test_auto_depth_leads_submits_research_jobs(monkeypatch):
     )
 
 
+def test_auto_depth_leads_allows_paper_search_override(monkeypatch):
+    from smart_report.models import AnalysisOutput, Gap, UploadedMarkdown
+    from smart_report.sources import auto_dr as auto_dr_mod
+
+    async def _fake_run(service, question, *, domain_hint=None, max_results=10):
+        assert service == "paper_search"
+        assert domain_hint == "scientific"
+        return auto_dr_mod.AutoDRResult(
+            upload=UploadedMarkdown(
+                filename="auto_dr_paper_search.md",
+                content="# Paper result\n\nCitation: https://arxiv.org/abs/2501.1",
+                detected_tool="paper_search_mcp",
+                word_count=4,
+            ),
+            service="paper_search",
+            cost_usd=0.0,
+            cost_rub=0.0,
+            source_count=1,
+            notes="paper search fake",
+        )
+
+    monkeypatch.setattr(auto_dr_mod, "run_auto_dr", _fake_run)
+
+    client = _authed_client()
+    sid = client.post(
+        "/api/v4/sessions",
+        json={"question": "Compare arxiv papers and peer-reviewed benchmarks for LLM observability"},
+    ).json()["session_id"]
+    session = v4._store.get(sid)
+    session.analysis = AnalysisOutput(
+        gaps=[
+            Gap(
+                topic="Peer-reviewed benchmark evidence",
+                why_critical="Academic support is required.",
+                what_to_find="Papers and benchmark datasets.",
+                candidate_sources=["arxiv.org", "semanticscholar.org"],
+            )
+        ],
+    )
+    v4._store.update(session)
+
+    r = client.post(
+        f"/api/v4/sessions/{sid}/auto-depth-leads",
+        json={
+            "max_leads": 1,
+            "include_priority": "must",
+            "service_override": "paper_search",
+            "mode_override": "standard",
+        },
+    )
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body[0]["service"] == "paper_search"
+    assert body[0]["task_id"].startswith("paper-search-")
+    stored = v4._store.get(sid)
+    assert stored.followup_reports
+    assert stored.followup_reports[0].detected_tool == "paper_search_mcp"
+    assert stored.followup_reports[0].filename.startswith("auto_followup_paper_search_")
+
+
 def test_async_mode_for_lead_rejects_invalid_provider_override():
     class Lead:
         recommended_mode = "standard"

@@ -980,7 +980,7 @@ class AutoFollowupIn(BaseModel):
 class AutoDepthLeadsIn(BaseModel):
     max_leads: int = Field(default=3, ge=1, le=8)
     include_priority: Literal["must", "should", "could", "all"] = "must"
-    service_override: Literal["valyu", "tavily", "exa", "openai", "perplexity"] | None = None
+    service_override: Literal["valyu", "tavily", "exa", "paper_search", "openai", "perplexity"] | None = None
     mode_override: str | None = Field(default=None, max_length=64)
 
 
@@ -1004,7 +1004,7 @@ class AutoDepthLeadOut(BaseModel):
 class PremiumRefineIn(BaseModel):
     max_leads: int = Field(default=3, ge=1, le=8)
     include_priority: Literal["must", "should", "could", "all"] = "must"
-    service_override: Literal["valyu", "tavily", "exa", "openai", "perplexity"] | None = None
+    service_override: Literal["valyu", "tavily", "exa", "paper_search", "openai", "perplexity"] | None = None
     mode_override: str | None = Field(default=None, max_length=64)
     model_preference: str | None = Field(default=None, max_length=64)
     auto_synthesize: bool = True
