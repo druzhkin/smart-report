@@ -45,6 +45,8 @@ class ResearchPolicyAssessment(_PolicyBase):
     domain: str
     recommended_services: list[str]
     required_source_families: list[str]
+    requires_academic_retrieval: bool = False
+    academic_retrieval_satisfied: bool = False
     tier1_count: int
     tier2_count: int
     total_sources: int
@@ -94,6 +96,23 @@ POLICIES: dict[QueryDomain, DomainResearchPolicy] = {
         min_tier1_sources=2,
         min_total_sources=8,
     ),
+    QueryDomain.ACADEMIC_RESEARCH: DomainResearchPolicy(
+        domain=QueryDomain.ACADEMIC_RESEARCH,
+        preferred_services=("paper_search", "valyu", "exa", "perplexity"),
+        required_source_families=("academic", "benchmark"),
+        tier1_domains=(
+            "arxiv.org",
+            "pubmed.ncbi.nlm.nih.gov",
+            "semanticscholar.org",
+            "doi.org",
+            "clinicaltrials.gov",
+            "acm.org",
+            "ieee.org",
+        ),
+        tier2_domains=("biorxiv.org", "medrxiv.org", "crossref.org", "paperswithcode.com"),
+        min_tier1_sources=2,
+        min_total_sources=6,
+    ),
     QueryDomain.RU_TECH_SAAS: DomainResearchPolicy(
         domain=QueryDomain.RU_TECH_SAAS,
         preferred_services=("perplexity", "tavily", "exa"),
@@ -129,6 +148,13 @@ def assess_research_policy(
     tier1 = sum(1 for item in items if item.tier == "tier1_primary")
     tier2 = sum(1 for item in items if item.tier == "tier2_industry")
     families = {item.matched_family for item in items if item.matched_family}
+    requires_academic = policy.preferred_services[0] == "paper_search" or "academic" in policy.required_source_families
+    academic_satisfied = any(
+        "paper_search" in (source.tool or "").lower()
+        or item.matched_family == "academic"
+        or any(marker in item.url.lower() for marker in ("arxiv.org", "pubmed", "doi.org", "semanticscholar"))
+        for source, item in zip(sources, items, strict=False)
+    )
     missing = [family for family in policy.required_source_families if family not in families]
     issues: list[str] = []
     if len(sources) < policy.min_total_sources:
@@ -137,10 +163,14 @@ def assess_research_policy(
         issues.append(f"Needs at least {policy.min_tier1_sources} tier-1/primary sources.")
     if missing:
         issues.append("Missing source families: " + ", ".join(missing) + ".")
+    if requires_academic and not academic_satisfied:
+        issues.append("Academic retrieval is required; run paper_search or provide academic sources.")
     return ResearchPolicyAssessment(
         domain=domain.value,
         recommended_services=list(policy.preferred_services),
         required_source_families=list(policy.required_source_families),
+        requires_academic_retrieval=requires_academic,
+        academic_retrieval_satisfied=academic_satisfied,
         tier1_count=tier1,
         tier2_count=tier2,
         total_sources=len(sources),
@@ -153,6 +183,8 @@ def assess_research_policy(
 def recommended_service_for_policy(question: str, candidate_sources: list[str]) -> str:
     policy = POLICIES.get(detect_query_domain(question), POLICIES[QueryDomain.GENERIC])
     joined = " ".join(candidate_sources).lower()
+    if policy.preferred_services[0] == "paper_search":
+        return "paper_search"
     if any("arxiv" in item or "pubmed" in item or "academic" in item for item in candidate_sources):
         return "paper_search"
     if any(domain in joined for domain in policy.tier1_domains):

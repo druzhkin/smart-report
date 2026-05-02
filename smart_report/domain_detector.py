@@ -38,6 +38,7 @@ class QueryDomain(str, Enum):
     RU_AUTOMOTIVE = "ru_automotive"
     RU_TECH_SAAS = "ru_tech_saas"
     EU_REGULATORY = "eu_regulatory"
+    ACADEMIC_RESEARCH = "academic_research"
     GLOBAL_TECH = "global_tech"
     GENERIC = "generic"
 
@@ -92,6 +93,22 @@ _GLOBAL_TECH_MARKERS: tuple[str, ...] = (
     "langfuse", "langsmith", "helicone",
 )
 
+_ACADEMIC_RESEARCH_MARKERS: tuple[str, ...] = (
+    "peer-reviewed",
+    "systematic review",
+    "meta-analysis",
+    "clinical trial",
+    "randomized trial",
+    "pubmed",
+    "arxiv",
+    "doi:",
+    "semantic scholar",
+    "scientific paper",
+    "academic paper",
+    "research paper",
+    "benchmark paper",
+)
+
 
 def detect_query_domain(query: str) -> QueryDomain:
     """Classify *query* into one of the known QueryDomain values.
@@ -125,6 +142,8 @@ def detect_query_domain(query: str) -> QueryDomain:
         return QueryDomain.RU_TECH_SAAS
     if _any_marker(q_lower, _EU_REGULATORY_MARKERS):
         return QueryDomain.EU_REGULATORY
+    if _any_marker(q_lower, _ACADEMIC_RESEARCH_MARKERS):
+        return QueryDomain.ACADEMIC_RESEARCH
     if _any_marker(q_lower, _GLOBAL_TECH_MARKERS):
         return QueryDomain.GLOBAL_TECH
     return QueryDomain.GENERIC
