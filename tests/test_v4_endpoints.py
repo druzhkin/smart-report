@@ -600,6 +600,9 @@ def test_v4_full_cycle(monkeypatch, tmp_path):
         assert "**Промпт для добора**" in brief
         assert "**Зачем это важно**" in brief
         assert "- Кандидаты источников:" in brief
+        assert "## Quality intelligence: что именно закрыть" in brief
+        assert "Evidence graph:" in brief
+        assert "Research policy:" in brief
         quality = json.loads(zf.read("16_quality_intelligence.json").decode("utf-8"))
         assert {
             "evidence_graph",

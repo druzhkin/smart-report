@@ -3207,7 +3207,12 @@ def _write_premium_package(
         )
         zf.writestr(
             "15_next_research_brief.md",
-            _next_research_brief_markdown(depth_plan, analytic_closure),
+            _next_research_brief_markdown(
+                depth_plan,
+                analytic_closure,
+                client_report=client_report,
+                analysis=session.analysis,
+            ),
         )
         zf.writestr(
             "16_quality_intelligence.json",
@@ -3259,7 +3264,12 @@ def _write_next_research_brief_file(
         else None
     )
     path.write_text(
-        _next_research_brief_markdown(depth_plan, analytic_closure),
+        _next_research_brief_markdown(
+            depth_plan,
+            analytic_closure,
+            client_report=client_report,
+            analysis=session.analysis,
+        ),
         encoding="utf-8",
     )
     return path
@@ -3396,6 +3406,9 @@ def _write_artifact_qa_bundle(zf: zipfile.ZipFile, artifact_qa: dict, out_dir: P
 def _next_research_brief_markdown(
     depth_plan: Any,
     analytic_closure: Any,
+    *,
+    client_report: FinalReport | None = None,
+    analysis: AnalysisOutput | None = None,
 ) -> str:
     if depth_plan is None:
         return "# План добора\n\nДля этого пакета не был построен analytic-depth plan.\n"
@@ -3463,6 +3476,8 @@ def _next_research_brief_markdown(
                 ]
             )
 
+    lines.extend(_quality_intelligence_brief_lines(client_report, analysis))
+
     lines.extend(
         [
             "## Бенчмарки для добавления",
@@ -3476,6 +3491,59 @@ def _next_research_brief_markdown(
         ]
     )
     return "\n".join(lines).strip() + "\n"
+
+
+def _quality_intelligence_brief_lines(
+    client_report: FinalReport | None,
+    analysis: AnalysisOutput | None,
+) -> list[str]:
+    if client_report is None:
+        return []
+    quality = _quality_intelligence_payload(client_report, analysis)
+    graph = quality["evidence_graph"]
+    policy = quality["research_policy"]
+    page_plan = quality["page_plan"]
+    benchmark = quality["benchmark_eval"]
+    lines = [
+        "## Quality intelligence: что именно закрыть",
+        "",
+        f"- Evidence graph: {graph['summary']['score']}/100; unsupported claims: {graph['summary']['unsupported']}.",
+        f"- Research policy: {policy['domain']}; tier-1 sources: {policy['tier1_count']}; missing families: "
+        + (", ".join(policy["missing_source_families"]) if policy["missing_source_families"] else "none")
+        + ".",
+        f"- Page plan: {page_plan['summary']['status']}; pages with issues: {page_plan['summary']['pages_with_issues']}.",
+        f"- Benchmark eval: {benchmark['score']}/100; passed: {benchmark['passed']}.",
+        "",
+    ]
+    unsupported = [node for node in graph["nodes"] if node.get("status") == "unsupported"]
+    if unsupported:
+        lines.extend(["### Unsupported claims to support, qualify, or remove", ""])
+        for node in unsupported[:8]:
+            lines.extend(
+                [
+                    f"- `{node['origin']}`: {node['claim']}",
+                    "  - Required action: find primary/authoritative evidence, add a numeric or qualitative fact link, or remove the claim from the client report.",
+                ]
+            )
+        lines.append("")
+    if policy["missing_source_families"]:
+        lines.extend(["### Missing source families", ""])
+        for family in policy["missing_source_families"]:
+            lines.append(
+                f"- `{family}`: find authoritative sources for this family and extract citable numeric/qualitative facts."
+            )
+        lines.append("- Recommended services: " + ", ".join(policy["recommended_services"]) + ".")
+        lines.append("")
+    if page_plan["global_issues"]:
+        lines.extend(["### Page-plan blockers", ""])
+        lines.extend(f"- {issue}" for issue in page_plan["global_issues"][:8])
+        lines.append("")
+    if benchmark["issues"]:
+        lines.extend(["### Benchmark evaluation issues", ""])
+        for issue in benchmark["issues"][:8]:
+            lines.append(f"- `{issue['severity']}` `{issue['code']}`: {issue['message']}")
+        lines.append("")
+    return lines
 
 
 def _write_sources_csv(path: Path, report: FinalReport) -> Path:
