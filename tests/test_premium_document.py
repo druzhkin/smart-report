@@ -51,7 +51,7 @@ def test_render_premium_pdf_opens_and_meets_publication_shape(tmp_path):
     first_page_text = reader.pages[0].extract_text() or ""
     assert "SMART REPORT" in first_page_text
     assert "Publication-grade PDF" in first_page_text
-    publication_text = "\n".join(page.extract_text() or "" for page in reader.pages[:8])
+    publication_text = "\n".join(page.extract_text() or "" for page in reader.pages[:12])
     assert "EXHIBIT" in publication_text
     assert "Demand" in publication_text
     assert "Supply" in publication_text

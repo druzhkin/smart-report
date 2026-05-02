@@ -296,7 +296,8 @@ def _inspect_pdf(path: Path) -> ArtifactQaResult:
                 sparse_pages.append(idx)
             if idx > 1 and page_char_counts[idx - 1] > 250 and not _has_source_note(page_text):
                 pages_without_source_note.append(idx)
-            if idx > 1 and page_char_counts[idx - 1] > 900:
+            page_is_exhibit = _has_exhibit_marker(page_text)
+            if idx > 1 and page_char_counts[idx - 1] > 900 and not page_is_exhibit:
                 current_text_only_streak += 1
                 max_text_only_streak = max(max_text_only_streak, current_text_only_streak)
             else:
@@ -368,6 +369,11 @@ def _inspect_pdf(path: Path) -> ArtifactQaResult:
 def _has_source_note(text: str) -> bool:
     lowered = (text or "").lower()
     return any(marker in lowered for marker in ("source:", "sources:", "источник:", "источники:"))
+
+
+def _has_exhibit_marker(text: str) -> bool:
+    lowered = (text or "").lower()
+    return any(marker in lowered for marker in ("exhibit", "рисунок", "figure", "appendix"))
 
 
 def _find_tool(name: str, candidates: list[Path]) -> str | None:

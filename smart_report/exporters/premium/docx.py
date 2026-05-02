@@ -9,6 +9,7 @@ be present in the prepared document model.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from docx import Document
@@ -704,7 +705,45 @@ def _render_markdown_like_body(doc: Document, text: str) -> None:
         if line.startswith(("- ", "* ")):
             doc.add_paragraph(line[2:].strip(), style="List Bullet")
             continue
-        doc.add_paragraph(line)
+        for part in _split_long_body_paragraph(line):
+            doc.add_paragraph(part)
+
+
+def _split_long_body_paragraph(text: str, *, limit: int = 620) -> list[str]:
+    clean = " ".join(str(text or "").split())
+    if len(clean) <= limit:
+        return [clean] if clean else []
+    sentences = re.split(r"(?<=[.!?])\s+", clean)
+    parts: list[str] = []
+    current = ""
+    for sentence in sentences:
+        candidate = f"{current} {sentence}".strip()
+        if current and len(candidate) > limit:
+            parts.append(current)
+            current = sentence
+        else:
+            current = candidate
+    if current:
+        parts.append(current)
+    if any(len(part) > limit + 120 for part in parts):
+        fallback: list[str] = []
+        for part in parts:
+            if len(part) <= limit + 120:
+                fallback.append(part)
+                continue
+            words = part.split()
+            chunk = ""
+            for word in words:
+                candidate = f"{chunk} {word}".strip()
+                if chunk and len(candidate) > limit:
+                    fallback.append(chunk)
+                    chunk = word
+                else:
+                    chunk = candidate
+            if chunk:
+                fallback.append(chunk)
+        return fallback
+    return parts
 
 
 def _deliverables(report: PremiumReportDocument) -> str:

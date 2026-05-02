@@ -78,6 +78,7 @@ from ..follow_up_prompter import (
 )
 from ..gap_detector import detect_gaps, gap_count_by_severity
 from ..models import (
+    AnalysisOutput,
     DetectedTool,
     EvidenceGap,
     FinalReport,
@@ -476,7 +477,7 @@ def _get_owned(session_id: str, request: Request):
     try:
         session = _store.get(session_id)
     except KeyError:
-        raise HTTPException(status_code=404, detail=f"session {session_id} not found")
+        raise HTTPException(status_code=404, detail=f"session {session_id} not found") from None
     _ensure_owner(session, _current_email(request))
     return session
 
@@ -3106,6 +3107,7 @@ def _write_premium_package(
     data_pack_path = _write_data_pack(path.parent / "data_pack.zip", session, client_report)
     artifact_qa = _premium_artifact_qa(report_path, pdf_path, deck_path, path.parent / "artifact_qa")
     visual_review = build_visual_review_gate(artifact_qa, approved=visual_review_approved)
+    quality_intelligence = _quality_intelligence_payload(client_report, session.analysis)
     audit_path = _write_audit_json(path.parent / "audit.json", session, visual_review=visual_review)
     artifact_summary = _artifact_qa_manifest_summary(artifact_qa)
 
@@ -3153,6 +3155,7 @@ def _write_premium_package(
             "13_adjudication_audit.json",
             "14_visual_review.json",
             "15_next_research_brief.md",
+            "16_quality_intelligence.json",
         ],
     }
     with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
@@ -3206,7 +3209,33 @@ def _write_premium_package(
             "15_next_research_brief.md",
             _next_research_brief_markdown(depth_plan, analytic_closure),
         )
+        zf.writestr(
+            "16_quality_intelligence.json",
+            json.dumps(quality_intelligence, ensure_ascii=False, indent=2, default=str),
+        )
     return path
+
+
+def _quality_intelligence_payload(
+    client_report: FinalReport,
+    analysis: AnalysisOutput | None,
+) -> dict:
+    from ..benchmark_eval import evaluate_report_quality
+    from ..evidence_graph import build_evidence_graph
+    from ..page_planner import build_page_plan
+    from ..research_policy import assess_research_policy
+
+    evidence_graph = build_evidence_graph(client_report, analysis)
+    return {
+        "evidence_graph": evidence_graph.model_dump(mode="json"),
+        "research_policy": assess_research_policy(client_report.question, client_report).model_dump(mode="json"),
+        "page_plan": build_page_plan(
+            client_report,
+            analysis=analysis,
+            evidence_graph=evidence_graph,
+        ).model_dump(mode="json"),
+        "benchmark_eval": evaluate_report_quality(client_report, analysis=analysis).model_dump(mode="json"),
+    }
 
 
 def _write_next_research_brief_file(

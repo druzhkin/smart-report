@@ -564,6 +564,7 @@ def test_v4_full_cycle(monkeypatch, tmp_path):
             "13_adjudication_audit.json",
             "14_visual_review.json",
             "15_next_research_brief.md",
+            "16_quality_intelligence.json",
         } <= names
         artifact_qa = json.loads(zf.read("07_artifact_qa.json").decode("utf-8"))
         assert artifact_qa["summary"]["artifacts"] == 3
@@ -599,6 +600,15 @@ def test_v4_full_cycle(monkeypatch, tmp_path):
         assert "**Промпт для добора**" in brief
         assert "**Зачем это важно**" in brief
         assert "- Кандидаты источников:" in brief
+        quality = json.loads(zf.read("16_quality_intelligence.json").decode("utf-8"))
+        assert {
+            "evidence_graph",
+            "research_policy",
+            "page_plan",
+            "benchmark_eval",
+        } <= set(quality)
+        assert "summary" in quality["evidence_graph"]
+        assert "issues" in quality["benchmark_eval"]
     r = client.get(
         f"/api/v4/sessions/{sid}/export",
         params={"format": "premium-client-package"},
