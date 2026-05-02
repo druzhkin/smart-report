@@ -1272,12 +1272,36 @@ export type PagePlanOut = {
 };
 
 export type BenchmarkEvalOut = {
+  profile_id?: string;
+  profile_label?: string;
   score: number;
   passed: boolean;
+  criteria?: { code: string; label: string; passed: boolean; observed: unknown; target: unknown }[];
   evidence_score: number;
   research_policy_passed: boolean;
   page_plan_status: string;
   issues: { code: string; severity: string; message: string }[];
+};
+
+export type ConsultingEvalOut = {
+  score: number;
+  passed: boolean;
+  verdict: "publishable" | "not_publishable";
+  dimensions: { dimension: string; score: number; passed: boolean; rationale: string }[];
+  issues: { code: string; severity: string; message: string; recommendation: string }[];
+};
+
+export type RendererStatusOut = {
+  default_pdf_backend: string;
+  backends: {
+    backend: string;
+    format: string;
+    available: boolean;
+    blockers: string[];
+    qa?: string[];
+    secrets_present?: Record<string, boolean>;
+  }[];
+  routing: Record<string, string>;
 };
 
 export async function getPremiumReadiness(id: string): Promise<PremiumReadiness> {
@@ -1313,6 +1337,14 @@ export async function getPagePlan(id: string): Promise<PagePlanOut> {
 
 export async function getBenchmarkEval(id: string): Promise<BenchmarkEvalOut> {
   return jv4<BenchmarkEvalOut>(`/api/v4/sessions/${encodeURIComponent(id)}/benchmark-eval`);
+}
+
+export async function getConsultingEval(id: string): Promise<ConsultingEvalOut> {
+  return jv4<ConsultingEvalOut>(`/api/v4/sessions/${encodeURIComponent(id)}/consulting-eval`);
+}
+
+export async function getRendererStatus(): Promise<RendererStatusOut> {
+  return jv4<RendererStatusOut>("/api/v4/renderers");
 }
 
 // -- Session list ---------------------------------------------------------

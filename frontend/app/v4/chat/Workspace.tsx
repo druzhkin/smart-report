@@ -40,11 +40,17 @@ import {
   listSessions,
   getQualityGrade,
   getPremiumReadiness,
+  getBenchmarkEval,
+  getConsultingEval,
+  getRendererStatus,
   getStructuredReportSource,
   patchStructuredReportSource,
   type SessionListItem,
   type QualityGrade,
   type PremiumReadiness,
+  type BenchmarkEvalOut,
+  type ConsultingEvalOut,
+  type RendererStatusOut,
   type PremiumRefinementStatusOut,
   type StructuredReportSourceOut,
   type ReportEditRequest,
@@ -180,6 +186,9 @@ export default function Workspace() {
   const [savedSessions, setSavedSessions] = useState<SessionListItem[]>([]);
   const [qualityGrade, setQualityGrade] = useState<QualityGrade | null>(null);
   const [premiumReadiness, setPremiumReadiness] = useState<PremiumReadiness | null>(null);
+  const [benchmarkEval, setBenchmarkEval] = useState<BenchmarkEvalOut | null>(null);
+  const [consultingEval, setConsultingEval] = useState<ConsultingEvalOut | null>(null);
+  const [rendererStatus, setRendererStatus] = useState<RendererStatusOut | null>(null);
   const [premiumRefinementStatus, setPremiumRefinementStatus] =
     useState<PremiumRefinementStatusOut | null>(null);
   const [recentEvents, setRecentEvents] = useState<V4Event[]>([]);
@@ -629,6 +638,8 @@ export default function Workspace() {
     if (!sessionId || !finalData) {
       setQualityGrade(null);
       setPremiumReadiness(null);
+      setBenchmarkEval(null);
+      setConsultingEval(null);
       setStructuredReport(null);
       return;
     }
@@ -639,6 +650,15 @@ export default function Workspace() {
     getPremiumReadiness(sessionId)
       .then((r) => { if (!cancelled) setPremiumReadiness(r); })
       .catch(() => { if (!cancelled) setPremiumReadiness(null); });
+    getBenchmarkEval(sessionId)
+      .then((r) => { if (!cancelled) setBenchmarkEval(r); })
+      .catch(() => { if (!cancelled) setBenchmarkEval(null); });
+    getConsultingEval(sessionId)
+      .then((r) => { if (!cancelled) setConsultingEval(r); })
+      .catch(() => { if (!cancelled) setConsultingEval(null); });
+    getRendererStatus()
+      .then((r) => { if (!cancelled) setRendererStatus(r); })
+      .catch(() => { if (!cancelled) setRendererStatus(null); });
     getStructuredReportSource(sessionId)
       .then((out) => {
         if (cancelled) return;
@@ -3398,6 +3418,64 @@ export default function Workspace() {
                             следующий шаг: <b>{premiumReadiness.issues[0].severity}</b>
                           </span>
                         )}
+                      </div>
+                    </div>
+                  )}
+                  {consultingEval && (
+                    <div className={`quality-grade quality-grade--${consultingEval.passed ? "a" : "c"}`}>
+                      <div className="quality-grade__head">
+                        <span className="quality-grade__label">Consulting gate</span>
+                        <span className="quality-grade__letter">
+                          {consultingEval.passed ? "PUBLISHABLE" : "BLOCKED"}
+                        </span>
+                        <span className="quality-grade__score">{consultingEval.score}/100</span>
+                      </div>
+                      <div className="quality-grade__summary">
+                        {consultingEval.issues[0]?.message || consultingEval.verdict}
+                      </div>
+                      <div className="quality-grade__metrics">
+                        {consultingEval.dimensions.slice(0, 5).map((item) => (
+                          <span key={item.dimension} title={item.rationale}>
+                            {item.dimension} <b>{item.score}</b>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {benchmarkEval && (
+                    <div className={`quality-grade quality-grade--${benchmarkEval.passed ? "a" : "b"}`}>
+                      <div className="quality-grade__head">
+                        <span className="quality-grade__label">Benchmark</span>
+                        <span className="quality-grade__letter">
+                          {benchmarkEval.profile_id || "profile"}
+                        </span>
+                        <span className="quality-grade__score">{benchmarkEval.score}/100</span>
+                      </div>
+                      <div className="quality-grade__summary">
+                        {benchmarkEval.issues[0]?.message || benchmarkEval.profile_label || "Benchmark criteria passed."}
+                      </div>
+                      <div className="quality-grade__metrics">
+                        <span>evidence <b>{benchmarkEval.evidence_score}</b></span>
+                        <span>policy <b>{benchmarkEval.research_policy_passed ? "ok" : "fail"}</b></span>
+                        <span>pages <b>{benchmarkEval.page_plan_status}</b></span>
+                      </div>
+                    </div>
+                  )}
+                  {rendererStatus && (
+                    <div className="quality-grade quality-grade--b">
+                      <div className="quality-grade__head">
+                        <span className="quality-grade__label">Renderer routing</span>
+                        <span className="quality-grade__letter">{rendererStatus.default_pdf_backend}</span>
+                      </div>
+                      <div className="quality-grade__summary">
+                        premium-pdf: {rendererStatus.routing["premium-pdf"]}; carbone: {rendererStatus.routing["premium-carbone-pdf"]}
+                      </div>
+                      <div className="quality-grade__metrics">
+                        {rendererStatus.backends.map((backend) => (
+                          <span key={`${backend.backend}-${backend.format}`}>
+                            {backend.backend} <b>{backend.available ? "on" : "off"}</b>
+                          </span>
+                        ))}
                       </div>
                     </div>
                   )}
