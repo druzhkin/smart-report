@@ -9,6 +9,7 @@ from smart_report.exporters.premium import (
     build_regeneration_plan,
     final_report_from_structured_source,
     hash_structured_source,
+    list_editable_paths,
     run_enterprise_quality_gates,
     structured_source_from_final_report,
 )
@@ -59,6 +60,78 @@ def test_client_edit_changes_structured_source_and_creates_version():
     assert hash_structured_source(updated) != before_hash
     assert len(updated.versions) == len(source.versions) + 1
     assert updated.versions[-1].actor_role == "client_reviewer"
+
+
+def test_editable_paths_expose_client_safe_structured_fields():
+    source = structured_source_from_final_report(_report())
+
+    fields = list_editable_paths(source)
+    paths = {field.path: field for field in fields}
+
+    assert "metadata.title" in paths
+    assert "metadata.client_name" in paths
+    assert any(path.endswith(".visual.caption") for path in paths)
+    assert any(path.endswith(".table_rows") for path in paths)
+    assert "client_reviewer" in paths["metadata.title"].actor_roles
+    assert all(
+        "quality_reviewer" not in field.actor_roles
+        for field in fields
+    )
+
+
+def test_editor_can_change_visual_caption_table_rows_and_client_name():
+    source = structured_source_from_final_report(_report())
+    chart_section, chart_block = next(
+        (section, block)
+        for section in source.sections
+        for block in section.blocks
+        if block.visual is not None
+    )
+    table_section, table_block = next(
+        (section, block)
+        for section in source.sections
+        for block in section.blocks
+        if block.table_columns
+    )
+
+    updated = apply_report_edits(
+        source,
+        [
+            ReportEditRequest(
+                actor_role="editor",
+                target_path="metadata.client_name",
+                value="ACME Capital",
+            ),
+            ReportEditRequest(
+                actor_role="editor",
+                target_path=f"sections.{chart_section.id}.blocks.{chart_block.id}.visual.caption",
+                value="Updated visual note for the client pack.",
+            ),
+            ReportEditRequest(
+                actor_role="editor",
+                target_path=f"sections.{table_section.id}.blocks.{table_block.id}.table_rows",
+                value=[["Metric", "42"], ["Risk", "Medium"]],
+            ),
+        ],
+    )
+
+    assert updated.metadata.client_name == "ACME Capital"
+    assert chart_block.visual is not None
+    updated_chart = next(
+        block
+        for section in updated.sections
+        for block in section.blocks
+        if block.id == chart_block.id
+    )
+    assert updated_chart.visual is not None
+    assert updated_chart.visual.caption == "Updated visual note for the client pack."
+    updated_table = next(
+        block
+        for section in updated.sections
+        for block in section.blocks
+        if block.id == table_block.id
+    )
+    assert updated_table.table_rows == [["Metric", "42"], ["Risk", "Medium"]]
 
 
 def test_structured_source_projects_back_to_renderer_report():

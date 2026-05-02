@@ -2740,6 +2740,17 @@ export default function Workspace() {
   const src = null;
 
   const structuredBlockOptions =
+    structuredReport?.editable_fields
+      ?.filter((field) => field.path !== "metadata.title" && field.actor_roles.includes("editor"))
+      .map((field) => ({
+        path: field.path,
+        label: `${field.label} · ${field.value_type}`,
+        content:
+          field.value_type === "string"
+            ? String(field.current_value ?? "")
+            : JSON.stringify(field.current_value ?? null, null, 2),
+        valueType: field.value_type,
+      })) ||
     structuredReport?.source.sections.flatMap((section) =>
       section.blocks
         .filter((block) => block.content?.trim())
@@ -2747,6 +2758,7 @@ export default function Workspace() {
           path: `sections.${section.id}.blocks.${block.id}.content`,
           label: `${section.title} / ${block.title || block.kind}`,
           content: block.content,
+          valueType: "string" as const,
         })),
     ) || [];
 
@@ -2760,6 +2772,11 @@ export default function Workspace() {
     if (!sessionId || !structuredReport) return;
     setStructuredEditorBusy(true);
     try {
+      const selectedField = structuredBlockOptions.find((item) => item.path === structuredEditorBlockPath);
+      let structuredValue: unknown = structuredEditorBlockContent;
+      if (selectedField && selectedField.valueType !== "string") {
+        structuredValue = JSON.parse(structuredEditorBlockContent);
+      }
       const edits: ReportEditRequest[] = [
         {
           actor_role: "client_reviewer" as const,
@@ -2772,20 +2789,21 @@ export default function Workspace() {
         edits.push({
           actor_role: "editor" as const,
           target_path: structuredEditorBlockPath,
-          value: structuredEditorBlockContent,
-          reason: "Editor updated report text in chat workspace",
+          value: structuredValue,
+          reason: "Editor updated structured report field in chat workspace",
         });
       }
       const next = await patchStructuredReportSource(sessionId, edits);
       setStructuredReport(next);
       setStructuredEditorTitle(next.source.metadata.title || "");
-      const selected = next.source.sections
-        .flatMap((section) =>
-          section.blocks.map((block) => ({
-            path: `sections.${section.id}.blocks.${block.id}.content`,
-            content: block.content,
-          })),
-        )
+      const selected = next.editable_fields
+        ?.map((field) => ({
+          path: field.path,
+          content:
+            field.value_type === "string"
+              ? String(field.current_value ?? "")
+              : JSON.stringify(field.current_value ?? null, null, 2),
+        }))
         .find((item) => item.path === structuredEditorBlockPath);
       if (selected) setStructuredEditorBlockContent(selected.content);
       const refreshed = await getSession(sessionId);

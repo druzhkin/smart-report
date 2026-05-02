@@ -56,6 +56,7 @@ from ..exporters import (
     contains_client_leak,
     final_report_from_structured_source,
     hash_structured_source,
+    list_editable_paths,
     ReportArtifactFormat,
     ReportEditRequest,
     run_enterprise_quality_gates,
@@ -2460,6 +2461,7 @@ async def get_structured_report_source(session_id: str, request: Request) -> dic
     plan = build_regeneration_plan(source)
     return {
         "source": source.model_dump(mode="json"),
+        "editable_fields": [field.model_dump(mode="json") for field in list_editable_paths(source)],
         "quality_gate": plan.quality_gate.model_dump(mode="json"),
         "regeneration_plan": plan.model_dump(mode="json"),
         "publication_quality": _publication_quality_for_structured_source(session, source),
@@ -2485,6 +2487,7 @@ async def patch_structured_report_source(
     plan = build_regeneration_plan(updated)
     return {
         "source": updated.model_dump(mode="json"),
+        "editable_fields": [field.model_dump(mode="json") for field in list_editable_paths(updated)],
         "quality_gate": plan.quality_gate.model_dump(mode="json"),
         "regeneration_plan": plan.model_dump(mode="json"),
         "publication_quality": _publication_quality_for_structured_source(session, updated),
@@ -2525,6 +2528,7 @@ async def apply_structured_report_remediation(
     plan = build_regeneration_plan(updated)
     return {
         "source": updated.model_dump(mode="json"),
+        "editable_fields": [field.model_dump(mode="json") for field in list_editable_paths(updated)],
         "quality_gate": plan.quality_gate.model_dump(mode="json"),
         "regeneration_plan": plan.model_dump(mode="json"),
         "publication_quality": _publication_quality_for_structured_source(session, updated),
@@ -2590,6 +2594,7 @@ async def auto_improve_structured_report(
         stopped_reason = "ready"
     return {
         "source": source.model_dump(mode="json"),
+        "editable_fields": [field.model_dump(mode="json") for field in list_editable_paths(source)],
         "iterations": iterations,
         "stopped_reason": stopped_reason,
         "quality_gate": final_plan.quality_gate.model_dump(mode="json"),

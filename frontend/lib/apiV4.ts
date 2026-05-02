@@ -185,6 +185,14 @@ export type ReportEditRequest = {
   reason?: string;
 };
 
+export type ReportEditableField = {
+  path: string;
+  label: string;
+  value_type: "string" | "string_list" | "table_rows" | "json";
+  current_value: unknown;
+  actor_roles: ReportActorRole[];
+};
+
 export type ReportQualityGate = {
   passed: boolean;
   score: number;
@@ -220,6 +228,7 @@ export type ReportRegenerationPlan = {
 
 export type StructuredReportSourceOut = {
   source: StructuredReportSource;
+  editable_fields?: ReportEditableField[];
   quality_gate: ReportQualityGate;
   regeneration_plan: ReportRegenerationPlan;
   publication_quality?: PublicationQualityGate;

@@ -365,6 +365,14 @@ def test_v4_full_cycle(monkeypatch, tmp_path):
     assert r.status_code == 200, r.text
     structured = r.json()
     assert structured["source"]["metadata"]["title"]
+    assert any(
+        field["path"] == "metadata.client_name"
+        for field in structured["editable_fields"]
+    )
+    assert any(
+        field["path"].endswith(".content") and "editor" in field["actor_roles"]
+        for field in structured["editable_fields"]
+    )
     assert structured["regeneration_plan"]["requested_formats"][:3] == ["docx", "pdf", "pptx"]
     assert structured["publication_quality"] is not None
     assert "metrics" in structured["publication_quality"]
@@ -396,6 +404,7 @@ def test_v4_full_cycle(monkeypatch, tmp_path):
     assert r.status_code == 200, r.text
     edited = r.json()
     assert edited["source"]["metadata"]["title"] == "Client edited report title"
+    assert edited["editable_fields"]
     assert edited["publication_quality"] is not None
     assert len(edited["source"]["versions"]) == 2
 

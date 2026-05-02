@@ -194,6 +194,14 @@ class ReportEditRequest(_EnterpriseBase):
     reason: str = ""
 
 
+class ReportEditableField(_EnterpriseBase):
+    path: str
+    label: str
+    value_type: Literal["string", "string_list", "table_rows", "json"]
+    current_value: Any
+    actor_roles: list[ReportActorRole] = Field(default_factory=list)
+
+
 class ReportQualityGateIssue(_EnterpriseBase):
     code: str
     severity: QualityGateSeverity
@@ -462,6 +470,138 @@ def apply_report_edits(
     return create_report_version(updated, actor_role=actor, summary=summary)
 
 
+def list_editable_paths(source: StructuredReportSource) -> list[ReportEditableField]:
+    """Return the structured paths the UI/API may edit for this report."""
+
+    roles: list[ReportActorRole] = ["analyst", "editor", "client_reviewer"]
+    fields = [
+        ReportEditableField(
+            path="metadata.title",
+            label="Report title",
+            value_type="string",
+            current_value=source.metadata.title,
+            actor_roles=roles,
+        ),
+        ReportEditableField(
+            path="metadata.subtitle",
+            label="Report subtitle",
+            value_type="string",
+            current_value=source.metadata.subtitle,
+            actor_roles=roles,
+        ),
+        ReportEditableField(
+            path="metadata.client_name",
+            label="Client name",
+            value_type="string",
+            current_value=source.metadata.client_name,
+            actor_roles=roles,
+        ),
+    ]
+    for section in source.sections:
+        fields.append(
+            ReportEditableField(
+                path=f"sections.{section.id}.summary",
+                label=f"{section.title}: summary",
+                value_type="string",
+                current_value=section.summary,
+                actor_roles=roles,
+            )
+        )
+        for block in section.blocks:
+            block_label = block.title or block.id
+            fields.extend(
+                [
+                    ReportEditableField(
+                        path=f"sections.{section.id}.blocks.{block.id}.title",
+                        label=f"{block_label}: title",
+                        value_type="string",
+                        current_value=block.title,
+                        actor_roles=roles,
+                    ),
+                    ReportEditableField(
+                        path=f"sections.{section.id}.blocks.{block.id}.content",
+                        label=f"{block_label}: text",
+                        value_type="string",
+                        current_value=block.content,
+                        actor_roles=roles,
+                    ),
+                    ReportEditableField(
+                        path=f"sections.{section.id}.blocks.{block.id}.bullets",
+                        label=f"{block_label}: bullets",
+                        value_type="string_list",
+                        current_value=block.bullets,
+                        actor_roles=roles,
+                    ),
+                    ReportEditableField(
+                        path=f"sections.{section.id}.blocks.{block.id}.source_ids",
+                        label=f"{block_label}: source ids",
+                        value_type="string_list",
+                        current_value=block.source_ids,
+                        actor_roles=["analyst", "editor"],
+                    ),
+                ]
+            )
+            if block.table_columns:
+                fields.append(
+                    ReportEditableField(
+                        path=f"sections.{section.id}.blocks.{block.id}.table_rows",
+                        label=f"{block_label}: table rows",
+                        value_type="table_rows",
+                        current_value=block.table_rows,
+                        actor_roles=roles,
+                    )
+                )
+            if block.visual:
+                visual_prefix = f"sections.{section.id}.blocks.{block.id}.visual"
+                fields.extend(
+                    [
+                        ReportEditableField(
+                            path=f"{visual_prefix}.title",
+                            label=f"{block_label}: visual title",
+                            value_type="string",
+                            current_value=block.visual.title,
+                            actor_roles=roles,
+                        ),
+                        ReportEditableField(
+                            path=f"{visual_prefix}.thesis",
+                            label=f"{block_label}: visual thesis",
+                            value_type="string",
+                            current_value=block.visual.thesis,
+                            actor_roles=roles,
+                        ),
+                        ReportEditableField(
+                            path=f"{visual_prefix}.caption",
+                            label=f"{block_label}: visual caption",
+                            value_type="string",
+                            current_value=block.visual.caption,
+                            actor_roles=roles,
+                        ),
+                        ReportEditableField(
+                            path=f"{visual_prefix}.why_it_matters",
+                            label=f"{block_label}: why it matters",
+                            value_type="string",
+                            current_value=block.visual.why_it_matters,
+                            actor_roles=roles,
+                        ),
+                        ReportEditableField(
+                            path=f"{visual_prefix}.source_notes",
+                            label=f"{block_label}: visual source notes",
+                            value_type="string_list",
+                            current_value=block.visual.source_notes,
+                            actor_roles=["analyst", "editor"],
+                        ),
+                        ReportEditableField(
+                            path=f"{visual_prefix}.data",
+                            label=f"{block_label}: visual data",
+                            value_type="json",
+                            current_value=block.visual.data,
+                            actor_roles=["analyst", "editor"],
+                        ),
+                    ]
+                )
+    return fields
+
+
 def build_regeneration_plan(
     source: StructuredReportSource,
     *,
@@ -696,6 +836,12 @@ def _apply_single_edit(source: StructuredReportSource, edit: ReportEditRequest) 
     if edit.target_path in {"subtitle", "metadata.subtitle"}:
         source.metadata.subtitle = str(edit.value)
         return
+    if edit.target_path == "metadata.client_name":
+        source.metadata.client_name = str(edit.value)
+        return
+    if edit.target_path == "metadata.language":
+        source.metadata.language = str(edit.value)
+        return
     if len(path) < 3 or path[0] != "sections":
         raise ValueError(f"unsupported edit target path: {edit.target_path}")
 
@@ -713,8 +859,35 @@ def _apply_single_edit(source: StructuredReportSource, edit: ReportEditRequest) 
     elif field == "title":
         block.title = str(edit.value)
     elif field == "bullets":
-        values = [str(item) for item in edit.value] if isinstance(edit.value, list) else [str(edit.value)]
+        values = _coerce_str_list(edit.value)
         block.bullets = [*block.bullets, *values] if edit.operation == "append" else values
+    elif field == "source_ids":
+        values = _coerce_str_list(edit.value)
+        block.source_ids = [*block.source_ids, *values] if edit.operation == "append" else values
+    elif field == "table_columns":
+        block.table_columns = _coerce_str_list(edit.value)
+    elif field == "table_rows":
+        block.table_rows = _coerce_table_rows(edit.value)
+    elif field == "visual" and len(path) == 6:
+        if block.visual is None:
+            raise ValueError(f"block {block.id!r} has no visual to edit")
+        visual_field = path[5]
+        if visual_field in {"title", "thesis", "caption", "why_it_matters", "visual_type"}:
+            setattr(block.visual, visual_field, str(edit.value))
+        elif visual_field in {"source_ids", "source_notes"}:
+            values = _coerce_str_list(edit.value)
+            current = getattr(block.visual, visual_field)
+            setattr(
+                block.visual,
+                visual_field,
+                [*current, *values] if edit.operation == "append" else values,
+            )
+        elif visual_field == "data":
+            if not isinstance(edit.value, dict):
+                raise ValueError("visual.data edit value must be an object")
+            block.visual.data = edit.value
+        else:
+            raise ValueError(f"unsupported visual edit field: {visual_field}")
     else:
         raise ValueError(f"unsupported block edit field: {field}")
 
@@ -1085,6 +1258,23 @@ def _append_or_replace(old: str, new: str, operation: ReportEditOperation) -> st
     if operation == "append" and old:
         return f"{old.rstrip()}\n\n{new.lstrip()}"
     return new
+
+
+def _coerce_str_list(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [str(item) for item in value]
+    return [str(value)]
+
+
+def _coerce_table_rows(value: Any) -> list[list[str]]:
+    if not isinstance(value, list):
+        raise ValueError("table_rows edit value must be a list of rows")
+    rows: list[list[str]] = []
+    for row in value:
+        if not isinstance(row, list):
+            raise ValueError("each table row must be a list")
+        rows.append([str(cell) for cell in row])
+    return rows
 
 
 def _issue(

@@ -37,6 +37,7 @@ from .structured_source import (
     DEFAULT_REGENERATION_FORMATS,
     ReportActorRole,
     ReportArtifactFormat,
+    ReportEditableField,
     ReportEditRequest,
     ReportQualityGateIssue,
     ReportQualityGateResult,
@@ -56,6 +57,7 @@ from .structured_source import (
     create_report_version,
     final_report_from_structured_source,
     hash_structured_source,
+    list_editable_paths,
     run_enterprise_quality_gates,
     structured_source_from_final_report,
 )
@@ -94,6 +96,7 @@ __all__ = [
     "DEFAULT_REGENERATION_FORMATS",
     "ReportActorRole",
     "ReportArtifactFormat",
+    "ReportEditableField",
     "ReportEditRequest",
     "ReportQualityGateIssue",
     "ReportQualityGateResult",
@@ -113,6 +116,7 @@ __all__ = [
     "create_report_version",
     "final_report_from_structured_source",
     "hash_structured_source",
+    "list_editable_paths",
     "run_enterprise_quality_gates",
     "structured_source_from_final_report",
 ]
