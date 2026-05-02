@@ -12,9 +12,11 @@ import html
 import json
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
+import zlib
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -56,6 +58,9 @@ VISUAL_REVIEW_RUBRIC = (
     "Charts, scorecards, and badges are visually aligned and easy to scan.",
     "The package looks like a finished paid report, not a raw model export.",
 )
+
+RENDER_BLANK_INK_RATIO = 0.002
+RENDER_LOW_INK_RATIO = 0.01
 
 
 @dataclass
@@ -485,6 +490,7 @@ def _render_artifact(
             if rendered:
                 result.metrics["rendered_pages"] = len(rendered)
                 result.metrics["rendered_total_bytes"] = _total_file_size(rendered)
+                _add_render_density_metrics(result, rendered, page_label="page")
             else:
                 result.issues.append("PDF rendering produced no PNG pages.")
         except subprocess.SubprocessError as exc:
@@ -528,6 +534,11 @@ def _render_artifact(
         result.render_status = "passed" if rendered else "failed"
         if rendered:
             result.metrics["rendered_total_bytes"] = _total_file_size(rendered)
+            _add_render_density_metrics(
+                result,
+                rendered,
+                page_label="page" if result.kind == "docx" else "slide",
+            )
             if result.kind == "docx":
                 result.metrics["rendered_pages"] = len(rendered)
             elif result.kind == "pptx":
@@ -549,6 +560,130 @@ def _total_file_size(paths: list[str]) -> int:
         except OSError:
             continue
     return total
+
+
+def _add_render_density_metrics(
+    result: ArtifactQaResult,
+    rendered_paths: list[str],
+    *,
+    page_label: str,
+) -> None:
+    densities: list[float] = []
+    blank_pages: list[int] = []
+    low_ink_pages: list[int] = []
+    unreadable_pages: list[int] = []
+    for idx, path in enumerate(rendered_paths, start=1):
+        ratio = _png_ink_ratio(Path(path))
+        if ratio is None:
+            unreadable_pages.append(idx)
+            continue
+        densities.append(round(ratio, 5))
+        if ratio < RENDER_BLANK_INK_RATIO:
+            blank_pages.append(idx)
+        elif ratio < RENDER_LOW_INK_RATIO:
+            low_ink_pages.append(idx)
+    result.metrics["rendered_ink_ratios"] = densities
+    result.metrics["rendered_blank_pages"] = blank_pages
+    result.metrics["rendered_low_ink_pages"] = low_ink_pages
+    result.metrics["rendered_unreadable_pages"] = unreadable_pages
+    if blank_pages:
+        result.issues.append(
+            f"Rendered {result.kind.upper()} has visually blank {page_label}(s): "
+            + ", ".join(str(page) for page in blank_pages[:10])
+        )
+    if len(low_ink_pages) >= 3:
+        result.issues.append(
+            f"Rendered {result.kind.upper()} has too many visually sparse {page_label}(s): "
+            + ", ".join(str(page) for page in low_ink_pages[:10])
+        )
+
+
+def _png_ink_ratio(path: Path) -> float | None:
+    try:
+        data = path.read_bytes()
+        if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+            return None
+        pos = 8
+        width = height = color_type = bit_depth = None
+        idat = bytearray()
+        while pos + 8 <= len(data):
+            length = struct.unpack(">I", data[pos : pos + 4])[0]
+            chunk_type = data[pos + 4 : pos + 8]
+            chunk = data[pos + 8 : pos + 8 + length]
+            pos += 12 + length
+            if chunk_type == b"IHDR":
+                width, height, bit_depth, color_type, _compression, _filter, interlace = struct.unpack(
+                    ">IIBBBBB", chunk
+                )
+                if interlace != 0 or bit_depth != 8 or color_type not in {0, 2, 6}:
+                    return None
+            elif chunk_type == b"IDAT":
+                idat.extend(chunk)
+            elif chunk_type == b"IEND":
+                break
+        if not width or not height or color_type is None:
+            return None
+        channels = {0: 1, 2: 3, 6: 4}[color_type]
+        stride = width * channels
+        raw = zlib.decompress(bytes(idat))
+        rows: list[bytearray] = []
+        offset = 0
+        prev = bytearray(stride)
+        for _row_idx in range(height):
+            filter_type = raw[offset]
+            offset += 1
+            row = bytearray(raw[offset : offset + stride])
+            offset += stride
+            _unfilter_png_row(row, prev, filter_type, channels)
+            rows.append(row)
+            prev = row
+        non_white = 0
+        total = width * height
+        for row in rows:
+            for pixel in range(width):
+                base = pixel * channels
+                if color_type == 0:
+                    rgb = (row[base], row[base], row[base])
+                    alpha = 255
+                else:
+                    rgb = (row[base], row[base + 1], row[base + 2])
+                    alpha = row[base + 3] if channels == 4 else 255
+                if alpha > 10 and min(255 - channel for channel in rgb) > 18:
+                    non_white += 1
+        return non_white / total if total else None
+    except Exception:
+        return None
+
+
+def _unfilter_png_row(row: bytearray, prev: bytearray, filter_type: int, bpp: int) -> None:
+    for idx, value in enumerate(row):
+        left = row[idx - bpp] if idx >= bpp else 0
+        up = prev[idx] if prev else 0
+        up_left = prev[idx - bpp] if prev and idx >= bpp else 0
+        if filter_type == 0:
+            continue
+        if filter_type == 1:
+            row[idx] = (value + left) & 0xFF
+        elif filter_type == 2:
+            row[idx] = (value + up) & 0xFF
+        elif filter_type == 3:
+            row[idx] = (value + ((left + up) // 2)) & 0xFF
+        elif filter_type == 4:
+            row[idx] = (value + _paeth(left, up, up_left)) & 0xFF
+        else:
+            raise ValueError(f"unsupported PNG filter type: {filter_type}")
+
+
+def _paeth(left: int, up: int, up_left: int) -> int:
+    estimate = left + up - up_left
+    pa = abs(estimate - left)
+    pb = abs(estimate - up)
+    pc = abs(estimate - up_left)
+    if pa <= pb and pa <= pc:
+        return left
+    if pb <= pc:
+        return up
+    return up_left
 
 
 def _write_render_index(results: list[ArtifactQaResult], out_dir: Path) -> Path | None:

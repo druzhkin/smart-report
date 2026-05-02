@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import struct
+import zlib
+
 import pytest
 
 from smart_report.exporters.premium import (
@@ -294,3 +297,67 @@ def test_premium_artifact_qa_records_rendered_docx_page_count(
     assert docx_result["render_status"] == "passed"
     assert docx_result["metrics"]["rendered_pages"] == 3
     assert docx_result["metrics"]["rendered_total_bytes"] == 9
+
+
+def test_premium_artifact_qa_flags_visually_blank_rendered_pdf_page(
+    monkeypatch, tmp_path
+):
+    pytest.importorskip("reportlab")
+    from reportlab.lib.pagesizes import letter
+    from reportlab.pdfgen import canvas
+
+    pdf_path = tmp_path / "rendered_blank_check.pdf"
+    c = canvas.Canvas(str(pdf_path), pagesize=letter)
+    for page in range(20):
+        c.drawString(48, 740, "SMART REPORT | Publication-grade PDF")
+        c.drawString(48, 712, f"EXHIBIT {page + 1}: Source: https://cbr.ru/statistics/")
+        c.drawString(48, 684, "Dense enough narrative text for structural QA. " * 5)
+        c.showPage()
+    c.save()
+
+    def _fake_find_tool(name, _candidates):
+        return name
+
+    def _fake_run(cmd, **_kwargs):
+        prefix = tmp_path / "rendered_blank_check_pdf" / "rendered_blank_check"
+        prefix.parent.mkdir(parents=True, exist_ok=True)
+        _write_test_png(prefix.with_name(prefix.name + "-01.png"), ink=False)
+        _write_test_png(prefix.with_name(prefix.name + "-02.png"), ink=True)
+
+    monkeypatch.setattr("smart_report.exporters.premium.artifact_qa._find_tool", _fake_find_tool)
+    monkeypatch.setattr("smart_report.exporters.premium.artifact_qa.subprocess.run", _fake_run)
+
+    report = run_qa(pdf_path=pdf_path, out_dir=tmp_path, render=True)
+
+    pdf_result = next(item for item in report["results"] if item["kind"] == "pdf")
+    assert pdf_result["render_status"] == "passed"
+    assert pdf_result["metrics"]["rendered_blank_pages"] == [1]
+    assert any("visually blank" in issue for issue in pdf_result["issues"])
+
+
+def _write_test_png(path, *, ink: bool) -> None:
+    width = height = 10
+    rows = []
+    for y in range(height):
+        row = bytearray()
+        for x in range(width):
+            if ink and x == y:
+                row.extend((0, 0, 0))
+            else:
+                row.extend((255, 255, 255))
+        rows.append(b"\x00" + bytes(row))
+    raw = zlib.compress(b"".join(rows))
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    data = b"\x89PNG\r\n\x1a\n" + _png_chunk(b"IHDR", ihdr) + _png_chunk(b"IDAT", raw) + _png_chunk(b"IEND", b"")
+    path.write_bytes(data)
+
+
+def _png_chunk(kind: bytes, data: bytes) -> bytes:
+    import binascii
+
+    return (
+        struct.pack(">I", len(data))
+        + kind
+        + data
+        + struct.pack(">I", binascii.crc32(kind + data) & 0xFFFFFFFF)
+    )
