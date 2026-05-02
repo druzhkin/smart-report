@@ -2455,6 +2455,22 @@ async def get_benchmark_eval(session_id: str, request: Request) -> dict:
     ).model_dump(mode="json")
 
 
+@router.get("/sessions/{session_id}/consulting-eval")
+async def get_consulting_eval(session_id: str, request: Request) -> dict:
+    session = _get_owned(session_id, request)
+    if session.final_report is None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"session {session_id} has no final_report yet",
+        )
+    from ..consulting_eval import evaluate_consulting_report
+
+    return evaluate_consulting_report(
+        sanitize_final_report(session.final_report),
+        analysis=session.analysis,
+    ).model_dump(mode="json")
+
+
 @router.get("/renderers")
 async def get_report_renderers() -> dict:
     carbone = get_carbone_renderer_status()
