@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from .synthesis_critic import ConsistencyReport
 
 from .authoritative_sources import assess_evidence_quality
-from .domain_detector import QueryDomain, detect_query_domain
+from .domain_detector import detect_query_domain
 from .events import EventEmitter, NullEmitter
 from .io import extract_json, load_prompt
 from .llm import LLMResult, call_json
@@ -477,6 +477,15 @@ def _coerce_final_report(data: dict[str, Any], *, session: V4Session) -> FinalRe
     analysis: AnalysisOutput | None = session.analysis
     meta.setdefault("source_reports_count", len(session.source_reports))
     meta.setdefault("followup_reports_count", len(session.followup_reports))
+    meta.setdefault("followup_evidence_present", bool(session.followup_reports))
+    meta.setdefault(
+        "followup_report_filenames",
+        [report.filename for report in session.followup_reports],
+    )
+    meta.setdefault(
+        "followup_report_tools",
+        [report.detected_tool or "unknown" for report in session.followup_reports],
+    )
     if analysis is not None:
         meta.setdefault("consensus_count", len(analysis.consensus))
         meta.setdefault("conflicts_count", len(analysis.conflicts))

@@ -163,6 +163,52 @@ async def test_synthesizer_returns_final_report(mock_llm):
 
 
 @pytest.mark.asyncio
+async def test_synthesizer_includes_followup_reports_in_prompt_and_metadata(monkeypatch):
+    captured: dict[str, object] = {}
+
+    async def _stub(*args, **kwargs):
+        captured["messages"] = kwargs["messages"]
+        return LLMResult(text=json.dumps(_MOCK_FINAL_JSON, ensure_ascii=False), cost_rub=0.0)
+
+    monkeypatch.setattr(synth_module, "call_json", _stub)
+
+    session = _session_with_analysis()
+    session.followup_reports = [
+        UploadedMarkdown(
+            filename="auto_followup_paper_search_required_source_families.md",
+            content=(
+                "Smart Report analytic-depth lead: required_source_families\n"
+                "Paper-search evidence: Central Bank policy pass-through narrows the "
+                "mortgage-sensitive buyer pool; https://example.org/paper"
+            ),
+            detected_tool="paper_search_mcp",
+        ),
+        UploadedMarkdown(
+            filename="auto_followup_openai_gap_1.md",
+            content="Gap evidence: delivery delays are concentrated in two developers.",
+            detected_tool="openai_dr",
+        ),
+    ]
+
+    final, _ = await synthesize_final_report(session)
+
+    messages = captured["messages"]
+    assert isinstance(messages, list)
+    user_prompt = messages[1]["content"]
+    assert "## Follow-up reports (round 2, dobor, n=2)" in user_prompt
+    assert "auto_followup_paper_search_required_source_families.md" in user_prompt
+    assert "Smart Report analytic-depth lead: required_source_families" in user_prompt
+    assert "Gap evidence: delivery delays" in user_prompt
+    assert final.metadata["followup_reports_count"] == 2
+    assert final.metadata["followup_evidence_present"] is True
+    assert final.metadata["followup_report_filenames"] == [
+        "auto_followup_paper_search_required_source_families.md",
+        "auto_followup_openai_gap_1.md",
+    ]
+    assert final.metadata["followup_report_tools"] == ["paper_search_mcp", "openai_dr"]
+
+
+@pytest.mark.asyncio
 async def test_synthesizer_rejects_missing_analysis():
     session = _session_with_analysis()
     session.analysis = None
