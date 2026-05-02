@@ -117,6 +117,21 @@ def test_artifact_qa_docx_page_count_falls_back_to_estimate():
     assert v4._artifact_qa_docx_page_count(report) == 19
 
 
+def test_renderer_status_exposes_native_and_carbone_backends_without_secrets(monkeypatch):
+    monkeypatch.setenv("CARBONE_API_KEY", "secret-token")
+    client = _authed_client()
+
+    r = client.get("/api/v4/renderers")
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["default_pdf_backend"] == "native_reportlab"
+    assert body["routing"]["premium-pdf"] == "native_reportlab"
+    assert body["routing"]["premium-carbone-pdf"] == "carbone_cloud"
+    assert any(item["backend"] == "carbone_cloud" for item in body["backends"])
+    assert "secret-token" not in r.text
+
+
 @pytest.fixture
 def mock_llm(monkeypatch):
     from smart_report import prompt_master as pm_module

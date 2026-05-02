@@ -7,6 +7,7 @@ from smart_report.exporters.premium import (
     CarboneRenderError,
     assemble_premium_report_document,
     assess_premium_storyboard_quality,
+    get_carbone_renderer_status,
     render_premium_carbone_pdf,
     render_premium_docx,
     render_premium_pdf,
@@ -91,6 +92,19 @@ def test_carbone_renderer_requires_env_token(tmp_path, monkeypatch):
 
     with pytest.raises(CarboneRenderError, match="CARBONE_API_KEY"):
         render_premium_carbone_pdf(document, tmp_path / "premium.pdf")
+
+
+def test_carbone_status_reports_backend_without_exposing_token(tmp_path, monkeypatch):
+    template_path = tmp_path / "template.html"
+    template_path.write_text("<html></html>", encoding="utf-8")
+    monkeypatch.setenv("CARBONE_API_KEY", "secret-token")
+
+    status = get_carbone_renderer_status(template_path=template_path)
+
+    assert status["backend"] == "carbone_cloud"
+    assert status["available"] is True
+    assert status["secrets_present"] == {"api_token": True}
+    assert "secret-token" not in str(status)
 
 
 def test_carbone_renderer_posts_inline_template_and_writes_pdf(tmp_path, monkeypatch):

@@ -27,6 +27,36 @@ class CarboneRenderError(RuntimeError):
     """Raised when Carbone export cannot be completed."""
 
 
+def get_carbone_renderer_status(
+    *,
+    template_path: Path | None = None,
+    api_token: str | None = None,
+    api_url: str | None = None,
+) -> dict[str, Any]:
+    """Return non-secret availability metadata for the Carbone backend."""
+
+    template = template_path or DEFAULT_TEMPLATE_PATH
+    token_present = bool(
+        (api_token or os.environ.get("CARBONE_API_KEY") or os.environ.get("CARBONE_TOKEN") or "").strip()
+    )
+    template_exists = template.exists()
+    available = token_present and template_exists
+    blockers = []
+    if not token_present:
+        blockers.append("missing_api_token")
+    if not template_exists:
+        blockers.append("missing_template")
+    return {
+        "backend": "carbone_cloud",
+        "format": "pdf",
+        "available": available,
+        "blockers": blockers,
+        "template": str(template),
+        "api_url": (api_url or DEFAULT_CARBONE_API_URL).rstrip("/"),
+        "secrets_present": {"api_token": token_present},
+    }
+
+
 def render_premium_carbone_pdf(
     document: PremiumReportDocument,
     path: Path,

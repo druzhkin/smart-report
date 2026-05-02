@@ -55,6 +55,7 @@ from ..exporters import (
     build_regeneration_plan,
     contains_client_leak,
     final_report_from_structured_source,
+    get_carbone_renderer_status,
     hash_structured_source,
     list_editable_paths,
     ReportArtifactFormat,
@@ -2454,6 +2455,46 @@ async def get_benchmark_eval(session_id: str, request: Request) -> dict:
     ).model_dump(mode="json")
 
 
+@router.get("/renderers")
+async def get_report_renderers() -> dict:
+    carbone = get_carbone_renderer_status()
+    return {
+        "default_pdf_backend": "native_reportlab",
+        "backends": [
+            {
+                "backend": "native_reportlab",
+                "format": "pdf",
+                "available": True,
+                "blockers": [],
+                "qa": ["structural_pdf_check", "rendered_png_density_check"],
+            },
+            {
+                "backend": "native_python_docx",
+                "format": "docx",
+                "available": True,
+                "blockers": [],
+                "qa": ["structural_docx_check", "optional_libreoffice_render_check"],
+            },
+            {
+                "backend": "native_pptx",
+                "format": "pptx",
+                "available": True,
+                "blockers": [],
+                "qa": ["structural_pptx_check", "optional_libreoffice_render_check"],
+            },
+            carbone,
+        ],
+        "routing": {
+            "premium-pdf": "native_reportlab",
+            "premium-docx": "native_python_docx",
+            "premium-pptx": "native_pptx",
+            "premium-carbone-pdf": "carbone_cloud",
+            "premium-package": "native_pdf_docx_pptx_bundle",
+            "premium-client-package": "native_pdf_docx_pptx_bundle_with_gates",
+        },
+    }
+
+
 @router.get("/sessions/{session_id}/structured-source")
 async def get_structured_report_source(session_id: str, request: Request) -> dict:
     session = _get_owned(session_id, request)
@@ -3217,6 +3258,8 @@ def _write_premium_package(
         "ready_for_client_delivery": bool(client_readiness.get("ready")),
         "ready_for_paid_premium_delivery": bool(premium_readiness.get("ready")),
         "premium_score": premium_readiness.get("score"),
+        "pdf_renderer": "native_reportlab",
+        "carbone_pdf_renderer": get_carbone_renderer_status(),
         "artifact_qa_status": artifact_qa.get("status"),
         "storyboard_quality_ready": storyboard_quality.get("ready"),
         "storyboard_quality_score": storyboard_quality.get("score"),

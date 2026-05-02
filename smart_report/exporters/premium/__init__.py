@@ -5,7 +5,12 @@ opt-in contract for high-value client deliverables: a deep report, a separate
 presentation deck, evidence appendices, and QA gates.
 """
 
-from .carbone import CarboneRenderError, render_premium_carbone_pdf, to_carbone_data
+from .carbone import (
+    CarboneRenderError,
+    get_carbone_renderer_status,
+    render_premium_carbone_pdf,
+    to_carbone_data,
+)
 from .document import assemble_premium_report_document
 from .docx import render_premium_docx
 from .models import (
@@ -84,6 +89,7 @@ __all__ = [
     "assemble_premium_report_document",
     "render_premium_docx",
     "render_premium_carbone_pdf",
+    "get_carbone_renderer_status",
     "render_premium_pdf",
     "render_premium_pptx",
     "to_carbone_data",
