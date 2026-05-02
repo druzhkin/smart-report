@@ -25,9 +25,18 @@ from smart_report.models import UploadedMarkdown
 _logger = logging.getLogger(__name__)
 
 
-AutoDRService = Literal["valyu", "tavily", "exa", "perplexity", "openai", "claude", "gemini"]
+AutoDRService = Literal[
+    "valyu",
+    "tavily",
+    "exa",
+    "paper_search",
+    "perplexity",
+    "openai",
+    "claude",
+    "gemini",
+]
 SUPPORTED_SERVICES: tuple[AutoDRService, ...] = (
-    "valyu", "tavily", "exa", "perplexity", "openai", "claude", "gemini",
+    "valyu", "tavily", "exa", "paper_search", "perplexity", "openai", "claude", "gemini",
 )
 
 
@@ -71,6 +80,8 @@ async def run_auto_dr(
     if service == "tavily":
         return await _run_search_backend(service, question, domain_hint, max_results)
     if service == "exa":
+        return await _run_search_backend(service, question, domain_hint, max_results)
+    if service == "paper_search":
         return await _run_search_backend(service, question, domain_hint, max_results)
     if service == "perplexity":
         return await _run_llm_research(
@@ -130,7 +141,7 @@ async def _run_search_backend(
     upload = UploadedMarkdown(
         filename=f"auto_dr_{service}.md",
         content=md,
-        detected_tool="other",
+        detected_tool="paper_search_mcp" if service == "paper_search" else "other",
         word_count=len(md.split()),
     )
     cost_usd = float(result.cost_usd or 0.0)
@@ -159,6 +170,9 @@ def _make_adapter(service: AutoDRService):
         if service == "exa":
             from .exa_adapter import ExaAdapter
             return ExaAdapter()
+        if service == "paper_search":
+            from .paper_search_mcp_adapter import PaperSearchMCPAdapter
+            return PaperSearchMCPAdapter()
     except RuntimeError as e:
         raise AutoDRError(f"{service} not configured: {e}") from e
     raise AutoDRError(f"no adapter for service {service!r}")
@@ -173,8 +187,9 @@ def _search_result_to_markdown(
     intake parser sees a familiar shape regardless of which backend
     produced it.
     """
+    service_label = "Paper Search MCP" if service == "paper_search" else service.title()
     lines = [
-        f"# {service.title()} DeepSearch results — {question}",
+        f"# {service_label} DeepSearch results — {question}",
         "",
         f"_Backend: {service}_"
         + (f" _(domain hint: {domain})_" if domain else ""),

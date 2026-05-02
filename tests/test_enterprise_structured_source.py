@@ -244,6 +244,12 @@ def test_structured_source_tracks_scientific_connectors_explicitly():
             tool="exa-semantic-academic",
             reliability="medium",
         ),
+        Source(
+            title="Paper Search MCP arXiv result",
+            url="https://arxiv.org/abs/2501.12345",
+            tool="paper_search_mcp:arxiv",
+            reliability="high",
+        ),
     ]
     report.metadata = {"detected_domain": "technical_research"}
 
@@ -253,11 +259,13 @@ def test_structured_source_tracks_scientific_connectors_explicitly():
         "valyu_arxiv",
         "valyu_clinical_trials",
         "exa_semantic",
+        "paper_search_arxiv",
     ]
     assert source.research_coverage.scientific_or_primary_connectors == [
         "valyu_arxiv",
         "valyu_clinical_trials",
         "exa_semantic",
+        "paper_search_arxiv",
     ]
     assert source.research_coverage.known_coverage_gaps == []
     assert run_enterprise_quality_gates(source).passed
@@ -282,6 +290,27 @@ def test_quality_gate_blocks_scientific_domain_without_paper_search():
     assert "missing_scientific_connector" in {issue.code for issue in gate.issues}
     assert source.research_coverage.known_coverage_gaps == [
         "scientific_or_paper_search_not_declared"
+    ]
+
+
+def test_quality_gate_accepts_paper_search_mcp_for_scientific_domain():
+    report = _report()
+    report.all_sources = [
+        Source(
+            title="Paper Search Semantic Scholar result",
+            url="https://www.semanticscholar.org/paper/abc",
+            tool="paper_search_mcp:semantic",
+            reliability="high",
+        )
+    ]
+    report.metadata = {"detected_domain": "scientific"}
+    source = structured_source_from_final_report(report)
+
+    gate = run_enterprise_quality_gates(source)
+
+    assert gate.passed
+    assert source.research_coverage.scientific_or_primary_connectors == [
+        "paper_search_semantic"
     ]
 
 

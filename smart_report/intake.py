@@ -925,7 +925,8 @@ def _detect_source_tool(
     detected_tool: str | None,
 ) -> str:
     """Map filename/detected_tool to NormalizedReport.source_tool literal."""
-    valid = ("perplexity_dr", "openai_dr", "claude_research", "valyu", "other")
+    if detected_tool == "paper_search_mcp":
+        return "paper_search_mcp"
     if detected_tool == "perplexity":
         return "perplexity_dr"
     if detected_tool == "openai_dr":
@@ -939,6 +940,8 @@ def _detect_source_tool(
         return "openai_dr"
     if "claude" in fn:
         return "claude_research"
+    if "paper_search" in fn or "paper-search" in fn:
+        return "paper_search_mcp"
     return "other"
 
 

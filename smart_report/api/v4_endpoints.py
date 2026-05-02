@@ -691,7 +691,16 @@ async def analyze(
 
 
 class AutoDRIn(BaseModel):
-    service: Literal["valyu", "tavily", "exa", "perplexity", "openai", "claude", "gemini"]
+    service: Literal[
+        "valyu",
+        "tavily",
+        "exa",
+        "paper_search",
+        "perplexity",
+        "openai",
+        "claude",
+        "gemini",
+    ]
     prompt: str | None = Field(
         default=None,
         max_length=20000,

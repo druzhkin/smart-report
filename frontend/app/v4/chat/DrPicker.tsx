@@ -65,7 +65,7 @@ export const PERPLEXITY_DR_MODES: ServiceModeSpec[] = [
 ];
 
 export type DrServiceKey =
-  | AutoDRService          // valyu | tavily | exa | perplexity (integrated)
+  | AutoDRService          // valyu | tavily | exa | paper_search | perplexity (integrated)
   | "openai"               // copy-launch: ChatGPT Deep Research
   | "claude"               // copy-launch: Claude Research
   | "gemini";              // copy-launch: Gemini Deep Research
@@ -103,6 +103,14 @@ export const DR_SERVICES: DrServiceMeta[] = [
     price: "$0.10 – $2.00",
     when: "Семантический поиск: научные статьи, блоги, похожие работы.",
     mode: "integrated",
+  },
+  {
+    key: "paper_search",
+    label: "Paper Search MCP",
+    price: "$0",
+    when: "Open academic APIs: arXiv, PubMed, Semantic Scholar, Crossref, bioRxiv/medRxiv.",
+    mode: "integrated",
+    badge: "academic",
   },
   {
     key: "perplexity",

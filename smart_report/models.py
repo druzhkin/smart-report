@@ -135,7 +135,7 @@ V4Status = Literal[
     "cancelled",
 ]
 
-DetectedTool = Literal["perplexity", "openai_dr", "claude", "other"]
+DetectedTool = Literal["perplexity", "openai_dr", "claude", "paper_search_mcp", "other"]
 
 
 class _V4Base(BaseModel):
@@ -421,7 +421,14 @@ class NormalizedReport(BaseModel):
 
     model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
 
-    source_tool: Literal["perplexity_dr", "openai_dr", "claude_research", "valyu", "other"] = "other"
+    source_tool: Literal[
+        "perplexity_dr",
+        "openai_dr",
+        "claude_research",
+        "paper_search_mcp",
+        "valyu",
+        "other",
+    ] = "other"
     source_filename: str
     raw_text: str
     extracted_claims: list[Claim] = Field(default_factory=list)

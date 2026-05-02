@@ -707,6 +707,7 @@ export default function Workspace() {
         service === "valyu" ? "Valyu Research" :
         service === "tavily" ? "Tavily Research" :
         service === "exa" ? "Exa Research" :
+        service === "paper_search" ? "Paper Search MCP" :
         service === "openai" ? "OpenAI Deep Research" :
         service === "perplexity" ? "Perplexity Deep Research" : service;
       let cancelled = false;
@@ -1365,6 +1366,7 @@ export default function Workspace() {
         service === "valyu" ? "Valyu Research" :
         service === "tavily" ? "Tavily Research" :
         service === "exa" ? "Exa Research" :
+        service === "paper_search" ? "Paper Search MCP" :
         service === "perplexity" ? (opts?.mode ? "Perplexity Deep Research" : "Perplexity Sonar Pro") :
         service === "openai" ? "OpenAI Deep Research" :
         service === "claude" ? "Anthropic Claude Sonnet 4.5" :
@@ -1373,6 +1375,7 @@ export default function Workspace() {
       // sonar-deep-research (when mode is set). claude/gemini are sync.
       const isAsync = !!opts?.mode && (
         service === "valyu" || service === "tavily" || service === "exa"
+        || service === "paper_search"
         || service === "openai" || service === "perplexity"
       );
       const askLabel = isAsync
@@ -2561,6 +2564,7 @@ export default function Workspace() {
         p?.service === "valyu" ? "Valyu Research" :
         p?.service === "exa" ? "Exa Research" :
         p?.service === "tavily" ? "Tavily Research" :
+        p?.service === "paper_search" ? "Paper Search MCP" :
         p?.service === "openai" ? "OpenAI Deep Research" :
         p?.service || "Research";
       return {

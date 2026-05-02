@@ -43,6 +43,13 @@ ResearchConnector = Literal[
     "valyu_biorxiv",
     "valyu_medrxiv",
     "valyu_clinical_trials",
+    "paper_search_mcp",
+    "paper_search_arxiv",
+    "paper_search_pubmed",
+    "paper_search_biorxiv",
+    "paper_search_medrxiv",
+    "paper_search_semantic",
+    "paper_search_crossref",
     "exa",
     "exa_semantic",
     "tavily",
@@ -59,6 +66,13 @@ SCIENTIFIC_CONNECTORS: set[ResearchConnector] = {
     "valyu_biorxiv",
     "valyu_medrxiv",
     "valyu_clinical_trials",
+    "paper_search_mcp",
+    "paper_search_arxiv",
+    "paper_search_pubmed",
+    "paper_search_biorxiv",
+    "paper_search_medrxiv",
+    "paper_search_semantic",
+    "paper_search_crossref",
     "exa",
     "exa_semantic",
     "academic_upload",
@@ -1201,6 +1215,20 @@ def _first_sentence(text: str) -> str:
 def _connector_from_tool(tool: str) -> ResearchConnector:
     value = str(tool or "").lower()
     normalized = value.replace("-", "_").replace("/", "_")
+    if "paper_search" in normalized:
+        if "pubmed" in normalized:
+            return "paper_search_pubmed"
+        if "medrxiv" in normalized:
+            return "paper_search_medrxiv"
+        if "biorxiv" in normalized or "bio_rxiv" in normalized:
+            return "paper_search_biorxiv"
+        if "arxiv" in normalized or "ar_xiv" in normalized:
+            return "paper_search_arxiv"
+        if "semantic" in normalized:
+            return "paper_search_semantic"
+        if "crossref" in normalized:
+            return "paper_search_crossref"
+        return "paper_search_mcp"
     if "pubmed" in normalized:
         return "valyu_pubmed"
     if "clinical_trials" in normalized or "clinicaltrials" in normalized:
