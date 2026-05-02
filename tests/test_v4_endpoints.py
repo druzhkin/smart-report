@@ -151,6 +151,72 @@ def test_cost_guardrail_reports_remaining_budget(monkeypatch):
     assert body["blocked"] is False
 
 
+def test_enterprise_quality_endpoint_returns_trace_and_contract():
+    from smart_report.models import ChartSpec, ExecutiveSummaryV4, FinalReport, Source, Table
+
+    client = _authed_client()
+    sid = client.post(
+        "/api/v4/sessions",
+        json={"question": "peer-reviewed evidence on LLM observability benchmarks"},
+    ).json()["session_id"]
+    session = v4._store.get(sid)
+    session.final_report = FinalReport(
+        session_id=sid,
+        question=session.raw_question,
+        executive_summary=ExecutiveSummaryV4(
+            main_answer="Academic evidence supports a cautious governance position [REF:https://arxiv.org/abs/2501.1].",
+            top_findings=[
+                "Papers exist [REF:https://arxiv.org/abs/2501.1].",
+                "Benchmarks are incomplete [REF:https://doi.org/10.1000/example].",
+                "Production telemetry remains necessary [REF:https://semanticscholar.org/paper/abc].",
+            ],
+        ),
+        main_synthesis="Evidence-backed narrative [REF:https://arxiv.org/abs/2501.1]. " * 70,
+        consensus_section="Academic sources agree on traceability [REF:https://doi.org/10.1000/example].",
+        conflicts_section="Transferability remains disputed [REF:https://semanticscholar.org/paper/abc].",
+        gaps_filled_section="Operational data should be added [REF:https://arxiv.org/abs/2501.1].",
+        all_sources=[
+            Source(title="arXiv", url="https://arxiv.org/abs/2501.1", tool="paper_search_mcp:arxiv", reliability="high"),
+            Source(title="DOI", url="https://doi.org/10.1000/example", tool="paper_search_mcp:crossref", reliability="high"),
+            Source(title="Semantic Scholar", url="https://semanticscholar.org/paper/abc", tool="paper_search_mcp:semantic", reliability="high"),
+            Source(title="ACM", url="https://acm.org/example", reliability="high"),
+            Source(title="IEEE", url="https://ieee.org/example", reliability="high"),
+            Source(title="GitHub", url="https://github.com/example", reliability="medium"),
+            Source(title="Vendor docs", url="https://docs.example.com", reliability="medium"),
+            Source(title="Benchmark", url="https://paperswithcode.com/example", reliability="medium"),
+        ],
+        charts=[ChartSpec(chart_type="bar", title="Coverage", caption="Papers support methodology.", data={"values": [1]})],
+        tables=[Table(title="Matrix", columns=["A"], rows=[["B"]], caption="Evidence matrix.", source_ref="https://arxiv.org/abs/2501.1")],
+    )
+    session.pending_dr_jobs = [{"task_id": "p1", "service": "paper_search", "mode": "standard", "state": "completed"}]
+    v4._store.update(session)
+
+    r = client.get(f"/api/v4/sessions/{sid}/enterprise-quality")
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert "score" in body
+    assert body["research_policy"]["requires_academic_retrieval"] is True
+    assert body["execution_trace"]["paper_search_used"] is True
+    assert body["claim_audit"]["claim_count"] > 0
+
+
+def test_execution_trace_endpoint_without_final_report():
+    client = _authed_client()
+    sid = client.post(
+        "/api/v4/sessions",
+        json={"question": "simple market question"},
+    ).json()["session_id"]
+    session = v4._store.get(sid)
+    session.pending_dr_jobs = [{"task_id": "r1", "service": "valyu", "mode": "standard", "state": "running"}]
+    v4._store.update(session)
+
+    r = client.get(f"/api/v4/sessions/{sid}/execution-trace")
+
+    assert r.status_code == 200, r.text
+    assert r.json()["running_job_count"] == 1
+
+
 @pytest.fixture
 def mock_llm(monkeypatch):
     from smart_report import prompt_master as pm_module

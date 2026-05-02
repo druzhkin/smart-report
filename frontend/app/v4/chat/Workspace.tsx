@@ -42,14 +42,17 @@ import {
   getPremiumReadiness,
   getBenchmarkEval,
   getConsultingEval,
+  getEnterpriseQuality,
   getRendererStatus,
   getStructuredReportSource,
   patchStructuredReportSource,
+  regenerateStructuredReportPackage,
   type SessionListItem,
   type QualityGrade,
   type PremiumReadiness,
   type BenchmarkEvalOut,
   type ConsultingEvalOut,
+  type EnterpriseQualityOut,
   type RendererStatusOut,
   type PremiumRefinementStatusOut,
   type StructuredReportSourceOut,
@@ -188,6 +191,7 @@ export default function Workspace() {
   const [premiumReadiness, setPremiumReadiness] = useState<PremiumReadiness | null>(null);
   const [benchmarkEval, setBenchmarkEval] = useState<BenchmarkEvalOut | null>(null);
   const [consultingEval, setConsultingEval] = useState<ConsultingEvalOut | null>(null);
+  const [enterpriseQuality, setEnterpriseQuality] = useState<EnterpriseQualityOut | null>(null);
   const [rendererStatus, setRendererStatus] = useState<RendererStatusOut | null>(null);
   const [premiumRefinementStatus, setPremiumRefinementStatus] =
     useState<PremiumRefinementStatusOut | null>(null);
@@ -199,6 +203,7 @@ export default function Workspace() {
   const [structuredEditorTitle, setStructuredEditorTitle] = useState("");
   const [structuredEditorBlockPath, setStructuredEditorBlockPath] = useState("");
   const [structuredEditorBlockContent, setStructuredEditorBlockContent] = useState("");
+  const [structuredRegenerateBusy, setStructuredRegenerateBusy] = useState(false);
   // Multiple concurrent DR tasks supported — user can fire Valyu, Exa,
   // and OpenAI in parallel and each gets its own poll loop. (Was a Map
   // pattern bug: single-valued state meant launching task #2 stopped
@@ -640,6 +645,7 @@ export default function Workspace() {
       setPremiumReadiness(null);
       setBenchmarkEval(null);
       setConsultingEval(null);
+      setEnterpriseQuality(null);
       setStructuredReport(null);
       return;
     }
@@ -656,6 +662,9 @@ export default function Workspace() {
     getConsultingEval(sessionId)
       .then((r) => { if (!cancelled) setConsultingEval(r); })
       .catch(() => { if (!cancelled) setConsultingEval(null); });
+    getEnterpriseQuality(sessionId)
+      .then((r) => { if (!cancelled) setEnterpriseQuality(r); })
+      .catch(() => { if (!cancelled) setEnterpriseQuality(null); });
     getRendererStatus()
       .then((r) => { if (!cancelled) setRendererStatus(r); })
       .catch(() => { if (!cancelled) setRendererStatus(null); });
@@ -2839,6 +2848,30 @@ export default function Workspace() {
     }
   };
 
+  const regenerateStructuredPackage = async (allowDraft = false) => {
+    if (!sessionId) return;
+    setStructuredRegenerateBusy(true);
+    try {
+      const blob = await regenerateStructuredReportPackage(sessionId, {
+        requested_formats: ["docx", "pdf", "pptx"],
+        allow_draft: allowDraft,
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "structured_regenerated_package.zip";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      showToast("PDF/DOCX/PPTX package regenerated from structured data.");
+    } catch (e) {
+      showToast(`Could not regenerate package: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setStructuredRegenerateBusy(false);
+    }
+  };
+
   // ===== Render =====
   return (
     <div className="ws-root">
@@ -3461,6 +3494,42 @@ export default function Workspace() {
                       </div>
                     </div>
                   )}
+                  {enterpriseQuality && (
+                    <div className={`quality-grade ${
+                      enterpriseQuality.verdict === "publishable"
+                        ? "quality-grade--a"
+                        : enterpriseQuality.verdict === "blocked"
+                          ? "quality-grade--c"
+                          : "quality-grade--b"
+                    }`}>
+                      <div className="quality-grade__head">
+                        <span className="quality-grade__label">Enterprise quality</span>
+                        <span className="quality-grade__letter">
+                          {enterpriseQuality.verdict}
+                        </span>
+                        <span className="quality-grade__score">{enterpriseQuality.score}/100</span>
+                      </div>
+                      <div className="quality-grade__summary">
+                        claims {enterpriseQuality.claim_audit.supported_claim_count}/{enterpriseQuality.claim_audit.claim_count};
+                        visuals {enterpriseQuality.visual_intelligence.useful_visual_count}/{enterpriseQuality.visual_intelligence.visual_count};
+                        balance {enterpriseQuality.report_structure.text_visual_balance}
+                      </div>
+                      <div className="quality-grade__metrics">
+                        <span>domain <b>{enterpriseQuality.research_policy.domain}</b></span>
+                        <span>paper search <b>{enterpriseQuality.execution_trace?.paper_search_used ? "used" : "missing"}</b></span>
+                        <span>jobs <b>{enterpriseQuality.execution_trace?.running_job_count ?? 0}</b></span>
+                      </div>
+                      {enterpriseQuality.issues.length > 0 && (
+                        <div className="quality-grade__issues">
+                          {enterpriseQuality.issues.slice(0, 3).map((issue) => (
+                            <div key={issue.code}>
+                              <b>{issue.severity}</b> {issue.message}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                   {rendererStatus && (
                     <div className="quality-grade quality-grade--b">
                       <div className="quality-grade__head">
@@ -3564,6 +3633,24 @@ export default function Workspace() {
                         >
                           {structuredEditorBusy ? "сохраняю..." : "сохранить правки"}
                         </button>
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          <button
+                            type="button"
+                            className="icon-btn primary"
+                            onClick={() => regenerateStructuredPackage(false)}
+                            disabled={structuredRegenerateBusy}
+                          >
+                            {structuredRegenerateBusy ? "Generating..." : "Regenerate PDF/DOCX/PPTX"}
+                          </button>
+                          <button
+                            type="button"
+                            className="icon-btn"
+                            onClick={() => regenerateStructuredPackage(true)}
+                            disabled={structuredRegenerateBusy}
+                          >
+                            draft package
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>

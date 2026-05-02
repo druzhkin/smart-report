@@ -365,6 +365,7 @@ export type ResearchLeadKind =
 
 export type ResearchService =
   | "valyu"
+  | "paper_search"
   | "perplexity"
   | "openai"
   | "claude"
@@ -1291,6 +1292,46 @@ export type ConsultingEvalOut = {
   issues: { code: string; severity: string; message: string; recommendation: string }[];
 };
 
+export type EnterpriseQualityOut = {
+  score: number;
+  passed: boolean;
+  verdict: "publishable" | "needs_work" | "blocked";
+  issues: { code: string; severity: "critical" | "major" | "minor"; message: string; recommendation: string }[];
+  research_policy: {
+    domain: string;
+    recommended_services: string[];
+    requires_academic_retrieval: boolean;
+    academic_retrieval_satisfied: boolean;
+    issues: string[];
+  };
+  claim_audit: {
+    claim_count: number;
+    supported_claim_count: number;
+    unsupported_claim_count: number;
+    support_ratio: number;
+    unsupported_claims: string[];
+  };
+  visual_intelligence: {
+    visual_count: number;
+    useful_visual_count: number;
+    weak_visual_count: number;
+  };
+  report_structure: {
+    narrative_chars: number;
+    section_count: number;
+    text_visual_balance: string;
+  };
+  execution_trace?: {
+    total_cost_rub: number;
+    source_report_count: number;
+    followup_report_count: number;
+    pending_job_count: number;
+    running_job_count: number;
+    services_used: string[];
+    paper_search_used: boolean;
+  } | null;
+};
+
 export type RendererStatusOut = {
   default_pdf_backend: string;
   backends: {
@@ -1341,6 +1382,10 @@ export async function getBenchmarkEval(id: string): Promise<BenchmarkEvalOut> {
 
 export async function getConsultingEval(id: string): Promise<ConsultingEvalOut> {
   return jv4<ConsultingEvalOut>(`/api/v4/sessions/${encodeURIComponent(id)}/consulting-eval`);
+}
+
+export async function getEnterpriseQuality(id: string): Promise<EnterpriseQualityOut> {
+  return jv4<EnterpriseQualityOut>(`/api/v4/sessions/${encodeURIComponent(id)}/enterprise-quality`);
 }
 
 export async function getRendererStatus(): Promise<RendererStatusOut> {

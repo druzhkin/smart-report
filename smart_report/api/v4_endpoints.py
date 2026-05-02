@@ -89,6 +89,7 @@ from ..models import (
     UploadedMarkdown,
     V4Session,
 )
+from ..quality_contract import build_execution_trace, evaluate_enterprise_quality
 from ..v4_orchestrator import V4Orchestrator, V4SessionStore
 from ..visual_review import build_visual_review_gate
 
@@ -2490,6 +2491,34 @@ async def get_consulting_eval(session_id: str, request: Request) -> dict:
         sanitize_final_report(session.final_report),
         analysis=session.analysis,
     ).model_dump(mode="json")
+
+
+@router.get("/sessions/{session_id}/enterprise-quality")
+async def get_enterprise_quality_contract(session_id: str, request: Request) -> dict:
+    """Return the full deterministic enterprise quality contract.
+
+    This combines research policy, claim support, visual/report balance,
+    benchmark evaluation, consulting evaluator, and execution trace. The
+    frontend can show this as a single client-readiness gate instead of
+    making the user mentally combine five separate panels.
+    """
+    session = _get_owned(session_id, request)
+    if session.final_report is None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"session {session_id} has no final_report yet",
+        )
+    return evaluate_enterprise_quality(
+        sanitize_final_report(session.final_report),
+        analysis=session.analysis,
+        session=session,
+    ).model_dump(mode="json")
+
+
+@router.get("/sessions/{session_id}/execution-trace")
+async def get_execution_trace(session_id: str, request: Request) -> dict:
+    session = _get_owned(session_id, request)
+    return build_execution_trace(session).model_dump(mode="json")
 
 
 @router.get("/renderers")

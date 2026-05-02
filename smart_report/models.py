@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import hashlib
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -328,8 +328,13 @@ class Claim(BaseModel):
 
     text: str
     sources: list[SourceRef] = Field(default_factory=list)
+    source_ids: list[str] = Field(default_factory=list)
     claim_type: Literal["numeric", "qualitative", "comparative", "directional"] = "qualitative"
     confidence_level: Literal["high", "medium", "low"] = "medium"
+    freshness: Literal["current", "recent", "dated", "unknown"] = "unknown"
+    counter_evidence: list[str] = Field(default_factory=list)
+    numeric_values: list[dict[str, Any]] = Field(default_factory=list)
+    used_in_sections: list[str] = Field(default_factory=list)
 
 
 class NumericFact(BaseModel):
