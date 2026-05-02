@@ -1500,7 +1500,12 @@ async def auto_dr_status(session_id: str, request: Request, task_id: str) -> Aut
                             cost_usd=None,
                             cost_rub=None,
                         )
-        raise HTTPException(status_code=404, detail=f"task_id {task_id} not found in this session")
+        return AutoDRStatusOut(
+            task_id=task_id,
+            state="failed",
+            message="Research task is no longer active. Start a new research run from the UI.",
+            error=f"task_id {task_id} not found in this session",
+        )
 
     from ..sources.auto_dr import (
         try_collect_async_research, try_collect_async_research_from_session,

@@ -1628,13 +1628,16 @@ def test_auto_dr_cancel_404_for_unknown_task():
     assert r.status_code == 404
 
 
-def test_auto_dr_status_404_for_unknown_task():
+def test_auto_dr_status_returns_failed_for_unknown_task():
     client = _authed_client()
     sid = client.post(
         "/api/v4/sessions", json={"question": "test research async flow"}
     ).json()["session_id"]
     r = client.get(f"/api/v4/sessions/{sid}/auto-dr-status?task_id=neverexisted")
-    assert r.status_code == 404
+    assert r.status_code == 200
+    body = r.json()
+    assert body["state"] == "failed"
+    assert "neverexisted" in body["error"]
 
 
 def test_track_b_endpoints_are_wired():
