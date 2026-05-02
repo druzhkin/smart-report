@@ -119,6 +119,14 @@ def _score_lead(lead: ResearchLead, reports: list[UploadedMarkdown]) -> LeadClos
         missing.append("Matched report has weak topical overlap with the lead.")
     if not best["has_adjudication_language"] and lead.kind == "resolve_conflict":
         missing.append("Conflict lead lacks explicit adjudication language.")
+    if lead.id == "required_source_families":
+        missing_families = _missing_required_families(lead, best)
+        if missing_families:
+            missing.append(
+                "Required source families still missing: " + ", ".join(missing_families) + "."
+            )
+            score = min(score, 65 if best["required_family_hits"] else 35)
+            status = "partial" if score >= 40 else "not_closed"
 
     return LeadClosure(
         lead_id=lead.id,
@@ -143,6 +151,7 @@ def _report_signals(report: UploadedMarkdown, keywords: set[str], lead: Research
     has_number = bool(re.search(r"\d+(?:[.,]\d+)?\s?(?:%|pp|p\.p\.|rub|usd|eur|mln|bn|trn)?", lowered))
     has_source_language = any(token in lowered for token in ("source", "url", "report", "data", "according"))
     has_candidate_source = any(src.lower() in lowered for src in lead.candidate_sources if src)
+    required_family_hits = _required_family_hits(lowered, lead)
     has_adjudication_language = any(
         token in lowered
         for token in ("therefore", "stronger", "weaker", "contradict", "resolved", "scope", "definition")
@@ -170,6 +179,9 @@ def _report_signals(report: UploadedMarkdown, keywords: set[str], lead: Research
     if has_candidate_source:
         score += 20
         signals.append("candidate_source_match")
+    if required_family_hits:
+        score += min(25, 5 * len(required_family_hits))
+        signals.append(f"required_source_family_hits:{len(required_family_hits)}")
     if lead.kind == "resolve_conflict" and has_adjudication_language:
         score += 20
         signals.append("adjudication_language")
@@ -186,7 +198,27 @@ def _report_signals(report: UploadedMarkdown, keywords: set[str], lead: Research
         "has_number": has_number,
         "has_adjudication_language": has_adjudication_language,
         "has_lead_marker": has_lead_marker,
+        "required_family_hits": required_family_hits,
     }
+
+
+def _required_family_hits(text: str, lead: ResearchLead) -> set[str]:
+    if lead.id != "required_source_families":
+        return set()
+    hits: set[str] = set()
+    for family in lead.target_entities:
+        family_l = family.lower()
+        markers = _SOURCE_FAMILY_MARKERS.get(family_l, (family_l,))
+        if any(marker.lower() in text for marker in markers):
+            hits.add(family_l)
+    return hits
+
+
+def _missing_required_families(lead: ResearchLead, signal: dict) -> list[str]:
+    if lead.id != "required_source_families":
+        return []
+    hits = set(signal.get("required_family_hits") or set())
+    return [family for family in lead.target_entities if family.lower() not in hits]
 
 
 def _lead_keywords(lead: ResearchLead) -> set[str]:
@@ -266,4 +298,29 @@ _STOP_WORDS = {
     "evidence",
     "report",
     "market",
+}
+
+
+_SOURCE_FAMILY_MARKERS = {
+    "cbr": ("cbr.ru", "bank of russia", "central bank", "банк россии", "цб"),
+    "domrf": ("dom.rf", "дом.рф", "xn--d1aqf.xn--p1ai"),
+    "rosstat": ("rosstat.gov.ru", "rosstat", "росстат"),
+    "erz": ("erzrf.ru", "erz", "ерз"),
+    "mos": ("mos.ru", "stroi.mos.ru", "стройкомплекс"),
+    "europa": ("europa.eu",),
+    "commission": ("ec.europa.eu", "european commission"),
+    "parliament": ("europarl.europa.eu", "european parliament"),
+    "legal_text": ("eur-lex.europa.eu", "eur-lex"),
+    "minpromtorg": ("minpromtorg.gov.ru", "минпромторг"),
+    "autostat": ("autostat.ru", "автостат"),
+    "aeb": ("aebrus.ru",),
+    "academic": ("arxiv.org", "pubmed", "doi", "journal", "semanticscholar"),
+    "vendor_docs": ("docs.", "documentation", "github.com"),
+    "benchmark": ("benchmark", "dataset", "mckinsey", "bcg", "gartner", "forrester"),
+    "github": ("github.com",),
+    "company": ("annual report", "investor relations", "official company"),
+    "market": ("industry association", "market research"),
+    "regulatory": ("regulator", "government", ".gov"),
+    "primary": ("official statistics", "regulatory", "company filing", ".gov", ".edu"),
+    "industry": ("industry association", "agency report"),
 }
