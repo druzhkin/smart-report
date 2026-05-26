@@ -13,6 +13,22 @@ const nextConfig = {
   experimental: {
     proxyTimeout: 600_000,
   },
+  async redirects() {
+    return [
+      { source: "/new", destination: "/v4/chat", permanent: false },
+      { source: "/app/:path*", destination: "/v4/chat", permanent: false },
+      { source: "/login", destination: "/v4/chat", permanent: false },
+      { source: "/library", destination: "/v4/chat", permanent: false },
+      { source: "/settings", destination: "/v4/chat", permanent: false },
+      { source: "/verify", destination: "/v4/chat", permanent: false },
+      { source: "/report/:path*", destination: "/v4/chat", permanent: false },
+      { source: "/v3/:path*", destination: "/v4/chat", permanent: false },
+      { source: "/v4", destination: "/v4/chat", permanent: false },
+      { source: "/v4/new", destination: "/v4/chat", permanent: false },
+      { source: "/v4/session/:path*", destination: "/v4/chat", permanent: false },
+      { source: "/v4/doc/:path*", destination: "/v4/chat", permanent: false },
+    ];
+  },
   async rewrites() {
     return {
       beforeFiles: [

@@ -21,12 +21,16 @@ const STUB = process.env.NEXT_PUBLIC_V4_STUB === "1";
  * kept in `phase` so we don't render workspace UI to unauthorized eyes
  * even for the brief moment before the redirect kicks in.
  */
-function useAuthGate() {
+function useAuthGate(skipAuth = false) {
   const router = useRouter();
   const pathname = usePathname() || "";
   const [phase, setPhase] = useState<"checking" | "ok">("checking");
 
   useEffect(() => {
+    if (skipAuth) {
+      setPhase("ok");
+      return;
+    }
     if (STUB) {
       setPhase("ok");
       return;
@@ -49,7 +53,7 @@ function useAuthGate() {
         router.replace(`/login?next=${next}`);
       });
     return () => { cancelled = true; };
-  }, [pathname, router]);
+  }, [pathname, router, skipAuth]);
 
   return phase;
 }
@@ -76,7 +80,7 @@ function AuthGateLoader() {
 export default function V4Layout({ children }: { children: ReactNode }) {
   const pathname = usePathname() || "";
   const skipShell = OWN_CHROME.some((r) => pathname === r || pathname.startsWith(r + "/"));
-  const phase = useAuthGate();
+  const phase = useAuthGate(skipShell);
 
   if (phase !== "ok") {
     return <AuthGateLoader />;
